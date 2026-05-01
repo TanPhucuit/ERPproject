@@ -7,11 +7,12 @@
   "buildCommand": "cd frontend && npm run build",
   "devCommand": "cd frontend && npm run dev",
   "env": {
-    "NEXT_PUBLIC_SUPABASE_URL": "https://thrazxhwqetphjogcdji.supabase.co",
-    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_8JCzcLEIlLwC-pXmOsZoCw_-msYi8_w",
-    "VITE_SUPABASE_URL": "https://thrazxhwqetphjogcdji.supabase.co",
-    "VITE_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_8JCzcLEIlLwC-pXmOsZoCw_-msYi8_w",
+    "NEXT_PUBLIC_SUPABASE_URL": "@next_public_supabase_url",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "@next_public_supabase_publishable_key",
+    "VITE_SUPABASE_URL": "@vite_supabase_url",
+    "VITE_SUPABASE_PUBLISHABLE_KEY": "@vite_supabase_publishable_key",
     "VITE_API_URL": "/api",
+    "SUPABASE_SERVICE_KEY": "@supabase_service_key",
     "DEMO_PUBLIC_API": "true"
   },
   "ignoreCommand": "git diff --quiet HEAD~1 HEAD -- ./frontend"
