@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "projectSettings": {
+    "nodeVersion": "18.x"
+  },
+  "installCommand": "npm install && cd frontend && npm install && cd ../backend && npm install",
+  "buildCommand": "cd frontend && npm run build",
+  "devCommand": "cd frontend && npm run dev",
+  "env": {
+    "NEXT_PUBLIC_SUPABASE_URL": "https://thrazxhwqetphjogcdji.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_8JCzcLEIlLwC-pXmOsZoCw_-msYi8_w",
+    "VITE_SUPABASE_URL": "https://thrazxhwqetphjogcdji.supabase.co",
+    "VITE_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_8JCzcLEIlLwC-pXmOsZoCw_-msYi8_w",
+    "VITE_API_URL": "/api",
+    "DEMO_PUBLIC_API": "true"
+  },
+  "ignoreCommand": "git diff --quiet HEAD~1 HEAD -- ./frontend"
+}

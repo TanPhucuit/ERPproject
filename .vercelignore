@@ -1,0 +1,41 @@
+# Vercel ignore file - Files that should not be deployed
+
+# Backend files (deploy separately or comment out if deploying together)
+backend/node_modules
+backend/.env.local
+backend/dist
+backend/*.log
+
+# Frontend
+frontend/node_modules
+frontend/.env.local
+frontend/dist
+
+# Development
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Node
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+
+# Database
+database/
+*.sql
