@@ -41,7 +41,7 @@ class ApiClient {
         // Only redirect to home if backend is enabled and we get 401
         if (error.response?.status === 401 && !this.useMockApi) {
           localStorage.removeItem('auth_token')
-          window.location.href = '/'
+          window.location.href = '/sign-in'
         }
         return Promise.reject(error)
       }
@@ -64,7 +64,19 @@ class ApiClient {
         user: mockData.mockUser,
       } as any
     }
-    if (endpoint.includes('auth/user')) {
+    if (endpoint.includes('auth/register')) {
+      return {
+        success: true,
+        token: mockData.mockToken,
+        user: {
+          ...mockData.mockUser,
+          full_name: data?.full_name || mockData.mockUser.full_name,
+          email: data?.email || mockData.mockUser.email,
+          role: data?.role || mockData.mockUser.role,
+        },
+      } as any
+    }
+    if (endpoint.includes('auth/me') || endpoint.includes('auth/user')) {
       return mockData.mockUser as any
     }
     if (endpoint.includes('auth/logout')) {

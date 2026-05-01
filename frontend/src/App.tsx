@@ -4,6 +4,7 @@ import { useUIStore } from './stores/uiStore'
 
 // Pages
 import Landing from './pages/Landing'
+import AuthPage from './pages/AuthPage'
 import Dashboard from './pages/Dashboard'
 import CRMModule from './pages/CRM'
 import SalesModule from './pages/Sales'
@@ -13,6 +14,7 @@ import AccountingModule from './pages/Accounting'
 
 // Layouts
 import MainLayout from './layouts/MainLayout'
+import ProtectedRoute from './components/ProtectedRoute'
 
 // Notification Component
 import Notification from './components/Notification'
@@ -26,14 +28,18 @@ function App() {
       <Routes>
         {/* Landing Page */}
         <Route path="/" element={<Landing />} />
+        <Route path="/sign-in" element={<AuthPage mode="sign-in" />} />
+        <Route path="/sign-up" element={<AuthPage mode="sign-up" />} />
 
         {/* App Routes - Dashboard */}
         <Route
           path="/app"
           element={
-            <MainLayout>
-              <Dashboard />
-            </MainLayout>
+            <ProtectedRoute>
+              <MainLayout>
+                <Dashboard />
+              </MainLayout>
+            </ProtectedRoute>
           }
         />
 
@@ -41,9 +47,11 @@ function App() {
         <Route
           path="/app/crm"
           element={
-            <MainLayout>
-              <CRMModule />
-            </MainLayout>
+            <ProtectedRoute>
+              <MainLayout>
+                <CRMModule />
+              </MainLayout>
+            </ProtectedRoute>
           }
         />
 
@@ -51,9 +59,11 @@ function App() {
         <Route
           path="/app/sales"
           element={
-            <MainLayout>
-              <SalesModule />
-            </MainLayout>
+            <ProtectedRoute>
+              <MainLayout>
+                <SalesModule />
+              </MainLayout>
+            </ProtectedRoute>
           }
         />
 
@@ -61,9 +71,11 @@ function App() {
         <Route
           path="/app/purchase"
           element={
-            <MainLayout>
-              <PurchaseModule />
-            </MainLayout>
+            <ProtectedRoute>
+              <MainLayout>
+                <PurchaseModule />
+              </MainLayout>
+            </ProtectedRoute>
           }
         />
 
@@ -71,9 +83,11 @@ function App() {
         <Route
           path="/app/inventory"
           element={
-            <MainLayout>
-              <InventoryModule />
-            </MainLayout>
+            <ProtectedRoute>
+              <MainLayout>
+                <InventoryModule />
+              </MainLayout>
+            </ProtectedRoute>
           }
         />
 
@@ -81,9 +95,11 @@ function App() {
         <Route
           path="/app/accounting"
           element={
-            <MainLayout>
-              <AccountingModule />
-            </MainLayout>
+            <ProtectedRoute>
+              <MainLayout>
+                <AccountingModule />
+              </MainLayout>
+            </ProtectedRoute>
           }
         />
 

@@ -9,7 +9,7 @@ interface MainLayoutProps {
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
-  const user = useAuthStore().user
+  const { user, logout } = useAuthStore()
   const location = useLocation()
   const navigate = useNavigate()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -30,9 +30,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     return location.pathname.startsWith(path)
   }
 
-  const handleLogout = () => {
-    console.log('Logout clicked')
+  const handleLogout = async () => {
+    await logout()
     setShowLogoutConfirm(false)
+    setUserMenuOpen(false)
+    navigate('/sign-in')
   }
 
   return (

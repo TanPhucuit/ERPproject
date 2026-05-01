@@ -2,20 +2,26 @@ import { useAuthStore } from '../stores/authStore'
 import { useState, useEffect } from 'react'
 
 export const useAuth = () => {
-  const { user, token, isAuthenticated, isLoading, login, logout } = useAuthStore()
-  const [isInitialized, setIsInitialized] = useState(false)
+  const { user, token, isAuthenticated, isLoading, isInitialized, initialize, login, register, logout } =
+    useAuthStore()
+  const [ready, setReady] = useState(isInitialized)
 
   useEffect(() => {
-    // Mock mode: always initialized with mock user
-    setIsInitialized(true)
-  }, [])
+    if (isInitialized) {
+      setReady(true)
+      return
+    }
+
+    initialize().finally(() => setReady(true))
+  }, [initialize, isInitialized])
 
   return {
     user,
     token,
     isAuthenticated,
     isLoading,
-    isInitialized,
+    isInitialized: ready,
+    register,
     login,
     logout,
   }

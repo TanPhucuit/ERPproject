@@ -6,6 +6,13 @@ export interface LoginPayload {
   password: string
 }
 
+export interface RegisterPayload {
+  full_name: string
+  email: string
+  password: string
+  role: string
+}
+
 export interface LoginResponse {
   token: string
   user: {
@@ -19,6 +26,14 @@ export interface LoginResponse {
 export const authService = {
   login: async (payload: LoginPayload): Promise<LoginResponse> => {
     const response = await apiClient.post<LoginResponse>(API_ENDPOINTS.AUTH_LOGIN, payload)
+    if (response.token) {
+      localStorage.setItem('auth_token', response.token)
+    }
+    return response
+  },
+
+  register: async (payload: RegisterPayload): Promise<LoginResponse> => {
+    const response = await apiClient.post<LoginResponse>(API_ENDPOINTS.AUTH_REGISTER, payload)
     if (response.token) {
       localStorage.setItem('auth_token', response.token)
     }

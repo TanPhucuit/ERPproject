@@ -91,7 +91,7 @@ const Landing: React.FC = () => {
             <span className="text-xl font-bold text-gray-900">NovaTech</span>
           </div>
           <button
-            onClick={() => navigate('/app')}
+            onClick={() => navigate('/sign-up')}
             className="px-6 py-2 rounded-lg bg-black hover:bg-gray-900 text-white font-semibold transition-all duration-300 shadow-md hover:shadow-lg hover:scale-105"
           >
             Get started free
@@ -142,13 +142,16 @@ const Landing: React.FC = () => {
 
           <div className="flex flex-col sm:flex-row gap-3 justify-center mb-20 animate-fade-in" style={{ animationDelay: '0.6s' }}>
             <button
-              onClick={() => navigate('/app')}
+              onClick={() => navigate('/sign-up')}
               className="px-6 py-3 rounded-lg bg-black hover:bg-gray-900 text-white font-bold text-base transition-all duration-300 shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2 group"
             >
               <Rocket size={18} className="group-hover:rotate-45 transition-transform duration-300" />
               Get started free
             </button>
-            <button className="px-6 py-3 rounded-lg border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 text-gray-900 font-bold text-base transition-all duration-300 hover:shadow-md hover:scale-105">
+            <button
+              onClick={() => navigate('/sign-in')}
+              className="px-6 py-3 rounded-lg border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 text-gray-900 font-bold text-base transition-all duration-300 hover:shadow-md hover:scale-105"
+            >
               Get a demo
             </button>
           </div>
@@ -821,13 +824,16 @@ const Landing: React.FC = () => {
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
-                onClick={() => navigate('/app')}
+                onClick={() => navigate('/sign-up')}
                 className="px-6 py-3 rounded-lg bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-gray-900 font-bold text-base transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center justify-center gap-2 group"
               >
                 Start Free Trial
                 <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform duration-300" />
               </button>
-              <button className="px-6 py-3 rounded-lg border-2 border-white/30 hover:border-yellow-400 hover:bg-white/10 text-white font-bold text-base transition-all duration-300 hover:shadow-md hover:scale-105">
+              <button
+                onClick={() => navigate('/sign-in')}
+                className="px-6 py-3 rounded-lg border-2 border-white/30 hover:border-yellow-400 hover:bg-white/10 text-white font-bold text-base transition-all duration-300 hover:shadow-md hover:scale-105"
+              >
                 Schedule Demo
               </button>
             </div>

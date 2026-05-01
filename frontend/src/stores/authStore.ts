@@ -1,44 +1,124 @@
 import { create } from 'zustand'
 import { User } from '../types'
-import * as mockData from '../services/mockData'
+import { authService, RegisterPayload } from '../services/authService'
 
 interface AuthStore {
   user: User | null
   token: string | null
   isLoading: boolean
   isAuthenticated: boolean
+  isInitialized: boolean
+  initialize: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
+  register: (payload: RegisterPayload) => Promise<void>
   logout: () => Promise<void>
   setUser: (user: User | null) => void
   setToken: (token: string | null) => void
 }
 
-// Mock mode - auto-login with mock data
-const USE_MOCK_AUTH = true
-const mockToken = 'mock-jwt-token-demo-12345'
+const storedToken = localStorage.getItem('auth_token')
+
+const normalizeUser = (user: any): User => ({
+  id: String(user.id),
+  email: user.email,
+  full_name: user.full_name,
+  avatar_url: user.avatar_url || undefined,
+  role: (user.role || 'Sales_Manager') as User['role'],
+  status: (user.status || 'active') as User['status'],
+})
 
 export const useAuthStore = create<AuthStore>((set) => ({
-  user: USE_MOCK_AUTH ? (mockData.mockUser as User) : null,
-  token: USE_MOCK_AUTH ? mockToken : null,
+  user: null,
+  token: storedToken,
   isLoading: false,
-  isAuthenticated: USE_MOCK_AUTH,
+  isAuthenticated: !!storedToken,
+  isInitialized: false,
 
-  login: async () => {
+  initialize: async () => {
+    const token = authService.getToken()
+
+    if (!token) {
+      set({
+        user: null,
+        token: null,
+        isAuthenticated: false,
+        isInitialized: true,
+        isLoading: false,
+      })
+      return
+    }
+
     set({ isLoading: true })
-    set({
-      token: mockToken,
-      user: mockData.mockUser as User,
-      isAuthenticated: true,
-      isLoading: false,
-    })
+
+    try {
+      const user = await authService.getCurrentUser()
+      set({
+        user: normalizeUser(user),
+        token,
+        isAuthenticated: true,
+        isInitialized: true,
+        isLoading: false,
+      })
+    } catch (_error) {
+      authService.clearToken()
+      set({
+        user: null,
+        token: null,
+        isAuthenticated: false,
+        isInitialized: true,
+        isLoading: false,
+      })
+    }
+  },
+
+  login: async (email, password) => {
+    set({ isLoading: true })
+    try {
+      const response = await authService.login({ email, password })
+      set({
+        token: response.token,
+        user: normalizeUser(response.user),
+        isAuthenticated: true,
+        isLoading: false,
+        isInitialized: true,
+      })
+    } catch (error) {
+      set({ isLoading: false })
+      throw error
+    }
+  },
+
+  register: async (payload) => {
+    set({ isLoading: true })
+    try {
+      const response = await authService.register(payload)
+      set({
+        token: response.token,
+        user: normalizeUser(response.user),
+        isAuthenticated: true,
+        isLoading: false,
+        isInitialized: true,
+      })
+    } catch (error) {
+      set({ isLoading: false })
+      throw error
+    }
   },
 
   logout: async () => {
+    try {
+      await authService.logout()
+    } catch (_error) {
+      // Keep logout resilient even if the API call fails.
+    }
+
+    authService.clearToken()
     set({
-      user: mockData.mockUser as User,
-      token: mockToken,
-      isAuthenticated: true,
+      user: null,
+      token: null,
+      isAuthenticated: false,
       isLoading: false,
+      isInitialized: true,
     })
   },
 

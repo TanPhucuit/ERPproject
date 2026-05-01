@@ -9,6 +9,7 @@ export const SUPABASE_ANON_KEY =
 export const API_ENDPOINTS = {
   // Auth
   AUTH_LOGIN: '/auth/login',
+  AUTH_REGISTER: '/auth/register',
   AUTH_LOGOUT: '/auth/logout',
   AUTH_ME: '/auth/me',
 

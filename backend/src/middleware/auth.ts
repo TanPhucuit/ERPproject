@@ -6,6 +6,17 @@ export interface AuthRequest extends Request {
 }
 
 export const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
+  const token = req.headers.authorization?.replace('Bearer ', '')
+
+  if (token) {
+    const payload = verifyToken(token)
+
+    if (payload) {
+      req.user = payload
+      return next()
+    }
+  }
+
   if (process.env.DEMO_PUBLIC_API === 'true') {
     req.user = {
       id: process.env.DEMO_USER_ID || 'demo-user',
@@ -16,20 +27,10 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
     return next()
   }
 
-  const token = req.headers.authorization?.replace('Bearer ', '')
-
   if (!token) {
     return res.status(401).json({ success: false, error: 'No token provided' })
   }
-
-  const payload = verifyToken(token)
-
-  if (!payload) {
-    return res.status(401).json({ success: false, error: 'Invalid or expired token' })
-  }
-
-  req.user = payload
-  next()
+  return res.status(401).json({ success: false, error: 'Invalid or expired token' })
 }
 
 export const optionalAuthMiddleware = (
