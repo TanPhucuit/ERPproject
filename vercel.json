@@ -1,8 +1,5 @@
 {
   "version": 2,
-  "projectSettings": {
-    "nodeVersion": "18.x"
-  },
   "installCommand": "npm install && cd frontend && npm install && cd ../backend && npm install",
   "buildCommand": "cd frontend && npm run build",
   "devCommand": "cd frontend && npm run dev",
