@@ -24,22 +24,66 @@ import {
   AlertCircle,
   Users,
   Warehouse,
-  Activity,
   Loader,
 } from 'lucide-react'
-import * as mockData from '../services/mockData'
+import { erpApi } from '../services/erpApi'
+
+const emptyMetrics = {
+  totalRevenue: 0,
+  totalOrders: 0,
+  activeCustomers: 0,
+  invoiceStatus: { paid: 0, pending: 0, overdue: 0 },
+  revenueByMonth: [],
+  topProducts: [],
+}
 
 const Dashboard: React.FC = () => {
-  const isMockMode = import.meta.env.VITE_USE_MOCK_API === 'true'
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [metrics, setMetrics] = useState<any>(mockData.mockMetrics)
+  const [metrics, setMetrics] = useState<any>(emptyMetrics)
 
   useEffect(() => {
-    // Use mock data directly - backend endpoints not available yet
-    setMetrics(mockData.mockMetrics)
-    setLoading(false)
-    setError(null)
+    const loadDashboard = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const [dailyMetrics, productMetrics, customerMetrics, accountingMetrics] = await Promise.all([
+          erpApi.get<any[]>('/metrics/daily?days=180'),
+          erpApi.get<any[]>('/metrics/products'),
+          erpApi.get<any[]>('/metrics/customers'),
+          erpApi.get<any>('/accounting/metrics'),
+        ])
+
+        const monthlyRevenue = new Map<string, number>()
+        dailyMetrics.forEach((metric) => {
+          const month = String(metric.metric_date || '').slice(0, 7)
+          monthlyRevenue.set(month, (monthlyRevenue.get(month) || 0) + Number(metric.total_sales_revenue || 0))
+        })
+
+        setMetrics({
+          totalRevenue: dailyMetrics.reduce((sum, metric) => sum + Number(metric.total_sales_revenue || 0), 0),
+          totalOrders: dailyMetrics.reduce((sum, metric) => sum + Number(metric.orders_created || 0), 0),
+          activeCustomers: customerMetrics.length,
+          invoiceStatus: {
+            paid: accountingMetrics?.paidInvoices || accountingMetrics?.paid_invoices || 0,
+            pending: accountingMetrics?.pendingInvoices || accountingMetrics?.pending_invoices || 0,
+            overdue: accountingMetrics?.overdueInvoices || accountingMetrics?.overdue_invoices || 0,
+          },
+          revenueByMonth: Array.from(monthlyRevenue.entries()).map(([month, revenue]) => ({ month, revenue })),
+          topProducts: productMetrics.map((product) => ({
+            name: product.product_name || product.name || product.sku || 'Product',
+            sales: Number(product.total_quantity_sold || product.total_revenue || 0),
+          })),
+        })
+      } catch (loadError: any) {
+        setError(loadError.message || 'Unable to load dashboard data from backend')
+        setMetrics(emptyMetrics)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadDashboard()
   }, [])
 
   const stats = [
@@ -110,9 +154,7 @@ const Dashboard: React.FC = () => {
           <AlertCircle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
           <div>
             <p className="font-semibold text-red-900">Error Loading Dashboard</p>
-            <p className="text-sm text-red-700">
-              {error} - Using mock data for display
-            </p>
+            <p className="text-sm text-red-700">{error}</p>
           </div>
         </div>
       )}
@@ -332,22 +374,6 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Footer Info */}
-      {isMockMode && (
-        <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-4">
-          <div className="flex gap-3">
-            <Activity size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-semibold text-green-900">
-                Mock mode: displaying frontend-only sample data
-              </p>
-              <p className="text-sm text-green-700 mt-1">
-                Backend calls and login requirements are disabled while you review the UI.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

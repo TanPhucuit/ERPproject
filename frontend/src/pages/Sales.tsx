@@ -1,6 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import * as mockData from '../services/mockData'
-import { usePersistentState } from '../hooks/usePersistentState'
 import { erpApi } from '../services/erpApi'
 import {
   ActionToolbar,
@@ -69,8 +67,9 @@ const quoteFlow: Record<string, string> = {
 
 const SalesModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState('orders')
-  const [orders, setOrders] = usePersistentState<any[]>('novatech.sales.orders', mockData.mockSalesOrders)
-  const [quotations, setQuotations] = usePersistentState<any[]>('novatech.sales.quotations', mockData.mockQuotations)
+  const [orders, setOrders] = useState<any[]>([])
+  const [quotations, setQuotations] = useState<any[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
   const [viewMode, setViewMode] = useState<ViewMode>('list')
@@ -81,7 +80,7 @@ const SalesModule: React.FC = () => {
     erpApi
       .get<any[]>('/sales-orders?limit=100')
       .then((records) => {
-        if (!records.length) return
+        setLoadError(null)
         setOrders(
           records.map((order) => ({
             ...order,
@@ -93,12 +92,15 @@ const SalesModule: React.FC = () => {
           }))
         )
       })
-      .catch((error) => console.warn('Sales orders API load failed, keeping local data:', error.message))
+      .catch((error) => {
+        setOrders([])
+        setLoadError(error.message)
+      })
 
     erpApi
       .get<any[]>('/sales-orders/quotations?limit=100')
       .then((records) => {
-        if (!records.length) return
+        setLoadError(null)
         setQuotations(
           records.map((quote) => ({
             ...quote,
@@ -110,8 +112,11 @@ const SalesModule: React.FC = () => {
           }))
         )
       })
-      .catch((error) => console.warn('Quotations API load failed, keeping local data:', error.message))
-  }, [setOrders, setQuotations])
+      .catch((error) => {
+        setQuotations([])
+        setLoadError(error.message)
+      })
+  }, [])
 
   const activeRecords = activeTab === 'orders' ? orders : quotations
   const fields = activeTab === 'orders' ? orderFields : quotationFields
@@ -169,7 +174,8 @@ const SalesModule: React.FC = () => {
         record.id = created.id || record.id
       }
     } catch (error: any) {
-      console.warn('Sales API save failed, saving locally:', error.message)
+      window.alert(`Sales API save failed: ${error.message}`)
+      return
     }
     const setter = activeTab === 'orders' ? setOrders : setQuotations
     setter((current) => {
@@ -184,7 +190,8 @@ const SalesModule: React.FC = () => {
     try {
       await erpApi.delete(`${path}/${record.id}`)
     } catch (error: any) {
-      console.warn('Sales API delete failed, deleting locally:', error.message)
+      window.alert(`Sales API delete failed: ${error.message}`)
+      return
     }
     const setter = activeTab === 'orders' ? setOrders : setQuotations
     setter((current) => current.filter((item) => item.id !== record.id))
@@ -221,6 +228,12 @@ const SalesModule: React.FC = () => {
         primaryLabel={`New ${title}`}
         onCreate={openCreate}
       />
+
+      {loadError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Unable to load sales data from backend: {loadError}
+        </div>
+      )}
 
       <ModuleTabs
         activeTab={activeTab}

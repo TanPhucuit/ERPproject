@@ -1,6 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import * as mockData from '../services/mockData'
-import { usePersistentState } from '../hooks/usePersistentState'
 import { erpApi } from '../services/erpApi'
 import {
   ActionToolbar,
@@ -55,29 +53,6 @@ const rfqFields: FormField[] = [
   },
 ]
 
-const initialRfqs = [
-  {
-    id: 'rfq-1',
-    rfqNumber: 'RFQ-2024-001',
-    supplierName: 'Shenzhen Smart Device OEM',
-    productName: 'Robot Vacuum Batch',
-    date: '2024-03-08',
-    dueDate: '2024-03-16',
-    targetPrice: 220000000,
-    status: 'sent',
-  },
-  {
-    id: 'rfq-2',
-    rfqNumber: 'RFQ-2024-002',
-    supplierName: 'Tuya Sensor Factory',
-    productName: 'Door Sensor and Motion Sensor Bundle',
-    date: '2024-03-11',
-    dueDate: '2024-03-20',
-    targetPrice: 150000000,
-    status: 'draft',
-  },
-]
-
 const flow: Record<string, string> = {
   draft: 'sent',
   pending: 'confirmed',
@@ -87,8 +62,9 @@ const flow: Record<string, string> = {
 
 const PurchaseModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState('purchase-orders')
-  const [purchaseOrders, setPurchaseOrders] = usePersistentState<any[]>('novatech.purchase.orders', mockData.mockPurchaseOrders)
-  const [rfqs, setRfqs] = usePersistentState<any[]>('novatech.purchase.rfqs', initialRfqs)
+  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
+  const [rfqs, setRfqs] = useState<any[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
   const [viewMode, setViewMode] = useState<ViewMode>('list')
@@ -99,7 +75,7 @@ const PurchaseModule: React.FC = () => {
     erpApi
       .get<any[]>('/purchase/purchase-orders?limit=100')
       .then((records) => {
-        if (!records.length) return
+        setLoadError(null)
         setPurchaseOrders(
           records.map((po) => ({
             ...po,
@@ -111,12 +87,15 @@ const PurchaseModule: React.FC = () => {
           }))
         )
       })
-      .catch((error) => console.warn('Purchase orders API load failed, keeping local data:', error.message))
+      .catch((error) => {
+        setPurchaseOrders([])
+        setLoadError(error.message)
+      })
 
     erpApi
       .get<any[]>('/purchase/rfqs?limit=100')
       .then((records) => {
-        if (!records.length) return
+        setLoadError(null)
         setRfqs(
           records.map((rfq) => ({
             ...rfq,
@@ -129,8 +108,11 @@ const PurchaseModule: React.FC = () => {
           }))
         )
       })
-      .catch((error) => console.warn('RFQ API load failed, keeping local data:', error.message))
-  }, [setPurchaseOrders, setRfqs])
+      .catch((error) => {
+        setRfqs([])
+        setLoadError(error.message)
+      })
+  }, [])
 
   const activeRecords = activeTab === 'purchase-orders' ? purchaseOrders : rfqs
   const fields = activeTab === 'purchase-orders' ? poFields : rfqFields
@@ -189,7 +171,8 @@ const PurchaseModule: React.FC = () => {
         record.id = created.id || record.id
       }
     } catch (error: any) {
-      console.warn('Purchase API save failed, saving locally:', error.message)
+      window.alert(`Purchase API save failed: ${error.message}`)
+      return
     }
     setActiveRecords((current) => {
       const exists = current.some((item) => item.id === record.id)
@@ -224,6 +207,12 @@ const PurchaseModule: React.FC = () => {
         primaryLabel={`New ${title}`}
         onCreate={openCreate}
       />
+
+      {loadError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Unable to load purchase data from backend: {loadError}
+        </div>
+      )}
 
       <ModuleTabs
         activeTab={activeTab}

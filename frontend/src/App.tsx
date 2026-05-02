@@ -1,5 +1,4 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useMockModeInfo } from './hooks/useMockModeInfo'
 import { useUIStore } from './stores/uiStore'
 
 // Pages
@@ -21,7 +20,6 @@ import Notification from './components/Notification'
 
 function App() {
   const notification = useUIStore((state) => state.notification)
-  useMockModeInfo() // Log mock mode info on app start
 
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>

@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Calendar, PhoneCall } from 'lucide-react'
-import * as mockData from '../services/mockData'
-import { usePersistentState } from '../hooks/usePersistentState'
 import { erpApi } from '../services/erpApi'
 import {
   ActionToolbar,
@@ -66,7 +64,8 @@ const nextLeadStatus: Record<string, string> = {
 
 const CRMModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState('leads')
-  const [leads, setLeads] = usePersistentState<any[]>('novatech.crm.leads', mockData.mockLeads)
+  const [leads, setLeads] = useState<any[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
   const [viewMode, setViewMode] = useState<ViewMode>('list')
@@ -77,7 +76,7 @@ const CRMModule: React.FC = () => {
     erpApi
       .get<any[]>('/crm/leads?limit=100')
       .then((records) => {
-        if (!records.length) return
+        setLoadError(null)
         setLeads(
           records.map((lead) => ({
             ...lead,
@@ -90,8 +89,11 @@ const CRMModule: React.FC = () => {
           }))
         )
       })
-      .catch((error) => console.warn('CRM API load failed, keeping local data:', error.message))
-  }, [setLeads])
+      .catch((error) => {
+        setLeads([])
+        setLoadError(error.message)
+      })
+  }, [])
 
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
@@ -134,7 +136,8 @@ const CRMModule: React.FC = () => {
         nextRecord.id = created.id || nextRecord.id
       }
     } catch (error: any) {
-      console.warn('CRM API save failed, saving locally:', error.message)
+      window.alert(`CRM API save failed: ${error.message}`)
+      return
     }
     setLeads((current) => {
       const exists = current.some((lead) => lead.id === nextRecord.id)
@@ -151,7 +154,8 @@ const CRMModule: React.FC = () => {
         await erpApi.put(`/crm/leads/${lead.id}`, { stage: nextStatus })
       }
     } catch (error: any) {
-      console.warn('CRM API stage update failed, updating locally:', error.message)
+      window.alert(`CRM API stage update failed: ${error.message}`)
+      return
     }
     setLeads((current) => current.map((item) => (item.id === lead.id ? { ...item, status: nextStatus } : item)))
   }
@@ -176,6 +180,12 @@ const CRMModule: React.FC = () => {
         primaryLabel="New Lead"
         onCreate={openCreate}
       />
+
+      {loadError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Unable to load CRM data from backend: {loadError}
+        </div>
+      )}
 
       <ModuleTabs
         activeTab={activeTab}

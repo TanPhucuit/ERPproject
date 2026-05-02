@@ -1,6 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import * as mockData from '../services/mockData'
-import { usePersistentState } from '../hooks/usePersistentState'
 import { erpApi } from '../services/erpApi'
 import {
   ActionToolbar,
@@ -67,21 +65,6 @@ const countFields: FormField[] = [
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
-const deliveryOrders = [
-  { id: 'do-1', reference: 'DO-2024-001', partnerName: 'TechCorp Vietnam', warehouseName: 'Kho Tong Mien Nam', scheduledDate: '2024-03-20', status: 'ready' },
-  { id: 'do-2', reference: 'DO-2024-002', partnerName: 'Global Solutions', warehouseName: 'Kho Tong Mien Bac', scheduledDate: '2024-03-22', status: 'draft' },
-]
-
-const goodsReceipts = [
-  { id: 'gr-1', reference: 'GR-2024-001', partnerName: 'Vietnam Tech Supplier', warehouseName: 'Kho Tong Mien Nam', scheduledDate: '2024-03-18', status: 'done' },
-  { id: 'gr-2', reference: 'GR-2024-002', partnerName: 'International Components', warehouseName: 'Kho Lap dat & Bao hanh', scheduledDate: '2024-03-23', status: 'ready' },
-]
-
-const stockCounts = [
-  { id: 'cnt-1', reference: 'CNT-2024-001', warehouseName: 'Kho Tong Mien Nam', binCode: 'A1', countDate: '2024-03-28', status: 'draft' },
-  { id: 'cnt-2', reference: 'CNT-2024-002', warehouseName: 'Kho Tong Mien Bac', binCode: 'B4', countDate: '2024-03-29', status: 'posted' },
-]
-
 const flow: Record<string, string> = {
   draft: 'ready',
   ready: 'done',
@@ -89,10 +72,11 @@ const flow: Record<string, string> = {
 
 const InventoryModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState('stock')
-  const [stock, setStock] = usePersistentState<any[]>('novatech.inventory.stock', mockData.mockInventoryItems.map((item, index) => ({ ...item, binCode: index === 0 ? 'A1' : index === 1 ? 'B2' : 'C3' })))
-  const [deliveries, setDeliveries] = usePersistentState<any[]>('novatech.inventory.deliveries', deliveryOrders)
-  const [receipts, setReceipts] = usePersistentState<any[]>('novatech.inventory.receipts', goodsReceipts)
-  const [counts, setCounts] = usePersistentState<any[]>('novatech.inventory.counts', stockCounts)
+  const [stock, setStock] = useState<any[]>([])
+  const [deliveries, setDeliveries] = useState<any[]>([])
+  const [receipts, setReceipts] = useState<any[]>([])
+  const [counts, setCounts] = useState<any[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
   const [viewMode, setViewMode] = useState<ViewMode>('list')
@@ -103,7 +87,7 @@ const InventoryModule: React.FC = () => {
     erpApi
       .get<any[]>('/inventory/stock-levels?limit=100')
       .then((records) => {
-        if (!records.length) return
+        setLoadError(null)
         setStock(
           records.map((item) => ({
             ...item,
@@ -115,12 +99,15 @@ const InventoryModule: React.FC = () => {
           }))
         )
       })
-      .catch((error) => console.warn('Stock API load failed, keeping local data:', error.message))
+      .catch((error) => {
+        setStock([])
+        setLoadError(error.message)
+      })
 
     erpApi
       .get<any[]>('/inventory/delivery-orders?limit=100')
       .then((records) => {
-        if (!records.length) return
+        setLoadError(null)
         setDeliveries(records.map((item) => ({
           ...item,
           reference: item.delivery_order_number,
@@ -129,12 +116,15 @@ const InventoryModule: React.FC = () => {
           scheduledDate: item.scheduled_delivery_date,
         })))
       })
-      .catch((error) => console.warn('Delivery API load failed, keeping local data:', error.message))
+      .catch((error) => {
+        setDeliveries([])
+        setLoadError(error.message)
+      })
 
     erpApi
       .get<any[]>('/inventory/goods-receipts?limit=100')
       .then((records) => {
-        if (!records.length) return
+        setLoadError(null)
         setReceipts(records.map((item) => ({
           ...item,
           reference: item.goods_receipt_number,
@@ -143,12 +133,15 @@ const InventoryModule: React.FC = () => {
           scheduledDate: item.received_date,
         })))
       })
-      .catch((error) => console.warn('Goods receipt API load failed, keeping local data:', error.message))
+      .catch((error) => {
+        setReceipts([])
+        setLoadError(error.message)
+      })
 
     erpApi
       .get<any[]>('/inventory/adjustments?limit=100')
       .then((records) => {
-        if (!records.length) return
+        setLoadError(null)
         setCounts(records.map((item) => ({
           ...item,
           reference: item.adjustment_number,
@@ -157,8 +150,11 @@ const InventoryModule: React.FC = () => {
           binCode: item.binCode || 'Multiple Bins',
         })))
       })
-      .catch((error) => console.warn('Inventory adjustment API load failed, keeping local data:', error.message))
-  }, [setCounts, setDeliveries, setReceipts, setStock])
+      .catch((error) => {
+        setCounts([])
+        setLoadError(error.message)
+      })
+  }, [])
 
   const activeSetters: Record<string, React.Dispatch<React.SetStateAction<any[]>>> = {
     stock: setStock,
@@ -208,7 +204,8 @@ const InventoryModule: React.FC = () => {
         await erpApi.post(path, record)
       }
     } catch (error: any) {
-      console.warn('Inventory API save failed, saving locally:', error.message)
+      window.alert(`Inventory API save failed: ${error.message}`)
+      return
     }
     activeSetters[activeTab]((current) => {
       const exists = current.some((item) => item.id === record.id)
@@ -243,6 +240,12 @@ const InventoryModule: React.FC = () => {
         primaryLabel={`New ${activeTitle}`}
         onCreate={openCreate}
       />
+
+      {loadError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Unable to load inventory data from backend: {loadError}
+        </div>
+      )}
 
       <ModuleTabs
         activeTab={activeTab}

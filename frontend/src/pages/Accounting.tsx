@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
-import * as mockData from '../services/mockData'
-import { usePersistentState } from '../hooks/usePersistentState'
 import { erpApi } from '../services/erpApi'
 import { exportInvoiceToPDF } from '../services/pdfExportService'
 import {
@@ -72,19 +70,6 @@ const noteFields: FormField[] = [
   },
 ]
 
-const bills = [
-  { id: 'bill-1', billNumber: 'BILL-2024-001', supplierName: 'Vietnam Tech Supplier', billDate: '2024-03-18', dueDate: '2024-04-18', total: 300000000, status: 'posted' },
-  { id: 'bill-2', billNumber: 'BILL-2024-002', supplierName: 'International Components', billDate: '2024-03-20', dueDate: '2024-04-20', total: 450000000, status: 'draft' },
-]
-
-const creditNotes = [
-  { id: 'cn-1', noteNumber: 'CN-2024-001', partnerName: 'TechCorp Vietnam', noteDate: '2024-03-25', reason: 'Damaged camera return', total: 12000000, status: 'posted' },
-]
-
-const debitNotes = [
-  { id: 'dn-1', noteNumber: 'DN-2024-001', partnerName: 'Tuya Sensor Factory', noteDate: '2024-03-26', reason: 'Defective sensor batch compensation', total: 18000000, status: 'draft' },
-]
-
 const flow: Record<string, string> = {
   draft: 'posted',
   pending: 'paid',
@@ -99,10 +84,11 @@ const normalizeInvoice = (invoice: any) => ({
 
 const AccountingModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState('invoices')
-  const [invoices, setInvoices] = usePersistentState<any[]>('novatech.accounting.invoices', mockData.mockInvoices.map(normalizeInvoice))
-  const [vendorBills, setVendorBills] = usePersistentState<any[]>('novatech.accounting.bills', bills)
-  const [credits, setCredits] = usePersistentState<any[]>('novatech.accounting.creditNotes', creditNotes)
-  const [debits, setDebits] = usePersistentState<any[]>('novatech.accounting.debitNotes', debitNotes)
+  const [invoices, setInvoices] = useState<any[]>([])
+  const [vendorBills, setVendorBills] = useState<any[]>([])
+  const [credits, setCredits] = useState<any[]>([])
+  const [debits, setDebits] = useState<any[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
   const [viewMode, setViewMode] = useState<ViewMode>('list')
@@ -112,43 +98,67 @@ const AccountingModule: React.FC = () => {
   useEffect(() => {
     erpApi
       .get<any[]>('/accounting/invoices?limit=100')
-      .then((records) => records.length && setInvoices(records.map(normalizeInvoice)))
-      .catch((error) => console.warn('Invoices API load failed, keeping local data:', error.message))
+      .then((records) => {
+        setLoadError(null)
+        setInvoices(records.map(normalizeInvoice))
+      })
+      .catch((error) => {
+        setInvoices([])
+        setLoadError(error.message)
+      })
 
     erpApi
       .get<any[]>('/accounting/bills?limit=100')
-      .then((records) => records.length && setVendorBills(records.map((bill) => ({
+      .then((records) => {
+        setLoadError(null)
+        setVendorBills(records.map((bill) => ({
         ...bill,
         billNumber: bill.bill_number || bill.billNumber,
         supplierName: bill.supplier?.name || bill.supplierName || bill.supplier_id,
         billDate: bill.bill_date || bill.billDate,
         dueDate: bill.due_date || bill.dueDate,
         total: bill.total_amount || bill.total || 0,
-      }))))
-      .catch((error) => console.warn('Bills API load failed, keeping local data:', error.message))
+      })))
+      })
+      .catch((error) => {
+        setVendorBills([])
+        setLoadError(error.message)
+      })
 
     erpApi
       .get<any[]>('/accounting/credit-notes?limit=100')
-      .then((records) => records.length && setCredits(records.map((note) => ({
+      .then((records) => {
+        setLoadError(null)
+        setCredits(records.map((note) => ({
         ...note,
         noteNumber: note.credit_note_number || note.noteNumber,
         partnerName: note.customer?.name || note.partnerName || note.customer_id,
         noteDate: note.credit_date || note.noteDate,
         total: note.total_amount || note.total || 0,
-      }))))
-      .catch((error) => console.warn('Credit notes API load failed, keeping local data:', error.message))
+      })))
+      })
+      .catch((error) => {
+        setCredits([])
+        setLoadError(error.message)
+      })
 
     erpApi
       .get<any[]>('/accounting/debit-notes?limit=100')
-      .then((records) => records.length && setDebits(records.map((note) => ({
+      .then((records) => {
+        setLoadError(null)
+        setDebits(records.map((note) => ({
         ...note,
         noteNumber: note.debit_note_number || note.noteNumber,
         partnerName: note.supplier?.name || note.partnerName || note.supplier_id,
         noteDate: note.debit_date || note.noteDate,
         total: note.total_amount || note.total || 0,
-      }))))
-      .catch((error) => console.warn('Debit notes API load failed, keeping local data:', error.message))
-  }, [setCredits, setDebits, setInvoices, setVendorBills])
+      })))
+      })
+      .catch((error) => {
+        setDebits([])
+        setLoadError(error.message)
+      })
+  }, [])
 
   const activeRecords = activeTab === 'invoices' ? invoices : activeTab === 'bills' ? vendorBills : activeTab === 'credit-notes' ? credits : debits
   const activeFields = activeTab === 'invoices' ? invoiceFields : activeTab === 'bills' ? billFields : noteFields
@@ -255,6 +265,12 @@ const AccountingModule: React.FC = () => {
         primaryLabel={`New ${activeTitle}`}
         onCreate={openCreate}
       />
+
+      {loadError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Unable to load accounting data from backend: {loadError}
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-md border border-gray-200 bg-white p-5 shadow-sm">
