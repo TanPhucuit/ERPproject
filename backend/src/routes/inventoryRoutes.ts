@@ -126,7 +126,7 @@ router.get('/adjustments', async (req: Request, res: Response) => {
     const { data, error } = await supabaseClient
       .from('inventory_adjustments')
       .select('*, warehouse:warehouses(*)')
-      .order('adjustment_date', { ascending: false })
+      .order('count_date', { ascending: false })
       .limit(limit)
 
     if (error) throw error

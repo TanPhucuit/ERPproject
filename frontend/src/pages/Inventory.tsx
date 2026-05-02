@@ -146,7 +146,7 @@ const InventoryModule: React.FC = () => {
           ...item,
           reference: item.adjustment_number,
           warehouseName: item.warehouse?.warehouse_name || item.warehouse?.name || item.warehouse_id,
-          countDate: item.adjustment_date,
+          countDate: item.count_date,
           binCode: item.binCode || 'Multiple Bins',
         })))
       })

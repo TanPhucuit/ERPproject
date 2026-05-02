@@ -40,7 +40,7 @@ export class MetricsService {
       const { data, error } = await supabaseClient
         .from('customer_metrics')
         .select('*')
-        .order('total_purchase_amount', { ascending: false })
+        .order('total_spent', { ascending: false })
         .limit(20)
 
       if (error) throw error
@@ -56,7 +56,7 @@ export class MetricsService {
       const { data, error } = await supabaseClient
         .from('supplier_metrics')
         .select('*')
-        .order('total_purchase_amount', { ascending: false })
+        .order('total_spent', { ascending: false })
         .limit(20)
 
       if (error) throw error
