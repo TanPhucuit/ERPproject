@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { Menu, X, LogOut, BarChart3, Users, ShoppingCart, Package, Warehouse, BookOpen, ChevronDown } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { useLocation, useNavigate } from 'react-router-dom'
-import ScenarioSelector from '../components/ScenarioSelector'
 
 interface MainLayoutProps {
   children: React.ReactNode
@@ -55,8 +54,6 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
           {/* Desktop Menu */}
           <div className="hidden md:flex items-center gap-4">
-            <ScenarioSelector />
-
             {/* User Menu */}
             <div className="relative">
               <button

@@ -220,7 +220,8 @@ const AccountingModule: React.FC = () => {
         record.id = created.id || record.id
       }
     } catch (error: any) {
-      console.warn('Accounting API save failed, saving locally:', error.message)
+      window.alert(`Accounting API save failed: ${error.message}`)
+      return
     }
     setters[activeTab]((current) => {
       const exists = current.some((item) => item.id === record.id)

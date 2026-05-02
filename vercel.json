@@ -2,9 +2,12 @@
   "version": 2,
   "installCommand": "npm install && cd frontend && npm install && cd ../backend && npm install",
   "buildCommand": "cd frontend && npm run build",
-  "devCommand": "cd frontend && npm run dev",
   "outputDirectory": "frontend/dist",
   "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.ts"
+    },
     {
       "handle": "filesystem"
     },

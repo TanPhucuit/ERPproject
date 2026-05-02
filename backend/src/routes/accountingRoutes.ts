@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express'
 import { accountingService } from '../services/accountingService'
-import { authMiddleware } from '../middleware/auth'
+import { AuthRequest, authMiddleware } from '../middleware/auth'
 
 const router = express.Router()
 
@@ -31,7 +31,7 @@ router.get('/invoices/:id', async (req: Request, res: Response) => {
   }
 })
 
-router.post('/invoices', async (req: Request, res: Response) => {
+router.post('/invoices', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -77,7 +77,7 @@ router.get('/bills/:id', async (req: Request, res: Response) => {
   }
 })
 
-router.post('/bills', async (req: Request, res: Response) => {
+router.post('/bills', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -92,7 +92,7 @@ router.post('/bills', async (req: Request, res: Response) => {
 
 // ============= CREDIT NOTES =============
 
-router.post('/credit-notes', async (req: Request, res: Response) => {
+router.post('/credit-notes', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -119,7 +119,7 @@ router.get('/credit-notes', async (req: Request, res: Response) => {
 
 // ============= DEBIT NOTES =============
 
-router.post('/debit-notes', async (req: Request, res: Response) => {
+router.post('/debit-notes', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -146,7 +146,7 @@ router.get('/debit-notes', async (req: Request, res: Response) => {
 
 // ============= PAYMENTS =============
 
-router.post('/payments', async (req: Request, res: Response) => {
+router.post('/payments', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,

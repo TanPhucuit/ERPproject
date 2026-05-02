@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express'
 import { purchaseService } from '../services/purchaseService'
-import { authMiddleware } from '../middleware/auth'
+import { AuthRequest, authMiddleware } from '../middleware/auth'
 
 const router = express.Router()
 
@@ -31,7 +31,7 @@ router.get('/rfqs/:id', async (req: Request, res: Response) => {
   }
 })
 
-router.post('/rfqs', async (req: Request, res: Response) => {
+router.post('/rfqs', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -127,7 +127,7 @@ router.get('/purchase-orders/:id', async (req: Request, res: Response) => {
   }
 })
 
-router.post('/purchase-orders', async (req: Request, res: Response) => {
+router.post('/purchase-orders', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -158,7 +158,7 @@ router.delete('/purchase-orders/:id', async (req: Request, res: Response) => {
   }
 })
 
-router.post('/purchase-orders/:id/confirm', async (req: Request, res: Response) => {
+router.post('/purchase-orders/:id/confirm', async (req: AuthRequest, res: Response) => {
   try {
     const po = await purchaseService.confirmPurchaseOrder(req.params.id, req.user?.id || req.user?.userId || 'demo-user')
     res.json({ success: true, data: po })

@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express'
 import { warehouseService } from '../services/warehouseService'
-import { authMiddleware } from '../middleware/auth'
+import { AuthRequest, authMiddleware } from '../middleware/auth'
 
 const router = express.Router()
 
@@ -81,7 +81,7 @@ router.put('/bin-locations/:id', async (req: Request, res: Response) => {
 
 // ============= PUTAWAY TASKS =============
 
-router.post('/putaway-tasks', async (req: Request, res: Response) => {
+router.post('/putaway-tasks', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -115,7 +115,7 @@ router.post('/putaway-tasks/:id/complete', async (req: Request, res: Response) =
 
 // ============= PICKING TASKS =============
 
-router.post('/picking-tasks', async (req: Request, res: Response) => {
+router.post('/picking-tasks', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -149,7 +149,7 @@ router.post('/picking-tasks/:id/complete', async (req: Request, res: Response) =
 
 // ============= STOCK TRANSFERS =============
 
-router.post('/stock-transfers', async (req: Request, res: Response) => {
+router.post('/stock-transfers', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,

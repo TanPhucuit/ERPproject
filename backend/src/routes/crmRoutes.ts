@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express'
 import { crmService } from '../services/crmService'
-import { authMiddleware } from '../middleware/auth'
+import { AuthRequest, authMiddleware } from '../middleware/auth'
 
 const router = express.Router()
 
@@ -31,7 +31,7 @@ router.get('/leads/:id', async (req: Request, res: Response) => {
   }
 })
 
-router.post('/leads', async (req: Request, res: Response) => {
+router.post('/leads', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -65,7 +65,7 @@ router.put('/leads/:id/stage', async (req: Request, res: Response) => {
 
 // ============= ACTIVITIES =============
 
-router.post('/activities', async (req: Request, res: Response) => {
+router.post('/activities', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,

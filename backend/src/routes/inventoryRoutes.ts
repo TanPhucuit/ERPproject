@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express'
 import { inventoryService } from '../services/inventoryService'
-import { authMiddleware } from '../middleware/auth'
+import { AuthRequest, authMiddleware } from '../middleware/auth'
 import { supabaseClient } from '../config/supabase'
 
 const router = express.Router()
@@ -26,7 +26,7 @@ router.get('/goods-receipts', async (req: Request, res: Response) => {
   }
 })
 
-router.post('/goods-receipts', async (req: Request, res: Response) => {
+router.post('/goods-receipts', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -85,7 +85,7 @@ router.get('/delivery-orders', async (req: Request, res: Response) => {
   }
 })
 
-router.post('/delivery-orders', async (req: Request, res: Response) => {
+router.post('/delivery-orders', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -136,7 +136,7 @@ router.get('/adjustments', async (req: Request, res: Response) => {
   }
 })
 
-router.post('/adjustments', async (req: Request, res: Response) => {
+router.post('/adjustments', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -180,7 +180,7 @@ router.get('/serial-numbers/:serialNumber', async (req: Request, res: Response) 
 
 // ============= WARRANTIES =============
 
-router.post('/warranties', async (req: Request, res: Response) => {
+router.post('/warranties', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
@@ -193,7 +193,7 @@ router.post('/warranties', async (req: Request, res: Response) => {
   }
 })
 
-router.post('/warranty-claims', async (req: Request, res: Response) => {
+router.post('/warranty-claims', async (req: AuthRequest, res: Response) => {
   try {
     const payload = {
       ...req.body,
