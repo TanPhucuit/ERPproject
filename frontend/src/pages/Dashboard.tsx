@@ -30,6 +30,7 @@ import {
 import * as mockData from '../services/mockData'
 
 const Dashboard: React.FC = () => {
+  const isMockMode = import.meta.env.VITE_USE_MOCK_API === 'true'
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<any>(mockData.mockMetrics)
@@ -332,19 +333,21 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Footer Info */}
-      <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-4">
-        <div className="flex gap-3">
-          <Activity size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-green-900">
-              Mock mode: displaying frontend-only sample data
-            </p>
-            <p className="text-sm text-green-700 mt-1">
-              Backend calls and login requirements are disabled while you review the UI.
-            </p>
+      {isMockMode && (
+        <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-4">
+          <div className="flex gap-3">
+            <Activity size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-green-900">
+                Mock mode: displaying frontend-only sample data
+              </p>
+              <p className="text-sm text-green-700 mt-1">
+                Backend calls and login requirements are disabled while you review the UI.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
