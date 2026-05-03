@@ -10,6 +10,7 @@ import SalesModule from './pages/Sales'
 import PurchaseModule from './pages/Purchase'
 import InventoryModule from './pages/Inventory'
 import AccountingModule from './pages/Accounting'
+import MasterDataPage from './pages/MasterData'
 
 // Layouts
 import MainLayout from './layouts/MainLayout'
@@ -96,6 +97,18 @@ function App() {
             <ProtectedRoute>
               <MainLayout>
                 <AccountingModule />
+              </MainLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* App Routes - Master Data */}
+        <Route
+          path="/app/master-data"
+          element={
+            <ProtectedRoute>
+              <MainLayout>
+                <MasterDataPage />
               </MainLayout>
             </ProtectedRoute>
           }

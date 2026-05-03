@@ -304,11 +304,63 @@ const resolveWarehouseId = async (name?: string | null) => {
   if (normalized) {
     const byName = await maybeSingleByName('warehouses', normalized, 'id, name, warehouse_code')
     if (byName?.id) return byName.id as string
+
+    const generatedCode = `WH-${normalized.slice(0, 8).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'AUTO'}`
+    const { data, error } = await supabase
+      .from('warehouses')
+      .insert({
+        warehouse_code: generatedCode,
+        name: normalized,
+        status: 'active',
+      })
+      .select('id')
+      .single()
+
+    if (error) throw error
+    return data.id as string
   }
 
   const fallback = await firstRow('warehouses', 'id, name, warehouse_code')
   if (!fallback?.id) throw new Error('No warehouses found in database.')
   return fallback.id as string
+}
+
+const resolveCategoryId = async (name?: string | null) => {
+  const normalized = normalizeText(name)
+  if (!normalized) {
+    const fallback = await firstRow('product_categories')
+    if (!fallback?.id) throw new Error('No product categories found in database.')
+    return fallback.id as string
+  }
+
+  const existing = await maybeSingleByName('product_categories', normalized)
+  if (existing?.id) return existing.id as string
+
+  const { data, error } = await supabase
+    .from('product_categories')
+    .insert({
+      name: normalized,
+      description: `${normalized} category`,
+      display_order: 0,
+    })
+    .select('id')
+    .single()
+
+  if (error) throw error
+  return data.id as string
+}
+
+const resolveDefaultUomId = async () => {
+  const { data, error } = await supabase
+    .from('units_of_measure')
+    .select('id, code')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data?.id) throw new Error('No units of measure found in database.')
+  return data.id as string
 }
 
 const resolveSalesOrderId = async (reference?: string | null, customerName?: string | null) => {
@@ -514,6 +566,62 @@ const normalizeDebitRow = (row: any) => ({
   noteDate: row.debit_date,
   total: row.total_amount,
   status: noteStatusFromDb[row.status] || row.status,
+})
+
+const normalizeCategoryRow = (row: any) => ({
+  ...row,
+  displayOrder: row.display_order ?? 0,
+})
+
+const normalizeProductRow = (row: any) => ({
+  ...row,
+  categoryName: row.category?.name || row.categoryName || '',
+  uomCode: row.uom?.code || '',
+  reorderLevel: row.reorder_level ?? 0,
+  reorderQuantity: row.reorder_quantity ?? 0,
+  supplierLeadTimeDays: row.supplier_lead_time_days ?? 0,
+})
+
+const normalizeCustomerMasterRow = (row: any) => ({
+  ...row,
+  customerNumber: row.customer_number,
+  customerType: row.customer_type,
+  contactName: row.contact_person_name || '',
+  contactEmail: row.contact_person_email || '',
+  contactPhone: row.contact_person_phone || '',
+  paymentTerms: row.payment_terms || 'NET30',
+})
+
+const normalizeSupplierRow = (row: any) => ({
+  ...row,
+  supplierNumber: row.supplier_number,
+  contactName: row.contact_person_name || '',
+  contactEmail: row.contact_person_email || '',
+  contactPhone: row.contact_person_phone || '',
+  paymentTerms: row.payment_terms || 'NET30',
+  averageLeadTimeDays: row.average_lead_time_days ?? 7,
+})
+
+const normalizeUserRow = (row: any) => ({
+  ...row,
+  fullName: row.full_name,
+  password: '',
+})
+
+const normalizeWarehouseRow = (row: any) => ({
+  ...row,
+  warehouseCode: row.warehouse_code,
+  locationAddress: row.location_address || '',
+  capacitySqm: row.capacity_sqm ?? 0,
+  currentOccupancySqm: row.current_occupancy_sqm ?? 0,
+})
+
+const normalizeBinLocationRow = (row: any) => ({
+  ...row,
+  warehouseName: row.warehouse?.name || '',
+  warehouseCode: row.warehouse?.warehouse_code || '',
+  capacityUnits: row.capacity_units ?? 0,
+  currentOccupancyUnits: row.current_occupancy_units ?? 0,
 })
 
 const fetchInvoices = async () => {
@@ -737,6 +845,99 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
     }
   }
 
+  if (pathname === '/users' || pathname.startsWith('/users/')) {
+    return {
+      email: body.email,
+      password_hash: body.password || body.password_hash || (body.id ? undefined : '123456'),
+      full_name: body.full_name || body.fullName,
+      phone: body.phone || null,
+      role: body.role || 'user',
+      status: body.status || 'active',
+    }
+  }
+
+  if (pathname === '/product-categories' || pathname.startsWith('/product-categories/')) {
+    return {
+      name: body.name,
+      description: body.description || null,
+      display_order: Number(body.display_order ?? body.displayOrder ?? 0),
+    }
+  }
+
+  if (pathname === '/products' || pathname.startsWith('/products/')) {
+    const categoryId = body.category_id || (await resolveCategoryId(body.categoryName || body.category_name))
+    const uomId = body.uom_id || (await resolveDefaultUomId())
+    return {
+      sku: body.sku,
+      name: body.name,
+      description: body.description || null,
+      category_id: categoryId,
+      uom_id: uomId,
+      list_price: Number(body.list_price ?? body.listPrice ?? 0),
+      cost_price: Number(body.cost_price ?? body.costPrice ?? 0),
+      reorder_level: Number(body.reorder_level ?? body.reorderLevel ?? 10),
+      reorder_quantity: Number(body.reorder_quantity ?? body.reorderQuantity ?? 50),
+      supplier_lead_time_days: Number(body.supplier_lead_time_days ?? body.supplierLeadTimeDays ?? 7),
+      status: body.status || 'active',
+      barcode: body.barcode || null,
+      image_url: body.image_url || null,
+    }
+  }
+
+  if (pathname === '/customers' || pathname.startsWith('/customers/')) {
+    return {
+      name: body.name,
+      customer_type: body.customer_type || body.customerType || 'B2C',
+      contact_person_name: body.contact_person_name || body.contactName || body.name,
+      contact_person_email: body.contact_person_email || body.contactEmail || null,
+      contact_person_phone: body.contact_person_phone || body.contactPhone || null,
+      billing_address: body.billing_address || body.billingAddress || null,
+      shipping_address: body.shipping_address || body.shippingAddress || body.billing_address || body.billingAddress || null,
+      payment_terms: body.payment_terms || body.paymentTerms || 'NET30',
+      status: body.status || 'active',
+      created_by_id: body.created_by_id || currentUserId,
+    }
+  }
+
+  if (pathname === '/suppliers' || pathname.startsWith('/suppliers/')) {
+    return {
+      name: body.name,
+      contact_person_name: body.contact_person_name || body.contactName || body.name,
+      contact_person_email: body.contact_person_email || body.contactEmail || null,
+      contact_person_phone: body.contact_person_phone || body.contactPhone || null,
+      company_address: body.company_address || body.companyAddress || null,
+      payment_terms: body.payment_terms || body.paymentTerms || 'NET30',
+      average_lead_time_days: Number(body.average_lead_time_days ?? body.averageLeadTimeDays ?? 7),
+      status: body.status || 'active',
+    }
+  }
+
+  if (pathname === '/warehouse/warehouses' || pathname.startsWith('/warehouse/warehouses/')) {
+    return {
+      warehouse_code: body.warehouse_code || body.warehouseCode,
+      name: body.name,
+      description: body.description || null,
+      location_address: body.location_address || body.locationAddress || null,
+      city: body.city || null,
+      province: body.province || null,
+      postal_code: body.postal_code || body.postalCode || null,
+      capacity_sqm: Number(body.capacity_sqm ?? body.capacitySqm ?? 0),
+      current_occupancy_sqm: Number(body.current_occupancy_sqm ?? body.currentOccupancySqm ?? 0),
+      status: body.status || 'active',
+    }
+  }
+
+  if (pathname === '/warehouse/bin-locations' || pathname.startsWith('/warehouse/bin-locations/')) {
+    return {
+      warehouse_id: body.warehouse_id || (await resolveWarehouseId(body.warehouseName)),
+      bin_code: body.bin_code || body.binCode,
+      description: body.description || null,
+      capacity_units: Number(body.capacity_units ?? body.capacityUnits ?? 0),
+      current_occupancy_units: Number(body.current_occupancy_units ?? body.currentOccupancyUnits ?? 0),
+      status: body.status || 'active',
+    }
+  }
+
   return body
 }
 
@@ -897,13 +1098,6 @@ const getResource = async <T>(path: string): Promise<T> => {
     return (data || []) as T
   }
 
-  if (pathname.startsWith('/products/')) {
-    const id = pathname.split('/').pop()
-    const { data, error } = await supabase.from('products').select('*').eq('id', id).single()
-    if (error) throw error
-    return data as T
-  }
-
   if (pathname === '/inventory/delivery-orders') {
     const { data, error } = await applyLimit(
       supabase
@@ -1025,11 +1219,25 @@ const getResource = async <T>(path: string): Promise<T> => {
 
   if (pathname === '/products') {
     const { data, error } = await applyLimit(
-      supabase.from('products').select('*').order('created_at', { ascending: false }),
+      supabase
+        .from('products')
+        .select('*, category:product_categories(name), uom:units_of_measure(code, name)')
+        .order('created_at', { ascending: false }),
       searchParams
     )
     if (error) throw error
-    return (data || []) as T
+    return ((data || []).map(normalizeProductRow)) as T
+  }
+
+  if (pathname.startsWith('/products/')) {
+    const id = pathname.split('/').pop()
+    const { data, error } = await supabase
+      .from('products')
+      .select('*, category:product_categories(name), uom:units_of_measure(code, name)')
+      .eq('id', id)
+      .single()
+    if (error) throw error
+    return normalizeProductRow(data) as T
   }
 
   if (pathname === '/products/categories/all' || pathname === '/product-categories') {
@@ -1038,7 +1246,14 @@ const getResource = async <T>(path: string): Promise<T> => {
       .select('*')
       .order('name', { ascending: true })
     if (error) throw error
-    return (data || []) as T
+    return ((data || []).map(normalizeCategoryRow)) as T
+  }
+
+  if (pathname.startsWith('/product-categories/')) {
+    const id = pathname.split('/').pop()
+    const { data, error } = await supabase.from('product_categories').select('*').eq('id', id).single()
+    if (error) throw error
+    return normalizeCategoryRow(data) as T
   }
 
   if (pathname === '/customers') {
@@ -1047,14 +1262,46 @@ const getResource = async <T>(path: string): Promise<T> => {
       searchParams
     )
     if (error) throw error
-    return (data || []) as T
+    return ((data || []).map(normalizeCustomerMasterRow)) as T
   }
 
   if (pathname.startsWith('/customers/')) {
     const id = pathname.split('/').pop()
     const { data, error } = await supabase.from('customers').select('*').eq('id', id).single()
     if (error) throw error
-    return data as T
+    return normalizeCustomerMasterRow(data) as T
+  }
+
+  if (pathname === '/suppliers') {
+    const { data, error } = await applyLimit(
+      supabase.from('suppliers').select('*').order('created_at', { ascending: false }),
+      searchParams
+    )
+    if (error) throw error
+    return ((data || []).map(normalizeSupplierRow)) as T
+  }
+
+  if (pathname.startsWith('/suppliers/')) {
+    const id = pathname.split('/').pop()
+    const { data, error } = await supabase.from('suppliers').select('*').eq('id', id).single()
+    if (error) throw error
+    return normalizeSupplierRow(data) as T
+  }
+
+  if (pathname === '/users') {
+    const { data, error } = await applyLimit(
+      supabase.from('users').select('*').order('created_at', { ascending: false }),
+      searchParams
+    )
+    if (error) throw error
+    return ((data || []).map(normalizeUserRow)) as T
+  }
+
+  if (pathname.startsWith('/users/')) {
+    const id = pathname.split('/').pop()
+    const { data, error } = await supabase.from('users').select('*').eq('id', id).single()
+    if (error) throw error
+    return normalizeUserRow(data) as T
   }
 
   if (pathname === '/warehouse/warehouses') {
@@ -1063,14 +1310,37 @@ const getResource = async <T>(path: string): Promise<T> => {
       .select('*')
       .order('created_at', { ascending: false })
     if (error) throw error
-    return (data || []) as T
+    return ((data || []).map(normalizeWarehouseRow)) as T
   }
 
   if (pathname.startsWith('/warehouse/warehouses/')) {
     const id = pathname.split('/').pop()
     const { data, error } = await supabase.from('warehouses').select('*').eq('id', id).single()
     if (error) throw error
-    return data as T
+    return normalizeWarehouseRow(data) as T
+  }
+
+  if (pathname === '/warehouse/bin-locations') {
+    const { data, error } = await applyLimit(
+      supabase
+        .from('bin_locations')
+        .select('*, warehouse:warehouses(name, warehouse_code)')
+        .order('created_at', { ascending: false }),
+      searchParams
+    )
+    if (error) throw error
+    return ((data || []).map(normalizeBinLocationRow)) as T
+  }
+
+  if (pathname.startsWith('/warehouse/bin-locations/')) {
+    const id = pathname.split('/').pop()
+    const { data, error } = await supabase
+      .from('bin_locations')
+      .select('*, warehouse:warehouses(name, warehouse_code)')
+      .eq('id', id)
+      .single()
+    if (error) throw error
+    return normalizeBinLocationRow(data) as T
   }
 
   throw new Error(`Unsupported query path: ${pathname}`)
@@ -1115,6 +1385,20 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
   if (pathname.startsWith('/accounting/credit-notes/')) return upsert('credit_notes', pathname.split('/').pop())
   if (pathname === '/accounting/debit-notes') return upsert('debit_notes')
   if (pathname.startsWith('/accounting/debit-notes/')) return upsert('debit_notes', pathname.split('/').pop())
+  if (pathname === '/users') return upsert('users')
+  if (pathname.startsWith('/users/')) return upsert('users', pathname.split('/').pop())
+  if (pathname === '/product-categories') return upsert('product_categories')
+  if (pathname.startsWith('/product-categories/')) return upsert('product_categories', pathname.split('/').pop())
+  if (pathname === '/products') return upsert('products')
+  if (pathname.startsWith('/products/')) return upsert('products', pathname.split('/').pop())
+  if (pathname === '/customers') return upsert('customers')
+  if (pathname.startsWith('/customers/')) return upsert('customers', pathname.split('/').pop())
+  if (pathname === '/suppliers') return upsert('suppliers')
+  if (pathname.startsWith('/suppliers/')) return upsert('suppliers', pathname.split('/').pop())
+  if (pathname === '/warehouse/warehouses') return upsert('warehouses')
+  if (pathname.startsWith('/warehouse/warehouses/')) return upsert('warehouses', pathname.split('/').pop())
+  if (pathname === '/warehouse/bin-locations') return upsert('bin_locations')
+  if (pathname.startsWith('/warehouse/bin-locations/')) return upsert('bin_locations', pathname.split('/').pop())
 
   throw new Error(`Unsupported write path: ${pathname}`)
 }
@@ -1141,6 +1425,13 @@ const deleteResource = async <T>(path: string) => {
   if (pathname.startsWith('/accounting/bills/')) return remove('vendor_bills')
   if (pathname.startsWith('/accounting/credit-notes/')) return remove('credit_notes')
   if (pathname.startsWith('/accounting/debit-notes/')) return remove('debit_notes')
+  if (pathname.startsWith('/users/')) return remove('users')
+  if (pathname.startsWith('/product-categories/')) return remove('product_categories')
+  if (pathname.startsWith('/products/')) return remove('products')
+  if (pathname.startsWith('/customers/')) return remove('customers')
+  if (pathname.startsWith('/suppliers/')) return remove('suppliers')
+  if (pathname.startsWith('/warehouse/warehouses/')) return remove('warehouses')
+  if (pathname.startsWith('/warehouse/bin-locations/')) return remove('bin_locations')
 
   throw new Error(`Unsupported delete path: ${pathname}`)
 }

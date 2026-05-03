@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Menu, X, LogOut, BarChart3, Users, ShoppingCart, Package, Warehouse, BookOpen, ChevronDown } from 'lucide-react'
+import { Menu, X, LogOut, BarChart3, Users, ShoppingCart, Package, Warehouse, BookOpen, ChevronDown, Database } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { useLocation, useNavigate } from 'react-router-dom'
 
@@ -22,6 +22,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     { path: '/app/purchase', label: 'Purchase', icon: Package },
     { path: '/app/inventory', label: 'Inventory', icon: Warehouse },
     { path: '/app/accounting', label: 'Accounting', icon: BookOpen },
+    { path: '/app/master-data', label: 'Master Data', icon: Database },
   ]
 
   const isActive = (path: string) => {
