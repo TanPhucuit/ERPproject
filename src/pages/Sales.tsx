@@ -151,14 +151,17 @@ const SalesModule: React.FC = () => {
       ? {
           sales_order_number: record.orderNumber,
           customer_id: record.customer_id,
+          customerName: record.customerName,
           order_date: record.date,
           required_delivery_date: record.dueDate,
           status: record.status,
           total_amount: record.total,
+          notes: record.notes,
         }
       : {
           quotation_number: record.quoteNumber,
           customer_id: record.customer_id,
+          customerName: record.customerName,
           quote_date: record.date,
           valid_until: record.expiryDate,
           status: record.status,

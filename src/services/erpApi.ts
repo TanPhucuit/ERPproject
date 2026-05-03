@@ -808,7 +808,11 @@ const getResource = async <T>(path: string): Promise<T> => {
     return ((data || []).map(normalizeSalesOrderRow)) as T
   }
 
-  if (pathname.startsWith('/sales-orders/') && !pathname.startsWith('/sales-orders/quotations/')) {
+  if (
+    pathname.startsWith('/sales-orders/') &&
+    pathname !== '/sales-orders/quotations' &&
+    !pathname.startsWith('/sales-orders/quotations/')
+  ) {
     const id = pathname.split('/').pop()
     const { data, error } = await supabase
       .from('sales_orders')

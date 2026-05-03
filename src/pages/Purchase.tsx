@@ -150,18 +150,21 @@ const PurchaseModule: React.FC = () => {
       ? {
           purchase_order_number: record.poNumber,
           supplier_id: record.supplier_id,
+          supplierName: record.supplierName,
           order_date: record.date,
-          expected_delivery_date: record.dueDate,
+          required_delivery_date: record.dueDate,
           status: record.status,
           total_amount: record.total,
+          notes: record.notes,
         }
       : {
           rfq_number: record.rfqNumber,
           issued_date: record.date,
-          due_date: record.dueDate,
+          closing_date: record.dueDate,
           status: record.status,
           description: record.productName,
-          estimated_total: record.targetPrice,
+          total_estimated_cost: record.targetPrice,
+          supplierName: record.supplierName,
         }
     try {
       if (activeRecords.some((item) => item.id === record.id) && !record.id.startsWith(activeTab)) {

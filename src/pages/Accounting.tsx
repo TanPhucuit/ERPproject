@@ -216,7 +216,12 @@ const AccountingModule: React.FC = () => {
       if (exists && (activeTab === 'invoices')) {
         await erpApi.put(`${path}/${record.id}`, record)
       } else if (!exists) {
-        const created = await erpApi.post<any>(path, record)
+        const created = await erpApi.post<any>(path, {
+          ...record,
+          customerName: record.customerName,
+          supplierName: record.supplierName,
+          partnerName: record.partnerName,
+        })
         record.id = created.id || record.id
       }
     } catch (error: any) {
