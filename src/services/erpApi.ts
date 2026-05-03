@@ -188,6 +188,14 @@ const normalizeDate = (value?: string | null, fallbackDays = 7) => {
 
 const normalizeText = (value?: string | null) => value?.trim() || null
 
+const isPositiveNumber = (value: any) => Number.isFinite(Number(value)) && Number(value) > 0
+const isNonNegativeNumber = (value: any) => Number.isFinite(Number(value)) && Number(value) >= 0
+
+const ensureDateOrder = (start?: string | null, end?: string | null, message = 'End date must be on or after start date.') => {
+  if (!start || !end) return
+  if (new Date(end) < new Date(start)) throw new Error(message)
+}
+
 const maybeSingleByName = async (
   table: string,
   value?: string | null,
@@ -248,55 +256,20 @@ const resolveLeadStage = async (status?: string | null) => {
 
 const resolveCustomerId = async (name?: string | null) => {
   const normalized = normalizeText(name)
-  if (!normalized) {
-    const fallback = await firstRow('customers')
-    if (!fallback?.id) throw new Error('No customers found in database.')
-    return fallback.id as string
-  }
+  if (!normalized) throw new Error('Customer is required and must exist in Master Data.')
 
   const existing = await maybeSingleByName('customers', normalized)
   if (existing?.id) return existing.id as string
-
-  const creatorId = await getCurrentUserId()
-  const customerType = normalized.toLowerCase().includes('store') || normalized.toLowerCase().includes('company') ? 'B2B' : 'B2C'
-  const { data, error } = await supabase
-    .from('customers')
-    .insert({
-      name: normalized,
-      customer_type: customerType,
-      contact_person_name: normalized,
-      status: 'active',
-      created_by_id: creatorId,
-    })
-    .select('id')
-    .single()
-
-  if (error) throw error
-  return data.id as string
+  throw new Error(`Customer "${normalized}" does not exist in Master Data.`)
 }
 
 const resolveSupplierId = async (name?: string | null) => {
   const normalized = normalizeText(name)
-  if (!normalized) {
-    const fallback = await firstRow('suppliers')
-    if (!fallback?.id) throw new Error('No suppliers found in database.')
-    return fallback.id as string
-  }
+  if (!normalized) throw new Error('Supplier is required and must exist in Master Data.')
 
   const existing = await maybeSingleByName('suppliers', normalized)
   if (existing?.id) return existing.id as string
-
-  const { data, error } = await supabase
-    .from('suppliers')
-    .insert({
-      name: normalized,
-      status: 'active',
-    })
-    .select('id')
-    .single()
-
-  if (error) throw error
-  return data.id as string
+  throw new Error(`Supplier "${normalized}" does not exist in Master Data.`)
 }
 
 const resolveWarehouseId = async (name?: string | null) => {
@@ -304,50 +277,18 @@ const resolveWarehouseId = async (name?: string | null) => {
   if (normalized) {
     const byName = await maybeSingleByName('warehouses', normalized, 'id, name, warehouse_code')
     if (byName?.id) return byName.id as string
-
-    const generatedCode = `WH-${normalized.slice(0, 8).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'AUTO'}`
-    const { data, error } = await supabase
-      .from('warehouses')
-      .insert({
-        warehouse_code: generatedCode,
-        name: normalized,
-        status: 'active',
-      })
-      .select('id')
-      .single()
-
-    if (error) throw error
-    return data.id as string
+    throw new Error(`Warehouse "${normalized}" does not exist in Master Data.`)
   }
-
-  const fallback = await firstRow('warehouses', 'id, name, warehouse_code')
-  if (!fallback?.id) throw new Error('No warehouses found in database.')
-  return fallback.id as string
+  throw new Error('Warehouse is required and must exist in Master Data.')
 }
 
 const resolveCategoryId = async (name?: string | null) => {
   const normalized = normalizeText(name)
-  if (!normalized) {
-    const fallback = await firstRow('product_categories')
-    if (!fallback?.id) throw new Error('No product categories found in database.')
-    return fallback.id as string
-  }
+  if (!normalized) throw new Error('Product category is required and must exist in Master Data.')
 
   const existing = await maybeSingleByName('product_categories', normalized)
   if (existing?.id) return existing.id as string
-
-  const { data, error } = await supabase
-    .from('product_categories')
-    .insert({
-      name: normalized,
-      description: `${normalized} category`,
-      display_order: 0,
-    })
-    .select('id')
-    .single()
-
-  if (error) throw error
-  return data.id as string
+  throw new Error(`Product category "${normalized}" does not exist in Master Data.`)
 }
 
 const resolveDefaultUomId = async () => {
@@ -361,6 +302,41 @@ const resolveDefaultUomId = async () => {
   if (error) throw error
   if (!data?.id) throw new Error('No units of measure found in database.')
   return data.id as string
+}
+
+const ensureUniqueValue = async (table: string, column: string, value: any, currentId?: string) => {
+  const normalized = typeof value === 'string' ? value.trim() : value
+  if (!normalized) return
+
+  const { data, error } = await supabase
+    .from(table)
+    .select('id')
+    .eq(column, normalized)
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw error
+  if (data?.id && data.id !== currentId) {
+    throw new Error(`${column.replace(/_/g, ' ')} "${normalized}" already exists.`)
+  }
+}
+
+const ensureBinExists = async (warehouseId: string, binCode?: string | null) => {
+  const normalizedBin = normalizeText(binCode)
+  if (!normalizedBin) throw new Error('Bin location is required.')
+
+  const { data, error } = await supabase
+    .from('bin_locations')
+    .select('id')
+    .eq('warehouse_id', warehouseId)
+    .ilike('bin_code', normalizedBin)
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data?.id) {
+    throw new Error(`Bin "${normalizedBin}" does not exist in the selected warehouse.`)
+  }
 }
 
 const resolveSalesOrderId = async (reference?: string | null, customerName?: string | null) => {
@@ -662,8 +638,12 @@ const getAccountingMetrics = async () => {
 
 const normalizeWriteBody = async (pathname: string, body: Record<string, any>) => {
   const currentUserId = await getCurrentUserId()
+  const currentId = typeof body.id === 'string' ? body.id : undefined
 
   if (pathname === '/crm/leads' || pathname.startsWith('/crm/leads/')) {
+    if (!isPositiveNumber(body.estimated_value || body.value || 0)) {
+      throw new Error('Estimated value must be greater than 0.')
+    }
     const stage = await resolveLeadStage(body.stage || body.status)
     return {
       lead_number: body.lead_number,
@@ -682,6 +662,14 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/sales-orders/quotations' || pathname.startsWith('/sales-orders/quotations/')) {
+    if (!isPositiveNumber(body.total_amount || body.total || 0)) {
+      throw new Error('Quotation amount must be greater than 0.')
+    }
+    ensureDateOrder(
+      body.issued_date || body.quote_date || body.date,
+      body.valid_until_date || body.valid_until || body.expiryDate,
+      'Quotation expiry date must be on or after quote date.'
+    )
     const customerId = body.customer_id || (await resolveCustomerId(body.customerName))
     return {
       quotation_number: body.quotation_number || body.quoteNumber,
@@ -698,6 +686,14 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/sales-orders' || pathname.startsWith('/sales-orders/')) {
+    if (!isPositiveNumber(body.total_amount || body.total || 0)) {
+      throw new Error('Sales order total must be greater than 0.')
+    }
+    ensureDateOrder(
+      body.order_date || body.date,
+      body.required_delivery_date || body.dueDate || body.deliveryDate,
+      'Delivery date must be on or after order date.'
+    )
     const customerId = body.customer_id || (await resolveCustomerId(body.customerName))
     return {
       sales_order_number: body.sales_order_number || body.orderNumber,
@@ -715,6 +711,18 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/purchase/rfqs' || pathname.startsWith('/purchase/rfqs/')) {
+    if (!normalizeText(body.description || body.productName)) {
+      throw new Error('RFQ product or requirement is required.')
+    }
+    if (!normalizeText(body.supplierName)) {
+      throw new Error('Supplier is required and must exist in Master Data.')
+    }
+    await resolveSupplierId(body.supplierName)
+    ensureDateOrder(
+      body.issued_date || body.date,
+      body.closing_date || body.due_date || body.dueDate,
+      'RFQ deadline must be on or after issued date.'
+    )
     return {
       rfq_number: body.rfq_number || body.rfqNumber,
       issued_date: body.issued_date || body.date || new Date().toISOString().slice(0, 10),
@@ -727,6 +735,14 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/purchase/purchase-orders' || pathname.startsWith('/purchase/purchase-orders/')) {
+    if (!isPositiveNumber(body.total_amount || body.total || 0)) {
+      throw new Error('Purchase order total must be greater than 0.')
+    }
+    ensureDateOrder(
+      body.order_date || body.date,
+      body.required_delivery_date || body.expected_delivery_date || body.dueDate,
+      'Expected delivery date must be on or after PO date.'
+    )
     const supplierId = body.supplier_id || (await resolveSupplierId(body.supplierName))
     return {
       purchase_order_number: body.purchase_order_number || body.poNumber,
@@ -744,10 +760,12 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/inventory/delivery-orders' || pathname.startsWith('/inventory/delivery-orders/')) {
+    const warehouseId = body.warehouse_id || (await resolveWarehouseId(body.warehouseName))
+    await resolveCustomerId(body.partnerName)
     return {
       delivery_order_number: body.delivery_order_number || body.reference,
       sales_order_id: body.sales_order_id || (await resolveSalesOrderId(body.reference, body.partnerName)),
-      warehouse_id: body.warehouse_id || (await resolveWarehouseId(body.warehouseName)),
+      warehouse_id: warehouseId,
       status: deliveryStatusToDb[body.status] || body.status || 'draft',
       scheduled_delivery_date: body.scheduled_delivery_date || body.scheduledDate || null,
       notes: body.notes || null,
@@ -755,10 +773,12 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/inventory/goods-receipts' || pathname.startsWith('/inventory/goods-receipts/')) {
+    const warehouseId = body.warehouse_id || (await resolveWarehouseId(body.warehouseName))
+    await resolveSupplierId(body.partnerName)
     return {
       goods_receipt_number: body.goods_receipt_number || body.reference,
       purchase_order_id: body.purchase_order_id || (await resolvePurchaseOrderId(body.reference, body.partnerName)),
-      warehouse_id: body.warehouse_id || (await resolveWarehouseId(body.warehouseName)),
+      warehouse_id: warehouseId,
       status: receiptStatusToDb[body.status] || body.status || 'draft',
       received_date: body.received_date || body.scheduledDate || new Date().toISOString().slice(0, 10),
       notes: body.notes || null,
@@ -766,9 +786,11 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/inventory/adjustments' || pathname.startsWith('/inventory/adjustments/')) {
+    const warehouseId = body.warehouse_id || (await resolveWarehouseId(body.warehouseName))
+    await ensureBinExists(warehouseId, body.binCode || body.reason)
     return {
       adjustment_number: body.adjustment_number || body.reference,
-      warehouse_id: body.warehouse_id || (await resolveWarehouseId(body.warehouseName)),
+      warehouse_id: warehouseId,
       adjustment_type: body.adjustment_type || 'stock_count',
       count_date: body.count_date || body.countDate || new Date().toISOString().slice(0, 10),
       status: adjustmentStatusToDb[body.status] || body.status || 'draft',
@@ -779,6 +801,10 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/accounting/invoices' || pathname.startsWith('/accounting/invoices/')) {
+    if (!isPositiveNumber(body.total_amount || 0)) {
+      throw new Error('Invoice total must be greater than 0.')
+    }
+    ensureDateOrder(body.invoice_date, body.due_date || body.dueDate, 'Invoice due date must be on or after invoice date.')
     const customerId = body.customer_id || (await resolveCustomerId(body.customerName))
     return {
       invoice_number: body.invoice_number,
@@ -797,6 +823,14 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/accounting/bills' || pathname.startsWith('/accounting/bills/')) {
+    if (!isPositiveNumber(body.total_amount || body.total || 0)) {
+      throw new Error('Vendor bill total must be greater than 0.')
+    }
+    ensureDateOrder(
+      body.bill_date || body.billDate,
+      body.due_date || body.dueDate,
+      'Bill due date must be on or after bill date.'
+    )
     const supplierId = body.supplier_id || (await resolveSupplierId(body.supplierName))
     return {
       bill_number: body.bill_number || body.billNumber,
@@ -814,6 +848,9 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/accounting/credit-notes' || pathname.startsWith('/accounting/credit-notes/')) {
+    if (!isPositiveNumber(body.total_amount || body.total || 0)) {
+      throw new Error('Credit note amount must be greater than 0.')
+    }
     const customerId = body.customer_id || (await resolveCustomerId(body.partnerName))
     return {
       credit_note_number: body.credit_note_number || body.noteNumber,
@@ -830,6 +867,9 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/accounting/debit-notes' || pathname.startsWith('/accounting/debit-notes/')) {
+    if (!isPositiveNumber(body.total_amount || body.total || 0)) {
+      throw new Error('Debit note amount must be greater than 0.')
+    }
     const supplierId = body.supplier_id || (await resolveSupplierId(body.partnerName))
     return {
       debit_note_number: body.debit_note_number || body.noteNumber,
@@ -846,6 +886,8 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/users' || pathname.startsWith('/users/')) {
+    await ensureUniqueValue('users', 'email', body.email, currentId)
+    if (!normalizeText(body.full_name || body.fullName)) throw new Error('Full name is required.')
     return {
       email: body.email,
       password_hash: body.password || body.password_hash || (body.id ? undefined : '123456'),
@@ -857,6 +899,7 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/product-categories' || pathname.startsWith('/product-categories/')) {
+    await ensureUniqueValue('product_categories', 'name', body.name, currentId)
     return {
       name: body.name,
       description: body.description || null,
@@ -865,6 +908,16 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/products' || pathname.startsWith('/products/')) {
+    await ensureUniqueValue('products', 'sku', body.sku, currentId)
+    if (!isPositiveNumber(body.list_price ?? body.listPrice ?? 0)) {
+      throw new Error('List price must be greater than 0.')
+    }
+    if (!isNonNegativeNumber(body.cost_price ?? body.costPrice ?? 0)) {
+      throw new Error('Cost price cannot be negative.')
+    }
+    if (Number(body.cost_price ?? body.costPrice ?? 0) > Number(body.list_price ?? body.listPrice ?? 0)) {
+      throw new Error('Cost price cannot be greater than list price.')
+    }
     const categoryId = body.category_id || (await resolveCategoryId(body.categoryName || body.category_name))
     const uomId = body.uom_id || (await resolveDefaultUomId())
     return {
@@ -885,6 +938,7 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/customers' || pathname.startsWith('/customers/')) {
+    if (!normalizeText(body.name)) throw new Error('Customer name is required.')
     return {
       name: body.name,
       customer_type: body.customer_type || body.customerType || 'B2C',
@@ -900,6 +954,7 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/suppliers' || pathname.startsWith('/suppliers/')) {
+    if (!normalizeText(body.name)) throw new Error('Supplier name is required.')
     return {
       name: body.name,
       contact_person_name: body.contact_person_name || body.contactName || body.name,
@@ -913,6 +968,17 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/warehouse/warehouses' || pathname.startsWith('/warehouse/warehouses/')) {
+    await ensureUniqueValue('warehouses', 'warehouse_code', body.warehouse_code || body.warehouseCode, currentId)
+    if (!normalizeText(body.name)) throw new Error('Warehouse name is required.')
+    if (!isNonNegativeNumber(body.capacity_sqm ?? body.capacitySqm ?? 0)) {
+      throw new Error('Warehouse capacity cannot be negative.')
+    }
+    if (
+      isNonNegativeNumber(body.current_occupancy_sqm ?? body.currentOccupancySqm ?? 0) &&
+      Number(body.current_occupancy_sqm ?? body.currentOccupancySqm ?? 0) > Number(body.capacity_sqm ?? body.capacitySqm ?? 0)
+    ) {
+      throw new Error('Current occupancy cannot exceed warehouse capacity.')
+    }
     return {
       warehouse_code: body.warehouse_code || body.warehouseCode,
       name: body.name,
@@ -928,8 +994,30 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/warehouse/bin-locations' || pathname.startsWith('/warehouse/bin-locations/')) {
+    const warehouseId = body.warehouse_id || (await resolveWarehouseId(body.warehouseName))
+    if (!normalizeText(body.bin_code || body.binCode)) throw new Error('Bin code is required.')
+    if (!isNonNegativeNumber(body.capacity_units ?? body.capacityUnits ?? 0)) {
+      throw new Error('Bin capacity cannot be negative.')
+    }
+    if (!isNonNegativeNumber(body.current_occupancy_units ?? body.currentOccupancyUnits ?? 0)) {
+      throw new Error('Current occupancy cannot be negative.')
+    }
+    if (Number(body.current_occupancy_units ?? body.currentOccupancyUnits ?? 0) > Number(body.capacity_units ?? body.capacityUnits ?? 0)) {
+      throw new Error('Current occupancy cannot exceed bin capacity.')
+    }
+    const { data: existingBin, error: binError } = await supabase
+      .from('bin_locations')
+      .select('id')
+      .eq('warehouse_id', warehouseId)
+      .ilike('bin_code', body.bin_code || body.binCode)
+      .limit(1)
+      .maybeSingle()
+    if (binError) throw binError
+    if (existingBin?.id && existingBin.id !== currentId) {
+      throw new Error(`Bin code "${body.bin_code || body.binCode}" already exists in the selected warehouse.`)
+    }
     return {
-      warehouse_id: body.warehouse_id || (await resolveWarehouseId(body.warehouseName)),
+      warehouse_id: warehouseId,
       bin_code: body.bin_code || body.binCode,
       description: body.description || null,
       capacity_units: Number(body.capacity_units ?? body.capacityUnits ?? 0),

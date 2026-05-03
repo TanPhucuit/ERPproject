@@ -12,10 +12,11 @@ import {
   StatusBadge,
   ViewMode,
 } from '../components/OdooLite'
+import { useUIStore } from '../stores/uiStore'
 
-const poFields: FormField[] = [
+const poFieldsBase: FormField[] = [
   { name: 'poNumber', label: 'PO #', type: 'text', required: true },
-  { name: 'supplierName', label: 'Supplier', type: 'text', required: true },
+  { name: 'supplierName', label: 'Supplier', type: 'select', required: true, options: [] },
   { name: 'date', label: 'PO Date', type: 'date', required: true },
   { name: 'dueDate', label: 'Expected Delivery', type: 'date' },
   { name: 'total', label: 'Total', type: 'number', required: true },
@@ -33,9 +34,9 @@ const poFields: FormField[] = [
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
-const rfqFields: FormField[] = [
+const rfqFieldsBase: FormField[] = [
   { name: 'rfqNumber', label: 'RFQ #', type: 'text', required: true },
-  { name: 'supplierName', label: 'Supplier', type: 'text', required: true },
+  { name: 'supplierName', label: 'Supplier', type: 'select', required: true, options: [] },
   { name: 'productName', label: 'Product / Requirement', type: 'text', required: true },
   { name: 'date', label: 'Issued Date', type: 'date', required: true },
   { name: 'dueDate', label: 'Deadline', type: 'date' },
@@ -61,9 +62,11 @@ const flow: Record<string, string> = {
 }
 
 const PurchaseModule: React.FC = () => {
+  const showNotification = useUIStore((state) => state.showNotification)
   const [activeTab, setActiveTab] = useState('purchase-orders')
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
   const [rfqs, setRfqs] = useState<any[]>([])
+  const [suppliers, setSuppliers] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
@@ -114,8 +117,26 @@ const PurchaseModule: React.FC = () => {
       })
   }, [])
 
+  useEffect(() => {
+    erpApi
+      .get<any[]>('/suppliers?limit=1000')
+      .then(setSuppliers)
+      .catch(() => setSuppliers([]))
+  }, [])
+
   const activeRecords = activeTab === 'purchase-orders' ? purchaseOrders : rfqs
-  const fields = activeTab === 'purchase-orders' ? poFields : rfqFields
+  const supplierOptions = useMemo(
+    () => suppliers.map((supplier) => ({ value: supplier.name, label: `${supplier.name}${supplier.supplierNumber ? ` (${supplier.supplierNumber})` : ''}` })),
+    [suppliers]
+  )
+  const fields = useMemo(() => {
+    const source = activeTab === 'purchase-orders' ? poFieldsBase : rfqFieldsBase
+    return source.map((field) =>
+      field.name === 'supplierName'
+        ? { ...field, options: supplierOptions }
+        : field
+    )
+  }, [activeTab, supplierOptions])
   const title = activeTab === 'purchase-orders' ? 'Purchase Order' : 'RFQ'
 
   const filteredRecords = useMemo(() => {
@@ -174,7 +195,7 @@ const PurchaseModule: React.FC = () => {
         record.id = created.id || record.id
       }
     } catch (error: any) {
-      window.alert(`Purchase API save failed: ${error.message}`)
+      showNotification('error', `Purchase save failed: ${error.message}`)
       return
     }
     setActiveRecords((current) => {

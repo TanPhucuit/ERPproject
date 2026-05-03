@@ -14,10 +14,11 @@ import {
   StatusBadge,
   ViewMode,
 } from '../components/OdooLite'
+import { useUIStore } from '../stores/uiStore'
 
-const invoiceFields: FormField[] = [
+const invoiceFieldsBase: FormField[] = [
   { name: 'invoice_number', label: 'Invoice #', type: 'text', required: true },
-  { name: 'customerName', label: 'Customer', type: 'text', required: true },
+  { name: 'customerName', label: 'Customer', type: 'select', required: true, options: [] },
   { name: 'invoice_date', label: 'Invoice Date', type: 'date', required: true },
   { name: 'due_date', label: 'Due Date', type: 'date' },
   { name: 'total_amount', label: 'Total', type: 'number', required: true },
@@ -35,9 +36,9 @@ const invoiceFields: FormField[] = [
   { name: 'payment_terms', label: 'Payment Terms', type: 'text' },
 ]
 
-const billFields: FormField[] = [
+const billFieldsBase: FormField[] = [
   { name: 'billNumber', label: 'Bill #', type: 'text', required: true },
-  { name: 'supplierName', label: 'Supplier', type: 'text', required: true },
+  { name: 'supplierName', label: 'Supplier', type: 'select', required: true, options: [] },
   { name: 'billDate', label: 'Bill Date', type: 'date', required: true },
   { name: 'dueDate', label: 'Due Date', type: 'date' },
   { name: 'total', label: 'Total', type: 'number', required: true },
@@ -53,9 +54,9 @@ const billFields: FormField[] = [
   },
 ]
 
-const noteFields: FormField[] = [
+const noteFieldsBase: FormField[] = [
   { name: 'noteNumber', label: 'Note #', type: 'text', required: true },
-  { name: 'partnerName', label: 'Customer / Supplier', type: 'text', required: true },
+  { name: 'partnerName', label: 'Customer / Supplier', type: 'select', required: true, options: [] },
   { name: 'noteDate', label: 'Date', type: 'date', required: true },
   { name: 'reason', label: 'Reason', type: 'text', required: true },
   { name: 'total', label: 'Amount', type: 'number', required: true },
@@ -83,11 +84,14 @@ const normalizeInvoice = (invoice: any) => ({
 })
 
 const AccountingModule: React.FC = () => {
+  const showNotification = useUIStore((state) => state.showNotification)
   const [activeTab, setActiveTab] = useState('invoices')
   const [invoices, setInvoices] = useState<any[]>([])
   const [vendorBills, setVendorBills] = useState<any[]>([])
   const [credits, setCredits] = useState<any[]>([])
   const [debits, setDebits] = useState<any[]>([])
+  const [customers, setCustomers] = useState<any[]>([])
+  const [suppliers, setSuppliers] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
@@ -160,8 +164,35 @@ const AccountingModule: React.FC = () => {
       })
   }, [])
 
+  useEffect(() => {
+    Promise.all([
+      erpApi.get<any[]>('/customers?limit=1000'),
+      erpApi.get<any[]>('/suppliers?limit=1000'),
+    ])
+      .then(([customerData, supplierData]) => {
+        setCustomers(customerData)
+        setSuppliers(supplierData)
+      })
+      .catch(() => {
+        setCustomers([])
+        setSuppliers([])
+      })
+  }, [])
+
   const activeRecords = activeTab === 'invoices' ? invoices : activeTab === 'bills' ? vendorBills : activeTab === 'credit-notes' ? credits : debits
-  const activeFields = activeTab === 'invoices' ? invoiceFields : activeTab === 'bills' ? billFields : noteFields
+  const customerOptions = useMemo(() => customers.map((customer) => ({ value: customer.name, label: customer.name })), [customers])
+  const supplierOptions = useMemo(() => suppliers.map((supplier) => ({ value: supplier.name, label: supplier.name })), [suppliers])
+  const activeFields = useMemo(() => {
+    if (activeTab === 'invoices') {
+      return invoiceFieldsBase.map((field) => field.name === 'customerName' ? { ...field, options: customerOptions } : field)
+    }
+    if (activeTab === 'bills') {
+      return billFieldsBase.map((field) => field.name === 'supplierName' ? { ...field, options: supplierOptions } : field)
+    }
+    const noteOptions = activeTab === 'credit-notes' ? customerOptions : supplierOptions
+    const partnerLabel = activeTab === 'credit-notes' ? 'Customer' : 'Supplier'
+    return noteFieldsBase.map((field) => field.name === 'partnerName' ? { ...field, label: partnerLabel, options: noteOptions } : field)
+  }, [activeTab, customerOptions, supplierOptions])
   const activeTitle = activeTab === 'invoices' ? 'Customer Invoice' : activeTab === 'bills' ? 'Vendor Bill' : activeTab === 'credit-notes' ? 'Credit Note' : 'Debit Note'
   const setters: Record<string, React.Dispatch<React.SetStateAction<any[]>>> = {
     invoices: setInvoices,
@@ -225,7 +256,7 @@ const AccountingModule: React.FC = () => {
         record.id = created.id || record.id
       }
     } catch (error: any) {
-      window.alert(`Accounting API save failed: ${error.message}`)
+      showNotification('error', `Accounting save failed: ${error.message}`)
       return
     }
     setters[activeTab]((current) => {

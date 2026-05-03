@@ -13,6 +13,7 @@ import {
   StatusBadge,
   ViewMode,
 } from '../components/OdooLite'
+import { useUIStore } from '../stores/uiStore'
 
 const leadFields: FormField[] = [
   { name: 'first_name', label: 'First Name', type: 'text', required: true },
@@ -63,6 +64,7 @@ const nextLeadStatus: Record<string, string> = {
 }
 
 const CRMModule: React.FC = () => {
+  const showNotification = useUIStore((state) => state.showNotification)
   const [activeTab, setActiveTab] = useState('leads')
   const [leads, setLeads] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -136,7 +138,7 @@ const CRMModule: React.FC = () => {
         nextRecord.id = created.id || nextRecord.id
       }
     } catch (error: any) {
-      window.alert(`CRM API save failed: ${error.message}`)
+      showNotification('error', `CRM save failed: ${error.message}`)
       return
     }
     setLeads((current) => {
@@ -154,7 +156,7 @@ const CRMModule: React.FC = () => {
         await erpApi.put(`/crm/leads/${lead.id}`, { stage: nextStatus })
       }
     } catch (error: any) {
-      window.alert(`CRM API stage update failed: ${error.message}`)
+      showNotification('error', `CRM stage update failed: ${error.message}`)
       return
     }
     setLeads((current) => current.map((item) => (item.id === lead.id ? { ...item, status: nextStatus } : item)))

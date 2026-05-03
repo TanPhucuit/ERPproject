@@ -11,11 +11,12 @@ import {
   StatusBadge,
   ViewMode,
 } from '../components/OdooLite'
+import { useUIStore } from '../stores/uiStore'
 
-const stockFields: FormField[] = [
-  { name: 'warehouseName', label: 'Warehouse', type: 'text', required: true },
-  { name: 'productName', label: 'Product', type: 'text', required: true },
-  { name: 'binCode', label: 'Bin Location', type: 'text' },
+const stockFieldsBase: FormField[] = [
+  { name: 'warehouseName', label: 'Warehouse', type: 'select', required: true, options: [] },
+  { name: 'productName', label: 'Product', type: 'select', required: true, options: [] },
+  { name: 'binCode', label: 'Bin Location', type: 'select', options: [] },
   { name: 'quantity', label: 'On Hand', type: 'number', required: true },
   { name: 'reorderLevel', label: 'Reorder Level', type: 'number' },
   {
@@ -30,10 +31,10 @@ const stockFields: FormField[] = [
   },
 ]
 
-const movementFields: FormField[] = [
+const movementFieldsBase: FormField[] = [
   { name: 'reference', label: 'Reference', type: 'text', required: true },
-  { name: 'partnerName', label: 'Customer / Supplier', type: 'text', required: true },
-  { name: 'warehouseName', label: 'Warehouse', type: 'text', required: true },
+  { name: 'partnerName', label: 'Customer / Supplier', type: 'select', required: true, options: [] },
+  { name: 'warehouseName', label: 'Warehouse', type: 'select', required: true, options: [] },
   { name: 'scheduledDate', label: 'Scheduled Date', type: 'date' },
   {
     name: 'status',
@@ -48,10 +49,10 @@ const movementFields: FormField[] = [
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
-const countFields: FormField[] = [
+const countFieldsBase: FormField[] = [
   { name: 'reference', label: 'Count #', type: 'text', required: true },
-  { name: 'warehouseName', label: 'Warehouse', type: 'text', required: true },
-  { name: 'binCode', label: 'Bin Location', type: 'text', required: true },
+  { name: 'warehouseName', label: 'Warehouse', type: 'select', required: true, options: [] },
+  { name: 'binCode', label: 'Bin Location', type: 'select', required: true, options: [] },
   { name: 'countDate', label: 'Count Date', type: 'date' },
   {
     name: 'status',
@@ -71,11 +72,17 @@ const flow: Record<string, string> = {
 }
 
 const InventoryModule: React.FC = () => {
+  const showNotification = useUIStore((state) => state.showNotification)
   const [activeTab, setActiveTab] = useState('stock')
   const [stock, setStock] = useState<any[]>([])
   const [deliveries, setDeliveries] = useState<any[]>([])
   const [receipts, setReceipts] = useState<any[]>([])
   const [counts, setCounts] = useState<any[]>([])
+  const [warehouses, setWarehouses] = useState<any[]>([])
+  const [customers, setCustomers] = useState<any[]>([])
+  const [suppliers, setSuppliers] = useState<any[]>([])
+  const [products, setProducts] = useState<any[]>([])
+  const [binLocations, setBinLocations] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
@@ -156,6 +163,30 @@ const InventoryModule: React.FC = () => {
       })
   }, [])
 
+  useEffect(() => {
+    Promise.all([
+      erpApi.get<any[]>('/warehouse/warehouses'),
+      erpApi.get<any[]>('/customers?limit=1000'),
+      erpApi.get<any[]>('/suppliers?limit=1000'),
+      erpApi.get<any[]>('/products?limit=1000'),
+      erpApi.get<any[]>('/warehouse/bin-locations?limit=1000'),
+    ])
+      .then(([warehouseData, customerData, supplierData, productData, binData]) => {
+        setWarehouses(warehouseData)
+        setCustomers(customerData)
+        setSuppliers(supplierData)
+        setProducts(productData)
+        setBinLocations(binData)
+      })
+      .catch(() => {
+        setWarehouses([])
+        setCustomers([])
+        setSuppliers([])
+        setProducts([])
+        setBinLocations([])
+      })
+  }, [])
+
   const activeSetters: Record<string, React.Dispatch<React.SetStateAction<any[]>>> = {
     stock: setStock,
     deliveries: setDeliveries,
@@ -163,7 +194,35 @@ const InventoryModule: React.FC = () => {
     counts: setCounts,
   }
   const activeRecords = activeTab === 'stock' ? stock : activeTab === 'deliveries' ? deliveries : activeTab === 'receipts' ? receipts : counts
-  const activeFields = activeTab === 'stock' ? stockFields : activeTab === 'counts' ? countFields : movementFields
+  const warehouseOptions = useMemo(
+    () => warehouses.map((warehouse) => ({ value: warehouse.name, label: `${warehouse.name} (${warehouse.warehouseCode || warehouse.warehouse_code})` })),
+    [warehouses]
+  )
+  const productOptions = useMemo(
+    () => products.map((product) => ({ value: product.name, label: `${product.name} (${product.sku})` })),
+    [products]
+  )
+  const partnerOptions = useMemo(() => {
+    const source = activeTab === 'deliveries' ? customers : suppliers
+    return source.map((partner) => ({ value: partner.name, label: partner.name }))
+  }, [activeTab, customers, suppliers])
+  const filteredBinOptions = useMemo(() => {
+    const selectedWarehouse = modalRecord?.warehouseName
+    const source = selectedWarehouse
+      ? binLocations.filter((bin) => bin.warehouseName === selectedWarehouse)
+      : binLocations
+    return source.map((bin) => ({ value: bin.binCode, label: `${bin.binCode} - ${bin.warehouseName}` }))
+  }, [binLocations, modalRecord?.warehouseName])
+  const activeFields = useMemo(() => {
+    const source = activeTab === 'stock' ? stockFieldsBase : activeTab === 'counts' ? countFieldsBase : movementFieldsBase
+    return source.map((field) => {
+      if (field.name === 'warehouseName') return { ...field, options: warehouseOptions }
+      if (field.name === 'productName') return { ...field, options: productOptions }
+      if (field.name === 'partnerName') return { ...field, label: activeTab === 'deliveries' ? 'Customer' : 'Supplier', options: partnerOptions }
+      if (field.name === 'binCode') return { ...field, options: filteredBinOptions }
+      return field
+    })
+  }, [activeTab, warehouseOptions, productOptions, partnerOptions, filteredBinOptions])
   const activeTitle = activeTab === 'stock' ? 'Stock Item' : activeTab === 'deliveries' ? 'Delivery Order' : activeTab === 'receipts' ? 'Goods Receipt' : 'Stock Count'
 
   const filteredRecords = useMemo(() => {
@@ -204,7 +263,7 @@ const InventoryModule: React.FC = () => {
         await erpApi.post(path, record)
       }
     } catch (error: any) {
-      window.alert(`Inventory API save failed: ${error.message}`)
+      showNotification('error', `Inventory save failed: ${error.message}`)
       return
     }
     activeSetters[activeTab]((current) => {

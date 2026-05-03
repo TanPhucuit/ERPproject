@@ -13,6 +13,7 @@ import {
   ViewMode,
   formatCurrency,
 } from '../components/OdooLite'
+import { useUIStore } from '../stores/uiStore'
 
 type MasterTabId =
   | 'categories'
@@ -384,6 +385,7 @@ const renderValue = (key: string, value: any) => {
 }
 
 const MasterDataPage: React.FC = () => {
+  const showNotification = useUIStore((state) => state.showNotification)
   const [activeTab, setActiveTab] = useState<MasterTabId>('categories')
   const [datasets, setDatasets] = useState<Record<MasterTabId, any[]>>({
     categories: [],
@@ -404,6 +406,18 @@ const MasterDataPage: React.FC = () => {
 
   const config = tabConfigs[activeTab]
   const records = datasets[activeTab]
+  const categoryOptions = useMemo(
+    () => datasets.categories.map((category) => ({ value: category.name, label: category.name })),
+    [datasets.categories]
+  )
+  const warehouseOptions = useMemo(
+    () =>
+      datasets.warehouses.map((warehouse) => ({
+        value: warehouse.name,
+        label: `${warehouse.name}${warehouse.warehouseCode ? ` (${warehouse.warehouseCode})` : ''}`,
+      })),
+    [datasets.warehouses]
+  )
 
   const loadTab = async (tabId: MasterTabId) => {
     const tab = tabConfigs[tabId]
@@ -453,6 +467,18 @@ const MasterDataPage: React.FC = () => {
     )
   }, [config.statusKey, records])
 
+  const modalFields = useMemo(() => {
+    return config.fields.map((field) => {
+      if (activeTab === 'products' && field.name === 'categoryName') {
+        return { ...field, type: 'select' as const, options: categoryOptions }
+      }
+      if (activeTab === 'binLocations' && field.name === 'warehouseName') {
+        return { ...field, type: 'select' as const, options: warehouseOptions }
+      }
+      return field
+    })
+  }, [activeTab, categoryOptions, warehouseOptions, config.fields])
+
   const openCreate = () => {
     setModalRecord({ ...config.createRecord() })
     setModalOpen(true)
@@ -472,8 +498,10 @@ const MasterDataPage: React.FC = () => {
       }
       await loadTab(activeTab)
       setModalOpen(false)
+      showNotification('success', `${config.title} saved successfully.`)
     } catch (error: any) {
-      window.alert(`Master Data save failed: ${error.message}`)
+      showNotification('error', `Master Data save failed: ${error.message}`)
+      return
     }
   }
 
@@ -483,8 +511,9 @@ const MasterDataPage: React.FC = () => {
     try {
       await erpApi.delete(`${config.endpoint}/${record.id}`)
       await loadTab(activeTab)
+      showNotification('success', `${config.label.slice(0, -1)} deleted.`)
     } catch (error: any) {
-      window.alert(`Master Data delete failed: ${error.message}`)
+      showNotification('error', `Master Data delete failed: ${error.message}`)
     }
   }
 
@@ -608,7 +637,7 @@ const MasterDataPage: React.FC = () => {
         isOpen={modalOpen}
         title={modalRecord?.id ? `Edit ${config.label}` : config.primaryLabel}
         record={modalRecord}
-        fields={config.fields}
+        fields={modalFields}
         onClose={() => setModalOpen(false)}
         onSave={handleSave}
       />

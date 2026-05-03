@@ -12,10 +12,11 @@ import {
   StatusBadge,
   ViewMode,
 } from '../components/OdooLite'
+import { useUIStore } from '../stores/uiStore'
 
-const quotationFields: FormField[] = [
+const quotationFieldsBase: FormField[] = [
   { name: 'quoteNumber', label: 'Quotation #', type: 'text', required: true },
-  { name: 'customerName', label: 'Customer', type: 'text', required: true },
+  { name: 'customerName', label: 'Customer', type: 'select', required: true, options: [] },
   { name: 'date', label: 'Quote Date', type: 'date', required: true },
   { name: 'expiryDate', label: 'Expiry Date', type: 'date' },
   { name: 'total', label: 'Amount', type: 'number', required: true },
@@ -33,9 +34,9 @@ const quotationFields: FormField[] = [
   { name: 'description', label: 'Description', type: 'textarea' },
 ]
 
-const orderFields: FormField[] = [
+const orderFieldsBase: FormField[] = [
   { name: 'orderNumber', label: 'Sales Order #', type: 'text', required: true },
-  { name: 'customerName', label: 'Customer', type: 'text', required: true },
+  { name: 'customerName', label: 'Customer', type: 'select', required: true, options: [] },
   { name: 'date', label: 'Order Date', type: 'date', required: true },
   { name: 'dueDate', label: 'Delivery Date', type: 'date' },
   { name: 'total', label: 'Total', type: 'number', required: true },
@@ -66,9 +67,11 @@ const quoteFlow: Record<string, string> = {
 }
 
 const SalesModule: React.FC = () => {
+  const showNotification = useUIStore((state) => state.showNotification)
   const [activeTab, setActiveTab] = useState('orders')
   const [orders, setOrders] = useState<any[]>([])
   const [quotations, setQuotations] = useState<any[]>([])
+  const [customers, setCustomers] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
@@ -118,8 +121,26 @@ const SalesModule: React.FC = () => {
       })
   }, [])
 
+  useEffect(() => {
+    erpApi
+      .get<any[]>('/customers?limit=1000')
+      .then(setCustomers)
+      .catch(() => setCustomers([]))
+  }, [])
+
   const activeRecords = activeTab === 'orders' ? orders : quotations
-  const fields = activeTab === 'orders' ? orderFields : quotationFields
+  const customerOptions = useMemo(
+    () => customers.map((customer) => ({ value: customer.name, label: `${customer.name}${customer.customerNumber ? ` (${customer.customerNumber})` : ''}` })),
+    [customers]
+  )
+  const fields = useMemo(() => {
+    const source = activeTab === 'orders' ? orderFieldsBase : quotationFieldsBase
+    return source.map((field) =>
+      field.name === 'customerName'
+        ? { ...field, options: customerOptions }
+        : field
+    )
+  }, [activeTab, customerOptions])
   const title = activeTab === 'orders' ? 'Sales Order' : 'Quotation'
 
   const filteredRecords = useMemo(() => {
@@ -177,7 +198,7 @@ const SalesModule: React.FC = () => {
         record.id = created.id || record.id
       }
     } catch (error: any) {
-      window.alert(`Sales API save failed: ${error.message}`)
+      showNotification('error', `Sales save failed: ${error.message}`)
       return
     }
     const setter = activeTab === 'orders' ? setOrders : setQuotations
@@ -193,7 +214,7 @@ const SalesModule: React.FC = () => {
     try {
       await erpApi.delete(`${path}/${record.id}`)
     } catch (error: any) {
-      window.alert(`Sales API delete failed: ${error.message}`)
+      showNotification('error', `Sales delete failed: ${error.message}`)
       return
     }
     const setter = activeTab === 'orders' ? setOrders : setQuotations
