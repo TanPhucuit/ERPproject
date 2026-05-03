@@ -206,9 +206,11 @@ export const RecordModal: React.FC<{
   title: string
   record: any
   fields: FormField[]
+  errorMessage?: string | null
+  onErrorClear?: () => void
   onClose: () => void
   onSave: (record: any) => void
-}> = ({ isOpen, title, record, fields, onClose, onSave }) => {
+}> = ({ isOpen, title, record, fields, errorMessage, onErrorClear, onClose, onSave }) => {
   const [formData, setFormData] = useState<any>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -222,6 +224,9 @@ export const RecordModal: React.FC<{
   const handleChange = (field: FormField, value: string) => {
     const nextValue = field.type === 'number' ? Number(value) : value
     setFormData((current: any) => ({ ...current, [field.name]: nextValue }))
+    if (errorMessage && onErrorClear) {
+      onErrorClear()
+    }
     if (errors[field.name]) {
       setErrors((current) => ({ ...current, [field.name]: '' }))
     }
@@ -251,6 +256,12 @@ export const RecordModal: React.FC<{
           </button>
         </div>
         <div className="max-h-[68vh] overflow-y-auto p-6">
+          {errorMessage && (
+            <div className="mb-5 rounded-md border border-red-200 bg-red-50 px-4 py-3">
+              <p className="text-sm font-semibold text-red-800">Please fix the following issue</p>
+              <p className="mt-1 text-sm text-red-700">{errorMessage}</p>
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {fields.map((field) => (
               <div key={field.name} className={field.type === 'textarea' ? 'md:col-span-2' : ''}>

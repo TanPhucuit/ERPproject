@@ -403,6 +403,7 @@ const MasterDataPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [modalRecord, setModalRecord] = useState<any>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [modalError, setModalError] = useState<string | null>(null)
 
   const config = tabConfigs[activeTab]
   const records = datasets[activeTab]
@@ -480,11 +481,13 @@ const MasterDataPage: React.FC = () => {
   }, [activeTab, categoryOptions, warehouseOptions, config.fields])
 
   const openCreate = () => {
+    setModalError(null)
     setModalRecord({ ...config.createRecord() })
     setModalOpen(true)
   }
 
   const openEdit = (record: any) => {
+    setModalError(null)
     setModalRecord({ ...record })
     setModalOpen(true)
   }
@@ -497,10 +500,11 @@ const MasterDataPage: React.FC = () => {
         await erpApi.post(config.endpoint, record)
       }
       await loadTab(activeTab)
+      setModalError(null)
       setModalOpen(false)
       showNotification('success', `${config.title} saved successfully.`)
     } catch (error: any) {
-      showNotification('error', `Master Data save failed: ${error.message}`)
+      setModalError(error.message)
       return
     }
   }
@@ -638,7 +642,12 @@ const MasterDataPage: React.FC = () => {
         title={modalRecord?.id ? `Edit ${config.label}` : config.primaryLabel}
         record={modalRecord}
         fields={modalFields}
-        onClose={() => setModalOpen(false)}
+        errorMessage={modalError}
+        onErrorClear={() => setModalError(null)}
+        onClose={() => {
+          setModalError(null)
+          setModalOpen(false)
+        }}
         onSave={handleSave}
       />
     </div>

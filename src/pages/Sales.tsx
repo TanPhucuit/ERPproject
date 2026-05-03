@@ -78,6 +78,7 @@ const SalesModule: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [modalOpen, setModalOpen] = useState(false)
   const [modalRecord, setModalRecord] = useState<any>(null)
+  const [modalError, setModalError] = useState<string | null>(null)
 
   useEffect(() => {
     erpApi
@@ -152,6 +153,7 @@ const SalesModule: React.FC = () => {
 
   const openCreate = () => {
     const prefix = activeTab === 'orders' ? 'SO' : 'QT'
+    setModalError(null)
     setModalRecord({
       id: `${activeTab}-${Date.now()}`,
       [activeTab === 'orders' ? 'orderNumber' : 'quoteNumber']: `${prefix}-${Date.now().toString().slice(-5)}`,
@@ -198,7 +200,7 @@ const SalesModule: React.FC = () => {
         record.id = created.id || record.id
       }
     } catch (error: any) {
-      showNotification('error', `Sales save failed: ${error.message}`)
+      setModalError(error.message)
       return
     }
     const setter = activeTab === 'orders' ? setOrders : setQuotations
@@ -206,6 +208,7 @@ const SalesModule: React.FC = () => {
       const exists = current.some((item) => item.id === record.id)
       return exists ? current.map((item) => (item.id === record.id ? record : item)) : [record, ...current]
     })
+    setModalError(null)
     setModalOpen(false)
   }
 
@@ -233,7 +236,8 @@ const SalesModule: React.FC = () => {
     const flow = activeTab === 'orders' ? orderFlow : quoteFlow
     return (
       <RecordActions
-        onEdit={() => {
+          onEdit={() => {
+          setModalError(null)
           setModalRecord(record)
           setModalOpen(true)
         }}
@@ -336,7 +340,12 @@ const SalesModule: React.FC = () => {
         title={`${modalRecord && activeRecords.some((item) => item.id === modalRecord.id) ? 'Edit' : 'Create'} ${title}`}
         record={modalRecord}
         fields={fields}
-        onClose={() => setModalOpen(false)}
+        errorMessage={modalError}
+        onErrorClear={() => setModalError(null)}
+        onClose={() => {
+          setModalError(null)
+          setModalOpen(false)
+        }}
         onSave={saveRecord}
       />
     </div>
