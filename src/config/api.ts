@@ -1,4 +1,3 @@
-export const API_BASE_URL = import.meta.env.VITE_API_URL || import.meta.env.NEXT_PUBLIC_API_URL || '/api'
 export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || import.meta.env.NEXT_PUBLIC_SUPABASE_URL || ''
 export const SUPABASE_ANON_KEY =
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
@@ -29,22 +28,22 @@ export const API_ENDPOINTS = {
   // Sales Orders
   SALES_ORDERS: '/sales-orders',
   SALES_ORDER: (id: string) => `/sales-orders/${id}`,
-  QUOTATIONS: '/quotations',
-  QUOTATION: (id: string) => `/quotations/${id}`,
+  QUOTATIONS: '/sales-orders/quotations',
+  QUOTATION: (id: string) => `/sales-orders/quotations/${id}`,
 
   // Purchase Orders
-  PURCHASE_ORDERS: '/purchase-orders',
-  PURCHASE_ORDER: (id: string) => `/purchase-orders/${id}`,
-  RFQS: '/rfqs',
+  PURCHASE_ORDERS: '/purchase/purchase-orders',
+  PURCHASE_ORDER: (id: string) => `/purchase/purchase-orders/${id}`,
+  RFQS: '/purchase/rfqs',
 
   // Inventory
-  STOCK_LEVELS: '/stock-levels',
-  DELIVERY_ORDERS: '/delivery-orders',
-  GOODS_RECEIPTS: '/goods-receipts',
+  STOCK_LEVELS: '/inventory/stock-levels',
+  DELIVERY_ORDERS: '/inventory/delivery-orders',
+  GOODS_RECEIPTS: '/inventory/goods-receipts',
 
   // Leads
-  LEADS: '/leads',
-  LEAD: (id: string) => `/leads/${id}`,
+  LEADS: '/crm/leads',
+  LEAD: (id: string) => `/crm/leads/${id}`,
 
   // Suppliers
   SUPPLIERS: '/suppliers',
@@ -57,6 +56,6 @@ export const API_ENDPOINTS = {
   SUPPLIER_METRICS: '/metrics/suppliers',
 
   // Warehouses
-  WAREHOUSES: '/warehouses',
-  WAREHOUSE: (id: string) => `/warehouses/${id}`,
+  WAREHOUSES: '/warehouse/warehouses',
+  WAREHOUSE: (id: string) => `/warehouse/warehouses/${id}`,
 }

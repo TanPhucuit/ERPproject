@@ -79,7 +79,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
 
       navigate(from, { replace: true })
     } catch (error: any) {
-      showNotification('error', error?.response?.data?.error || 'Authentication failed.')
+      showNotification('error', error?.message || error?.response?.data?.error || 'Authentication failed.')
     }
   }
 
