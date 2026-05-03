@@ -32,9 +32,16 @@ const emptyMetrics = {
   totalRevenue: 0,
   totalOrders: 0,
   activeCustomers: 0,
+  inventoryItems: 0,
   invoiceStatus: { paid: 0, pending: 0, overdue: 0 },
   revenueByMonth: [],
+  quarterlyPerformance: [],
   topProducts: [],
+  alerts: {
+    overdueInvoices: 0,
+    lowStockItems: 0,
+    pendingApprovals: 0,
+  },
 }
 
 const Dashboard: React.FC = () => {
@@ -47,33 +54,62 @@ const Dashboard: React.FC = () => {
       setLoading(true)
       setError(null)
       try {
-        const [dailyMetrics, productMetrics, customerMetrics, accountingMetrics] = await Promise.all([
+        const [dailyMetrics, productMetrics, customerMetrics, accountingMetrics, stockLevels, purchaseOrders] = await Promise.all([
           erpApi.get<any[]>('/metrics/daily?days=180'),
           erpApi.get<any[]>('/metrics/products'),
           erpApi.get<any[]>('/metrics/customers'),
           erpApi.get<any>('/accounting/metrics'),
+          erpApi.get<any[]>('/inventory/stock-levels?limit=500'),
+          erpApi.get<any[]>('/purchase/purchase-orders?limit=200'),
         ])
 
         const monthlyRevenue = new Map<string, number>()
+        const quarterlyBuckets = new Map<string, { metric: string; sales: number; orders: number; customers: number }>()
         dailyMetrics.forEach((metric) => {
-          const month = String(metric.metric_date || '').slice(0, 7)
+          const dateText = String(metric.metric_date || '')
+          const month = dateText.slice(0, 7)
           monthlyRevenue.set(month, (monthlyRevenue.get(month) || 0) + Number(metric.total_sales_revenue || 0))
+
+          const date = dateText ? new Date(dateText) : null
+          if (date && !Number.isNaN(date.getTime())) {
+            const quarter = `Q${Math.floor(date.getMonth() / 3) + 1}`
+            const bucket = quarterlyBuckets.get(quarter) || { metric: quarter, sales: 0, orders: 0, customers: 0 }
+            bucket.sales += Number(metric.total_sales_revenue || 0)
+            bucket.orders += Number(metric.orders_created || 0)
+            bucket.customers += Number(metric.new_customers || metric.customers_created || 0)
+            quarterlyBuckets.set(quarter, bucket)
+          }
         })
+
+        const lowStockItems = stockLevels.filter((item) =>
+          ['understocked', 'critical', 'low'].includes(String(item.reorder_status || '').toLowerCase())
+        ).length
+
+        const pendingApprovals = purchaseOrders.filter((po) =>
+          ['draft', 'confirmed'].includes(String(po.status || '').toLowerCase())
+        ).length
 
         setMetrics({
           totalRevenue: dailyMetrics.reduce((sum, metric) => sum + Number(metric.total_sales_revenue || 0), 0),
           totalOrders: dailyMetrics.reduce((sum, metric) => sum + Number(metric.orders_created || 0), 0),
           activeCustomers: customerMetrics.length,
+          inventoryItems: stockLevels.length,
           invoiceStatus: {
             paid: accountingMetrics?.paidInvoices || accountingMetrics?.paid_invoices || 0,
             pending: accountingMetrics?.pendingInvoices || accountingMetrics?.pending_invoices || 0,
             overdue: accountingMetrics?.overdueInvoices || accountingMetrics?.overdue_invoices || 0,
           },
           revenueByMonth: Array.from(monthlyRevenue.entries()).map(([month, revenue]) => ({ month, revenue })),
+          quarterlyPerformance: Array.from(quarterlyBuckets.values()).sort((a, b) => a.metric.localeCompare(b.metric)),
           topProducts: productMetrics.map((product) => ({
             name: product.product_name || product.name || product.sku || 'Product',
             sales: Number(product.total_quantity_sold || product.total_revenue || 0),
           })),
+          alerts: {
+            overdueInvoices: accountingMetrics?.overdueInvoices || accountingMetrics?.overdue_invoices || 0,
+            lowStockItems,
+            pendingApprovals,
+          },
         })
       } catch (loadError: any) {
         setError(loadError.message || 'Unable to load dashboard data from backend')
@@ -116,7 +152,7 @@ const Dashboard: React.FC = () => {
     },
     {
       label: 'Inventory Items',
-      value: '2,430',
+      value: metrics.inventoryItems,
       icon: Warehouse,
       color: 'text-orange-600',
       bgColor: 'bg-orange-100',
@@ -129,13 +165,6 @@ const Dashboard: React.FC = () => {
     { name: 'Paid', value: metrics.invoiceStatus.paid, color: '#10b981' },
     { name: 'Pending', value: metrics.invoiceStatus.pending, color: '#f59e0b' },
     { name: 'Overdue', value: metrics.invoiceStatus.overdue, color: '#ef4444' },
-  ]
-
-  const performanceData = [
-    { metric: 'Q1', sales: 4000, orders: 2400, customers: 2210 },
-    { metric: 'Q2', sales: 3000, orders: 1398, customers: 2210 },
-    { metric: 'Q3', sales: 2000, orders: 9800, customers: 2290 },
-    { metric: 'Q4', sales: 2780, orders: 3908, customers: 2000 },
   ]
 
   return (
@@ -269,7 +298,7 @@ const Dashboard: React.FC = () => {
             <p className="text-sm text-gray-600">Sales, orders & customers by quarter</p>
           </div>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={performanceData}>
+            <BarChart data={metrics.quarterlyPerformance}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="metric" stroke="#9ca3af" />
               <YAxis stroke="#9ca3af" />
@@ -324,22 +353,22 @@ const Dashboard: React.FC = () => {
             <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex gap-3">
               <AlertCircle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-gray-900">3 Overdue Invoices</p>
-                <p className="text-sm text-gray-600">Total amount: $15,240</p>
+                <p className="font-semibold text-gray-900">{metrics.alerts.overdueInvoices} Overdue Invoices</p>
+                <p className="text-sm text-gray-600">Live count from accounting data</p>
               </div>
             </div>
             <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex gap-3">
               <AlertCircle size={18} className="text-yellow-600 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-gray-900">5 Low Stock Items</p>
-                <p className="text-sm text-gray-600">Urgent reorder needed</p>
+                <p className="font-semibold text-gray-900">{metrics.alerts.lowStockItems} Low Stock Items</p>
+                <p className="text-sm text-gray-600">Based on current reorder status</p>
               </div>
             </div>
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg flex gap-3">
               <Clock size={18} className="text-blue-600 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="font-semibold text-gray-900">Pending Approvals</p>
-                <p className="text-sm text-gray-600">2 purchase orders waiting</p>
+                <p className="text-sm text-gray-600">{metrics.alerts.pendingApprovals} purchase orders waiting</p>
               </div>
             </div>
           </div>
@@ -352,7 +381,7 @@ const Dashboard: React.FC = () => {
             Top Products
           </h2>
           <div className="space-y-4">
-            {metrics.topProducts?.map((product: any, idx: number) => (
+            {metrics.topProducts?.length > 0 ? metrics.topProducts.map((product: any, idx: number) => (
               <div key={idx} className="flex items-center justify-between pb-3 border-b last:border-b-0">
                 <div>
                   <p className="font-semibold text-gray-900">{product.name}</p>
@@ -369,7 +398,11 @@ const Dashboard: React.FC = () => {
                   })}
                 </p>
               </div>
-            ))}
+            )) : (
+              <div className="rounded-lg border border-dashed border-gray-200 p-6 text-sm text-gray-500">
+                No product sales data available yet.
+              </div>
+            )}
           </div>
         </div>
       </div>
