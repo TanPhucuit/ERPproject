@@ -499,6 +499,7 @@ const MasterDataPage: React.FC = () => {
     binLocations: [],
     unitsOfMeasure: [],
   })
+  const [departments, setDepartments] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -524,7 +525,10 @@ const MasterDataPage: React.FC = () => {
   const [supplierTypes, setSupplierTypes] = useState<any[]>([])
 
   const supplierTypeOptions = useMemo(
-    () => supplierTypes.map((type: any) => ({ value: type.id, label: type.name })),
+    () => supplierTypes.map((type: any) => ({
+      value: type.id,  // Use id as value
+      label: type.name  // Show name for display
+    })),
     [supplierTypes]
   )
   const parentCategoryOptions = useMemo(
@@ -535,7 +539,10 @@ const MasterDataPage: React.FC = () => {
     [datasets.categories]
   )
   const uomOptions = useMemo(
-    () => datasets.unitsOfMeasure?.map((uom: any) => ({ value: uom.name, label: uom.name })) || [],
+    () => datasets.unitsOfMeasure?.map((uom: any) => ({
+      value: uom.name,  // Use name as value for display matching
+      label: `${uom.name} (${uom.code})`  // Show name and code for clarity
+    })) || [],
     [datasets.unitsOfMeasure]
   )
   const warehouseOptions = useMemo(
@@ -557,9 +564,11 @@ const MasterDataPage: React.FC = () => {
     [datasets.users]
   )
   const departmentOptions = useMemo(() => {
-    const depts = new Set(datasets.users.map((u: any) => u.department).filter(Boolean))
-    return [{ value: '', label: '-- Select Department --' }, ...Array.from(depts).map((d: any) => ({ value: d, label: d }))]
-  }, [datasets.users])
+    return [
+      { value: '', label: '-- Select Department --' },
+      ...departments.map((d: any) => ({ value: d.id, label: d.name }))
+    ]
+  }, [departments])
 
   const loadTab = async (tabId: MasterTabId) => {
     const tab = tabConfigs[tabId]
@@ -585,6 +594,15 @@ const MasterDataPage: React.FC = () => {
     }
   }
 
+  const loadDepartments = async () => {
+    try {
+      const data = await erpApi.get<any[]>('/departments')
+      setDepartments(data)
+    } catch (e) {
+      // Silently fail if endpoint doesn't exist
+    }
+  }
+
   const loadAll = async () => {
     setLoading(true)
     try {
@@ -601,6 +619,7 @@ const MasterDataPage: React.FC = () => {
     loadAll()
     loadUnitsOfMeasure()
     loadSupplierTypes()
+    loadDepartments()
   }, [])
 
   useEffect(() => {
@@ -652,7 +671,7 @@ const MasterDataPage: React.FC = () => {
       }
       return field
     })
-  }, [activeTab, categoryOptions, uomOptions, warehouseOptions, userOptions, departmentOptions, parentCategoryOptions, supplierTypeOptions, config.fields])
+  }, [activeTab, categoryOptions, uomOptions, warehouseOptions, userOptions, departmentOptions, parentCategoryOptions, supplierTypeOptions, supplierTypes, datasets.unitsOfMeasure, config.fields])
 
   const openCreate = () => {
     setModalError(null)
@@ -667,8 +686,8 @@ const MasterDataPage: React.FC = () => {
       recordCopy.warehouseName = record.warehouse_id || record.warehouseName || ''
     }
     if (activeTab === 'products') {
-      recordCopy.categoryName = record.category_id || record.category?.id || record.category?.name || ''
-      recordCopy.uomName = record.uom_id || record.uom?.id || record.uom?.name || ''
+      // uomName contains the name for display, uomCode contains the code
+      recordCopy.uomName = record.uomName || record.uom?.name || record.uom?.code || ''
     }
     if (activeTab === 'warehouses') {
       recordCopy.managerName = record.manager_id || record.manager?.id || record.manager?.full_name || ''
@@ -681,7 +700,12 @@ const MasterDataPage: React.FC = () => {
     }
     if (activeTab === 'suppliers') {
       recordCopy.is_preferred = record.is_preferred !== undefined ? String(record.is_preferred) : 'false'
-      recordCopy.supplierType = record.supplier_type_id || ''
+      // supplierType should show the name for display in dropdown
+      recordCopy.supplierType = record.supplierTypeName || record.supplier_type?.name || ''
+    }
+    if (activeTab === 'users') {
+      // departmentName should show the name for display in dropdown
+      recordCopy.departmentName = record.department?.name || record.departmentName || ''
     }
     setModalRecord(recordCopy)
     setModalOpen(true)
@@ -694,7 +718,9 @@ const MasterDataPage: React.FC = () => {
       // Map FK fields to proper names for API
       if (activeTab === 'products') {
         recordToSave.category_id = categoryOptions.find(c => c.label === record.categoryName)?.value || record.categoryName
-        recordToSave.uom_id = uomOptions.find(u => u.label === record.uomName)?.value || record.uomName
+        // UOM: record.uomName contains the name (used as value), resolve to UUID
+        const uomData = datasets.unitsOfMeasure?.find((u: any) => u.name === record.uomName)
+        recordToSave.uom_id = uomData?.id || record.uomName
       }
       if (activeTab === 'binLocations') {
         recordToSave.warehouse_id = warehouseOptions.find(w => w.label === record.warehouseName)?.value || record.warehouseName
@@ -707,7 +733,14 @@ const MasterDataPage: React.FC = () => {
       }
       if (activeTab === 'suppliers') {
         recordToSave.is_preferred = record.is_preferred === true || record.is_preferred === 'true'
-        recordToSave.supplier_type_id = supplierTypeOptions.find(s => s.value === record.supplierType)?.value || record.supplierType
+        // Supplier Type: record.supplierType contains the NAME (for display), resolve to UUID
+        const supplierTypeData = supplierTypes.find((s: any) => s.name === record.supplierType)
+        recordToSave.supplier_type_id = supplierTypeData?.id || record.supplierType
+      }
+      if (activeTab === 'users') {
+        // Department: record.departmentName contains the NAME (for display), resolve to UUID
+        const deptData = departments.find((d: any) => d.name === record.departmentName)
+        recordToSave.department_id = deptData?.id || record.departmentName
       }
       
       if (recordToSave.id) {

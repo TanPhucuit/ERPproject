@@ -560,6 +560,7 @@ const normalizeProductRow = (row: any) => ({
   ...row,
   categoryName: row.category?.name || row.categoryName || '',
   uomCode: row.uom?.code || '',
+  uomName: row.uom?.name || row.uom?.code || '',  // Use name for display, fallback to code
   listPrice: row.list_price,
   costPrice: row.cost_price,
   reorderLevel: row.reorder_level ?? 0,
@@ -582,6 +583,7 @@ const normalizeSupplierRow = (row: any) => ({
   ...row,
   supplierNumber: row.supplier_number,
   supplierTypeId: row.supplier_type_id || '',
+  supplierTypeName: row.supplier_type?.name || '',  // For dropdown display
   contactName: row.contact_person_name || '',
   contactEmail: row.contact_person_email || '',
   contactPhone: row.contact_person_phone || '',
@@ -1501,7 +1503,10 @@ const getResource = async <T>(path: string): Promise<T> => {
 
   if (pathname === '/suppliers') {
     const { data, error } = await applyLimit(
-      supabase.from('suppliers').select('*').order('created_at', { ascending: false }),
+      supabase
+        .from('suppliers')
+        .select('*, supplier_type:supplier_types(name)')
+        .order('created_at', { ascending: false }),
       searchParams
     )
     if (error) throw error
@@ -1510,7 +1515,11 @@ const getResource = async <T>(path: string): Promise<T> => {
 
   if (pathname.startsWith('/suppliers/')) {
     const id = pathname.split('/').pop()
-    const { data, error } = await supabase.from('suppliers').select('*').eq('id', id).single()
+    const { data, error } = await supabase
+      .from('suppliers')
+      .select('*, supplier_type:supplier_types(name)')
+      .eq('id', id)
+      .single()
     if (error) throw error
     return normalizeSupplierRow(data) as T
   }
@@ -1521,9 +1530,24 @@ const getResource = async <T>(path: string): Promise<T> => {
     return data as T
   }
 
+  if (pathname === '/units-of-measure') {
+    const { data, error } = await supabase.from('units_of_measure').select('*').order('name', { ascending: true })
+    if (error) throw error
+    return data as T
+  }
+
+  if (pathname === '/departments') {
+    const { data, error } = await supabase.from('departments').select('*').order('name', { ascending: true })
+    if (error) throw error
+    return data as T
+  }
+
   if (pathname === '/users') {
     const { data, error } = await applyLimit(
-      supabase.from('users').select('*').order('created_at', { ascending: false }),
+      supabase
+        .from('users')
+        .select('*, department:departments(name)')
+        .order('created_at', { ascending: false }),
       searchParams
     )
     if (error) throw error
@@ -1532,7 +1556,11 @@ const getResource = async <T>(path: string): Promise<T> => {
 
   if (pathname.startsWith('/users/')) {
     const id = pathname.split('/').pop()
-    const { data, error } = await supabase.from('users').select('*').eq('id', id).single()
+    const { data, error } = await supabase
+      .from('users')
+      .select('*, department:departments(name)')
+      .eq('id', id)
+      .single()
     if (error) throw error
     return normalizeUserRow(data) as T
   }
