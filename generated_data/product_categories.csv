@@ -1,16 +1,21 @@
-id,name,description,display_order,parent_id,created_at
-"1","Smart Cameras","IP cameras, Dome cameras, PTZ cameras, Doorbell cameras","1","","2024-01-01 00:00:00"
-"2","Smart Lighting","Smart bulbs, LED strips, Light switches, Dimmer switches","2","","2024-01-01 00:00:00"
-"3","Smart Security","Smart locks, Door sensors, Window sensors, Motion detectors","3","","2024-01-01 00:00:00"
-"4","Climate Control","Smart thermostats, Air quality monitors, Humidity sensors","4","","2024-01-01 00:00:00"
-"5","Home Entertainment","Smart speakers, Sound bars, Streaming devices","5","","2024-01-01 00:00:00"
-"6","Networking","Routers, Mesh systems, WiFi extenders, Network switches","6","","2024-01-01 00:00:00"
-"7","Smart Sensors","Temperature sensors, Water leak sensors, Gas sensors","7","","2024-01-01 00:00:00"
-"8","Smart Plugs & Switches","Smart plugs, Smart switches, Power strips","8","","2024-01-01 00:00:00"
-"9","Robotics","Robot vacuums, Robot mops, Pool cleaners","9","","2024-01-01 00:00:00"
-"10","Smart Appliances","Smart refrigerators, Smart washing machines, Smart ovens","10","","2024-01-01 00:00:00"
-"11","Smart Curtains & Blinds","Motorized curtains, Smart blinds, Sun sensors","11","","2024-01-01 00:00:00"
-"12","Smart Doorbells","Video doorbells, Intercom systems, Gate controllers","12","","2024-01-01 00:00:00"
-"13","Smart Hubs & Controllers","Central hubs, IR blasters, Universal remotes","13","","2024-01-01 00:00:00"
-"14","Cables & Connectors","HDMI cables, USB cables, Network cables, Adapters","14","","2024-01-01 00:00:00"
-"15","Accessories","Mounts, Stands, Cases, Batteries, Chargers","15","","2024-01-01 00:00:00"
+﻿id,name,description,parent_id,image_url,display_order,created_at,updated_at,is_deleted
+1,Smart Home,Smart home devices and systems,,,1,2025-01-23 05:02:49,2025-07-11 21:14:15,false
+2,Security,Security and surveillance products,,,2,2024-09-20 13:24:07,2025-06-12 23:32:50,false
+3,Networking,Network equipment and accessories,,,3,2024-05-05 05:39:19,2024-06-01 13:14:39,false
+4,Accessories,"Cables, connectors, and accessories",,,4,2024-06-14 07:10:08,2024-03-16 17:26:12,false
+5,Smart Home Hubs,Central control devices,1,,5,2024-08-12 05:40:52,2025-06-07 11:18:50,false
+6,Smart Sensors,Environmental and motion sensors,1,,6,2025-06-14 11:18:59,2025-07-17 03:27:42,false
+7,Smart Cameras,IP cameras and security cameras,2,,7,2025-04-08 06:27:50,2024-12-25 04:24:29,false
+8,Smart Locks,Electronic door locks,2,,8,2025-04-12 10:44:26,2026-04-13 22:39:23,false
+9,Network Equipment,"Routers, switches, mesh systems",3,,9,2024-04-27 14:29:01,2025-07-29 09:15:00,false
+10,Smart Lighting,"Smart bulbs, switches, dimmers",1,,10,2025-10-14 10:37:45,2024-03-01 16:37:31,false
+11,Smart Thermostats,Climate control devices,1,,11,2025-02-22 04:01:43,2025-06-17 06:29:03,false
+12,Smart Plugs,WiFi plugs and power strips,1,,12,2026-03-03 08:35:03,2024-12-06 00:30:30,false
+13,Smart Speakers,Voice assistants and speakers,1,,13,2026-03-25 06:45:49,2024-03-30 16:33:23,false
+14,Smart Doorbells,Video doorbells,2,,14,2025-01-23 11:28:18,2024-02-09 04:45:56,false
+15,IoT Components,DIY electronics and components,3,,15,2025-09-01 14:21:43,2025-06-11 00:29:26,false
+16,Cables & Connectors,"HDMI, USB, network cables",4,,16,2024-07-05 01:13:51,2024-05-02 19:49:23,false
+17,Smart Appliances,Connected home appliances,1,,17,2025-10-20 15:30:33,2024-07-17 04:56:50,false
+18,Security Systems,Alarm systems and sensors,2,,18,2024-05-16 02:41:01,2024-03-04 12:00:09,false
+19,Wearable Devices,Smart watches and fitness trackers,1,,19,2024-03-08 01:24:23,2026-03-14 08:45:34,false
+20,Automation Controllers,PLC and automation controllers,1,,20,2024-06-07 12:37:20,2024-09-06 12:44:07,false

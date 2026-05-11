@@ -1,0 +1,6 @@
+﻿id,name,description
+1,Cash,Cash payment
+2,Bank Transfer,Bank wire transfer
+3,Credit Card,Credit card payment
+4,Check,Check payment
+5,COD,Cash on delivery

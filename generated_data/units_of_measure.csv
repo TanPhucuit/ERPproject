@@ -1,7 +1,7 @@
-id,code,name,abbreviation,is_integer,factor,created_at
-"1","UNIT","Unit","pcs","true","1","2024-01-01 00:00:00"
-"2","BOX","Box","box","true","10","2024-01-01 00:00:00"
-"3","SET","Set","set","true","1","2024-01-01 00:00:00"
-"4","PACK","Pack","pk","true","5","2024-01-01 00:00:00"
-"5","METER","Meter","m","false","1","2024-01-01 00:00:00"
-"6","ROLL","Roll","roll","true","50","2024-01-01 00:00:00"
+﻿id,code,name
+1,PCS,Pieces
+2,BOX,Box
+3,SET,Set
+4,KG,Kilogram
+5,M,Meter
+6,ROLL,Roll

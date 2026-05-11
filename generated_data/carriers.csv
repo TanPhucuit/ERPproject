@@ -1,0 +1,5 @@
+﻿id,name,contact_person_name,contact_person_phone,contact_person_email,company_address,cost_per_km,average_delivery_time_days,status
+1,GHTK,GHTK Support,1900 6688,support@ghtk.vn,"Hanoi, Vietnam",3500,2,active
+2,GHN,GHN Support,1900 6328,support@ghn.vn,"Ho Chi Minh City, Vietnam",3000,2,active
+3,ViettelPost,Viettel Support,1900 8095,support@viettelpost.vn,"Hanoi, Vietnam",3200,3,active
+4,Ninja Van,Ninja Support,1900 6010,support@ninjavan.co,"Ho Chi Minh City, Vietnam",2800,2,active

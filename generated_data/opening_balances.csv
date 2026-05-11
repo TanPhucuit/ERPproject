@@ -1,18 +1,6 @@
-id,account_code,account_name,account_type,opening_debit,opening_credit,as_of_date,description,created_at
-"1","1000","Cash and Cash Equivalents","asset","","","2024-01-01","Asset account","2024-01-01 00:00:00"
-"2","1100","Accounts Receivable","asset","963712680","","2024-01-01","Asset account","2024-01-01 00:00:00"
-"3","1200","Inventory","asset","818508471","","2024-01-01","Asset account","2024-01-01 00:00:00"
-"4","1500","Property, Plant & Equipment","asset","760185406","","2024-01-01","Asset account","2024-01-01 00:00:00"
-"5","1600","Other Assets","asset","753204978","","2024-01-01","Asset account","2024-01-01 00:00:00"
-"6","2000","Accounts Payable","liability","","992961516","2024-01-01","Liability account","2024-01-01 00:00:00"
-"7","2100","Notes Payable","liability","","","2024-01-01","Liability account","2024-01-01 00:00:00"
-"8","2200","Accrued Expenses","liability","","437461761","2024-01-01","Liability account","2024-01-01 00:00:00"
-"9","2500","Long-term Debt","liability","","481623861","2024-01-01","Liability account","2024-01-01 00:00:00"
-"10","3000","Common Stock","equity","","220133870","2024-01-01","Equity account","2024-01-01 00:00:00"
-"11","3100","Retained Earnings","equity","","","2024-01-01","Equity account","2024-01-01 00:00:00"
-"12","4000","Sales Revenue","revenue","","","2024-01-01","Revenue account","2024-01-01 00:00:00"
-"13","4100","Service Revenue","revenue","","337269074","2024-01-01","Revenue account","2024-01-01 00:00:00"
-"14","5000","Cost of Goods Sold","expense","","","2024-01-01","Expense account","2024-01-01 00:00:00"
-"15","5100","Operating Expenses","expense","","","2024-01-01","Expense account","2024-01-01 00:00:00"
-"16","5200","Sales & Marketing Expenses","expense","47282259","","2024-01-01","Expense account","2024-01-01 00:00:00"
-"17","5300","Administrative Expenses","expense","125173063","","2024-01-01","Expense account","2024-01-01 00:00:00"
+﻿id,account_code,account_name,account_type,normal_balance,opening_debit,opening_credit
+1,1111,Cash,Asset,Debit,500000000,0
+2,1121,Bank Account - VCB,Asset,Debit,2000000000,0
+3,1122,Bank Account - BIDV,Asset,Debit,1500000000,0
+4,1311,Accounts Receivable,Asset,Debit,800000000,0
+5,3311,Accounts Payable,Liability,Credit,0,600000000

@@ -1,0 +1,9 @@
+﻿id,account_code,account_name,account_type,account_subtype,description,normal_balance,status
+1,1111,Cash,Asset,Cash,Cash on hand,Debit,active
+2,1121,Bank - VCB,Asset,Bank,Vietcombank Account,Debit,active
+3,1122,Bank - BIDV,Asset,Bank,BIDV Account,Debit,active
+4,1311,Accounts Receivable,Asset,Receivable,Customer receivables,Debit,active
+5,1521,Merchandise Inventory,Asset,Inventory,Inventory goods,Debit,active
+6,3311,Accounts Payable,Liability,Payable,Supplier payables,Credit,active
+7,4111,Sales Revenue,Revenue,Operating,Sales revenue,Credit,active
+8,5111,Cost of Goods Sold,Expense,Operating,COGS,Debit,active
