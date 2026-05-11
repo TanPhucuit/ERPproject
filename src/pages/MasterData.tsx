@@ -527,15 +527,11 @@ const MasterDataPage: React.FC = () => {
     () => datasets.categories.map((category) => ({ value: category.id, label: category.name })),
     [datasets.categories]
   )
+  const [supplierTypes, setSupplierTypes] = useState<any[]>([])
+
   const supplierTypeOptions = useMemo(
-    () => [
-      { value: 'equipment', label: 'Equipment & Product Suppliers' },
-      { value: 'components', label: 'Component & Part Suppliers' },
-      { value: 'logistics', label: 'Logistics & Transportation' },
-      { value: 'services', label: 'Service Providers' },
-      { value: 'maintenance', label: 'Maintenance & Repair Services' },
-    ],
-    []
+    () => supplierTypes.map((type: any) => ({ value: type.id, label: type.name })),
+    [supplierTypes]
   )
   const parentCategoryOptions = useMemo(
     () => [
@@ -586,6 +582,15 @@ const MasterDataPage: React.FC = () => {
     }
   }
 
+  const loadSupplierTypes = async () => {
+    try {
+      const data = await erpApi.get<any[]>('/supplier-types')
+      setSupplierTypes(data)
+    } catch (e) {
+      // Silently fail if endpoint doesn't exist
+    }
+  }
+
   const loadAll = async () => {
     setLoading(true)
     try {
@@ -601,6 +606,7 @@ const MasterDataPage: React.FC = () => {
   useEffect(() => {
     loadAll()
     loadUnitsOfMeasure()
+    loadSupplierTypes()
   }, [])
 
   useEffect(() => {

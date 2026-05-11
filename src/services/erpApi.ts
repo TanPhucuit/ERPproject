@@ -1515,6 +1515,12 @@ const getResource = async <T>(path: string): Promise<T> => {
     return normalizeSupplierRow(data) as T
   }
 
+  if (pathname === '/supplier-types') {
+    const { data, error } = await supabase.from('supplier_types').select('*').order('name', { ascending: true })
+    if (error) throw error
+    return data as T
+  }
+
   if (pathname === '/users') {
     const { data, error } = await applyLimit(
       supabase.from('users').select('*').order('created_at', { ascending: false }),
