@@ -1,0 +1,4 @@
+id,warehouse_code,name,city,province,location_address,capacity_sqm,status
+"1","WH-HN","Hanoi Central Warehouse","Hanoi","Hanoi","123 Dien Bien Phu, Ba Dinh, Hanoi","5000","active"
+"2","WH-HCM","Ho Chi Minh Warehouse","Ho Chi Minh","Ho Chi Minh City","456 Nguyen Hue, District 1, HCMC","4500","active"
+"3","WH-WAR","Warranty & Service Warehouse","Hanoi","Hanoi","789 Le Dai Hanh, Hai Ba Trung, Hanoi","2000","active"

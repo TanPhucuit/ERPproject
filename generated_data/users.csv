@@ -1,0 +1,6 @@
+id,email,password_hash,full_name,phone,avatar_url,role,department_id,status,last_login,login_attempts,locked_until
+"1","admin@example.com","hashed_password","Admin User","+84912345001","","Admin","","active","","0",""
+"2","sales@example.com","hashed_password","Sales Manager","+84912345002","","Sales_Manager","","active","","0",""
+"3","purchasing@example.com","hashed_password","Purchasing Manager","+84912345003","","Purchasing_Manager","","active","","0",""
+"4","warehouse@example.com","hashed_password","Warehouse Manager","+84912345004","","Warehouse_Manager","","active","","0",""
+"5","accountant@example.com","hashed_password","Chief Accountant","+84912345005","","Accountant","","active","","0",""

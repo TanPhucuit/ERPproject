@@ -105,6 +105,19 @@ const customerFields: FormField[] = [
 
 const supplierFields: FormField[] = [
   { name: 'name', label: 'Supplier Name', type: 'text', required: true },
+  {
+    name: 'supplierTypeId',
+    label: 'Supplier Type',
+    type: 'select',
+    required: true,
+    options: [
+      { value: 'equipment', label: 'Equipment & Product Suppliers' },
+      { value: 'components', label: 'Component & Part Suppliers' },
+      { value: 'logistics', label: 'Logistics & Transportation' },
+      { value: 'services', label: 'Service Providers' },
+      { value: 'maintenance', label: 'Maintenance & Repair Services' },
+    ],
+  },
   { name: 'contactName', label: 'Contact Name', type: 'text' },
   { name: 'contactEmail', label: 'Contact Email', type: 'email' },
   { name: 'contactPhone', label: 'Contact Phone', type: 'text' },
@@ -270,6 +283,7 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
       { key: 'customerNumber', label: 'Customer No.' },
       { key: 'name', label: 'Customer' },
       { key: 'customerType', label: 'Type' },
+      { key: 'contactName', label: 'Contact' },
       { key: 'contactEmail', label: 'Email' },
       { key: 'status', label: 'Status' },
     ],
@@ -282,6 +296,7 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     title: 'Suppliers',
     createRecord: () => ({
       name: '',
+      supplierTypeId: '1',
       contactName: '',
       contactEmail: '',
       contactPhone: '',
@@ -296,8 +311,10 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     getColumns: () => [
       { key: 'supplierNumber', label: 'Supplier No.' },
       { key: 'name', label: 'Supplier' },
-      { key: 'contactEmail', label: 'Email' },
-      { key: 'paymentTerms', label: 'Terms' },
+      { key: 'contactName', label: 'Contact' },
+      { key: 'contactPhone', label: 'Phone' },
+      { key: 'companyAddress', label: 'Address' },
+      { key: 'averageLeadTimeDays', label: 'Lead Days', align: 'right' },
       { key: 'status', label: 'Status' },
     ],
   },
@@ -336,9 +353,9 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
       name: '',
       city: '',
       province: '',
+      locationAddress: '',
       capacitySqm: 0,
       status: 'active',
-      locationAddress: '',
     }),
     fields: warehouseFields,
     searchKeys: ['warehouseCode', 'name', 'city', 'province', 'locationAddress'],
@@ -347,6 +364,8 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
       { key: 'warehouseCode', label: 'Code' },
       { key: 'name', label: 'Warehouse' },
       { key: 'city', label: 'City' },
+      { key: 'province', label: 'Province' },
+      { key: 'locationAddress', label: 'Location' },
       { key: 'capacitySqm', label: 'Capacity (sqm)', align: 'right' },
       { key: 'status', label: 'Status' },
     ],
@@ -359,6 +378,7 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     title: 'Bin Locations',
     createRecord: () => ({
       warehouseName: '',
+      warehouseId: '',
       binCode: '',
       capacityUnits: 0,
       currentOccupancyUnits: 0,
@@ -370,7 +390,8 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     statusKey: 'status',
     getColumns: () => [
       { key: 'warehouseName', label: 'Warehouse' },
-      { key: 'binCode', label: 'Bin' },
+      { key: 'binCode', label: 'Bin Code' },
+      { key: 'description', label: 'Description' },
       { key: 'capacityUnits', label: 'Capacity', align: 'right' },
       { key: 'currentOccupancyUnits', label: 'Occupancy', align: 'right' },
       { key: 'status', label: 'Status' },
@@ -406,7 +427,12 @@ const MasterDataPage: React.FC = () => {
   const [modalError, setModalError] = useState<string | null>(null)
 
   const config = tabConfigs[activeTab]
-  const records = datasets[activeTab]
+  const records = useMemo(() => {
+    if (activeTab === 'categories') {
+      return [...datasets.categories].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))
+    }
+    return datasets[activeTab]
+  }, [datasets, activeTab])
   const categoryOptions = useMemo(
     () => datasets.categories.map((category) => ({ value: category.name, label: category.name })),
     [datasets.categories]
@@ -414,8 +440,9 @@ const MasterDataPage: React.FC = () => {
   const warehouseOptions = useMemo(
     () =>
       datasets.warehouses.map((warehouse) => ({
-        value: warehouse.name,
-        label: `${warehouse.name}${warehouse.warehouseCode ? ` (${warehouse.warehouseCode})` : ''}`,
+        value: warehouse.id,
+        label: `${warehouse.name} (${warehouse.id})`,
+        name: warehouse.name,
       })),
     [datasets.warehouses]
   )
@@ -488,16 +515,24 @@ const MasterDataPage: React.FC = () => {
 
   const openEdit = (record: any) => {
     setModalError(null)
-    setModalRecord({ ...record })
+    const recordCopy = { ...record }
+    if (activeTab === 'binLocations') {
+      recordCopy.warehouseName = record.warehouseId || ''
+    }
+    setModalRecord(recordCopy)
     setModalOpen(true)
   }
 
   const handleSave = async (record: any) => {
     try {
-      if (record.id) {
-        await erpApi.put(`${config.endpoint}/${record.id}`, record)
+      const recordToSave = { ...record }
+      if (activeTab === 'binLocations') {
+        recordToSave.warehouseName = warehouseOptions.find(w => w.value === record.warehouseName)?.name || record.warehouseName
+      }
+      if (recordToSave.id) {
+        await erpApi.put(`${config.endpoint}/${recordToSave.id}`, recordToSave)
       } else {
-        await erpApi.post(config.endpoint, record)
+        await erpApi.post(config.endpoint, recordToSave)
       }
       await loadTab(activeTab)
       setModalError(null)

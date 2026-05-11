@@ -274,6 +274,13 @@ const resolveSupplierId = async (name?: string | null) => {
 
 const resolveWarehouseId = async (name?: string | null) => {
   const normalized = normalizeText(name)
+  if (!normalized) {
+    throw new Error('Warehouse is required and must exist in Master Data.')
+  }
+  const idMatch = normalized.match(/\((\d+)\)$/)
+  if (idMatch) {
+    return idMatch[1]
+  }
   if (normalized) {
     const byName = await maybeSingleByName('warehouses', normalized, 'id, name, warehouse_code')
     if (byName?.id) return byName.id as string
@@ -553,6 +560,8 @@ const normalizeProductRow = (row: any) => ({
   ...row,
   categoryName: row.category?.name || row.categoryName || '',
   uomCode: row.uom?.code || '',
+  listPrice: row.list_price,
+  costPrice: row.cost_price,
   reorderLevel: row.reorder_level ?? 0,
   reorderQuantity: row.reorder_quantity ?? 0,
   supplierLeadTimeDays: row.supplier_lead_time_days ?? 0,
@@ -565,15 +574,18 @@ const normalizeCustomerMasterRow = (row: any) => ({
   contactName: row.contact_person_name || '',
   contactEmail: row.contact_person_email || '',
   contactPhone: row.contact_person_phone || '',
+  billingAddress: row.billing_address || '',
   paymentTerms: row.payment_terms || 'NET30',
 })
 
 const normalizeSupplierRow = (row: any) => ({
   ...row,
   supplierNumber: row.supplier_number,
+  supplierTypeId: row.supplier_type_id || '',
   contactName: row.contact_person_name || '',
   contactEmail: row.contact_person_email || '',
   contactPhone: row.contact_person_phone || '',
+  companyAddress: row.company_address || '',
   paymentTerms: row.payment_terms || 'NET30',
   averageLeadTimeDays: row.average_lead_time_days ?? 7,
 })
@@ -581,21 +593,26 @@ const normalizeSupplierRow = (row: any) => ({
 const normalizeUserRow = (row: any) => ({
   ...row,
   fullName: row.full_name,
-  password: '',
+  password: '', // Never expose password_hash, use empty string for security
 })
 
 const normalizeWarehouseRow = (row: any) => ({
   ...row,
   warehouseCode: row.warehouse_code,
   locationAddress: row.location_address || '',
+  province: row.province || '',
+  city: row.city || '',
   capacitySqm: row.capacity_sqm ?? 0,
   currentOccupancySqm: row.current_occupancy_sqm ?? 0,
 })
 
 const normalizeBinLocationRow = (row: any) => ({
   ...row,
+  warehouseId: row.warehouse_id,
   warehouseName: row.warehouse?.name || '',
   warehouseCode: row.warehouse?.warehouse_code || '',
+  binCode: row.bin_code || '',
+  description: row.description || '',
   capacityUnits: row.capacity_units ?? 0,
   currentOccupancyUnits: row.current_occupancy_units ?? 0,
 })
@@ -887,15 +904,19 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
 
   if (pathname === '/users' || pathname.startsWith('/users/')) {
     await ensureUniqueValue('users', 'email', body.email, currentId)
-    if (!normalizeText(body.full_name || body.fullName)) throw new Error('Full name is required.')
-    return {
+    if (!normalizeText(body.fullName ?? body.full_name)) throw new Error('Full name is required.')
+    const result: any = {
       email: body.email,
-      password_hash: body.password || body.password_hash || (body.id ? undefined : '123456'),
-      full_name: body.full_name || body.fullName,
-      phone: body.phone || null,
-      role: body.role || 'user',
-      status: body.status || 'active',
+      full_name: body.fullName ?? body.full_name,
+      phone: body.phone ?? null,
+      role: body.role ?? 'user',
+      status: body.status ?? 'active',
     }
+    // Only include password if provided and not empty
+    if (body.password || !currentId) {
+      result.password_hash = body.password || body.password_hash || '123456'
+    }
+    return result
   }
 
   if (pathname === '/product-categories' || pathname.startsWith('/product-categories/')) {
@@ -941,14 +962,14 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
     if (!normalizeText(body.name)) throw new Error('Customer name is required.')
     return {
       name: body.name,
-      customer_type: body.customer_type || body.customerType || 'B2C',
-      contact_person_name: body.contact_person_name || body.contactName || body.name,
-      contact_person_email: body.contact_person_email || body.contactEmail || null,
-      contact_person_phone: body.contact_person_phone || body.contactPhone || null,
-      billing_address: body.billing_address || body.billingAddress || null,
-      shipping_address: body.shipping_address || body.shippingAddress || body.billing_address || body.billingAddress || null,
-      payment_terms: body.payment_terms || body.paymentTerms || 'NET30',
-      status: body.status || 'active',
+      customer_type: body.customerType ?? body.customer_type ?? 'B2C',
+      contact_person_name: body.contactName ?? body.contact_person_name ?? body.name,
+      contact_person_email: body.contactEmail ?? body.contact_person_email ?? null,
+      contact_person_phone: body.contactPhone ?? body.contact_person_phone ?? null,
+      billing_address: body.billingAddress ?? body.billing_address ?? null,
+      shipping_address: body.shippingAddress ?? body.shipping_address ?? body.billingAddress ?? body.billing_address ?? null,
+      payment_terms: body.paymentTerms ?? body.payment_terms ?? 'NET30',
+      status: body.status ?? 'active',
       created_by_id: body.created_by_id || currentUserId,
     }
   }
@@ -957,72 +978,77 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
     if (!normalizeText(body.name)) throw new Error('Supplier name is required.')
     return {
       name: body.name,
-      contact_person_name: body.contact_person_name || body.contactName || body.name,
-      contact_person_email: body.contact_person_email || body.contactEmail || null,
-      contact_person_phone: body.contact_person_phone || body.contactPhone || null,
-      company_address: body.company_address || body.companyAddress || null,
-      payment_terms: body.payment_terms || body.paymentTerms || 'NET30',
-      average_lead_time_days: Number(body.average_lead_time_days ?? body.averageLeadTimeDays ?? 7),
-      status: body.status || 'active',
+      supplier_type_id: body.supplierTypeId ?? body.supplier_type_id ?? null,
+      contact_person_name: body.contactName ?? body.contact_person_name ?? body.name,
+      contact_person_email: body.contactEmail ?? body.contact_person_email ?? null,
+      contact_person_phone: body.contactPhone ?? body.contact_person_phone ?? null,
+      company_address: body.companyAddress ?? body.company_address ?? null,
+      payment_terms: body.paymentTerms ?? body.payment_terms ?? 'NET30',
+      average_lead_time_days: Number(body.averageLeadTimeDays ?? body.average_lead_time_days ?? 7),
+      status: body.status ?? 'active',
     }
   }
 
   if (pathname === '/warehouse/warehouses' || pathname.startsWith('/warehouse/warehouses/')) {
-    await ensureUniqueValue('warehouses', 'warehouse_code', body.warehouse_code || body.warehouseCode, currentId)
+    const warehouseCode = body.warehouseCode ?? body.warehouse_code
+    await ensureUniqueValue('warehouses', 'warehouse_code', warehouseCode, currentId)
     if (!normalizeText(body.name)) throw new Error('Warehouse name is required.')
-    if (!isNonNegativeNumber(body.capacity_sqm ?? body.capacitySqm ?? 0)) {
+    if (!isNonNegativeNumber(body.capacitySqm ?? body.capacity_sqm ?? 0)) {
       throw new Error('Warehouse capacity cannot be negative.')
     }
     if (
-      isNonNegativeNumber(body.current_occupancy_sqm ?? body.currentOccupancySqm ?? 0) &&
-      Number(body.current_occupancy_sqm ?? body.currentOccupancySqm ?? 0) > Number(body.capacity_sqm ?? body.capacitySqm ?? 0)
+      isNonNegativeNumber(body.currentOccupancySqm ?? body.current_occupancy_sqm ?? 0) &&
+      Number(body.currentOccupancySqm ?? body.current_occupancy_sqm ?? 0) > Number(body.capacitySqm ?? body.capacity_sqm ?? 0)
     ) {
       throw new Error('Current occupancy cannot exceed warehouse capacity.')
     }
     return {
-      warehouse_code: body.warehouse_code || body.warehouseCode,
+      warehouse_code: warehouseCode,
       name: body.name,
       description: body.description || null,
-      location_address: body.location_address || body.locationAddress || null,
+      location_address: body.locationAddress ?? body.location_address ?? null,
       city: body.city || null,
       province: body.province || null,
-      postal_code: body.postal_code || body.postalCode || null,
-      capacity_sqm: Number(body.capacity_sqm ?? body.capacitySqm ?? 0),
-      current_occupancy_sqm: Number(body.current_occupancy_sqm ?? body.currentOccupancySqm ?? 0),
+      postal_code: body.postalCode ?? body.postal_code ?? null,
+      capacity_sqm: Number(body.capacitySqm ?? body.capacity_sqm ?? 0),
+      current_occupancy_sqm: Number(body.currentOccupancySqm ?? body.current_occupancy_sqm ?? 0),
       status: body.status || 'active',
     }
   }
 
   if (pathname === '/warehouse/bin-locations' || pathname.startsWith('/warehouse/bin-locations/')) {
-    const warehouseId = body.warehouse_id || (await resolveWarehouseId(body.warehouseName))
-    if (!normalizeText(body.bin_code || body.binCode)) throw new Error('Bin code is required.')
-    if (!isNonNegativeNumber(body.capacity_units ?? body.capacityUnits ?? 0)) {
+    let warehouseId = body.warehouse_id
+    if (!warehouseId) {
+      warehouseId = await resolveWarehouseId(body.warehouseName)
+    }
+    if (!normalizeText(body.binCode ?? body.bin_code)) throw new Error('Bin code is required.')
+    if (!isNonNegativeNumber(body.capacityUnits ?? body.capacity_units ?? 0)) {
       throw new Error('Bin capacity cannot be negative.')
     }
-    if (!isNonNegativeNumber(body.current_occupancy_units ?? body.currentOccupancyUnits ?? 0)) {
+    if (!isNonNegativeNumber(body.currentOccupancyUnits ?? body.current_occupancy_units ?? 0)) {
       throw new Error('Current occupancy cannot be negative.')
     }
-    if (Number(body.current_occupancy_units ?? body.currentOccupancyUnits ?? 0) > Number(body.capacity_units ?? body.capacityUnits ?? 0)) {
+    if (Number(body.currentOccupancyUnits ?? body.current_occupancy_units ?? 0) > Number(body.capacityUnits ?? body.capacity_units ?? 0)) {
       throw new Error('Current occupancy cannot exceed bin capacity.')
     }
     const { data: existingBin, error: binError } = await supabase
       .from('bin_locations')
       .select('id')
       .eq('warehouse_id', warehouseId)
-      .ilike('bin_code', body.bin_code || body.binCode)
+      .ilike('bin_code', body.binCode ?? body.bin_code)
       .limit(1)
       .maybeSingle()
     if (binError) throw binError
     if (existingBin?.id && existingBin.id !== currentId) {
-      throw new Error(`Bin code "${body.bin_code || body.binCode}" already exists in the selected warehouse.`)
+      throw new Error(`Bin code "${body.binCode ?? body.bin_code}" already exists in the selected warehouse.`)
     }
     return {
       warehouse_id: warehouseId,
-      bin_code: body.bin_code || body.binCode,
+      bin_code: body.binCode ?? body.bin_code,
       description: body.description || null,
-      capacity_units: Number(body.capacity_units ?? body.capacityUnits ?? 0),
-      current_occupancy_units: Number(body.current_occupancy_units ?? body.currentOccupancyUnits ?? 0),
-      status: body.status || 'active',
+      capacity_units: Number(body.capacityUnits ?? body.capacity_units ?? 0),
+      current_occupancy_units: Number(body.currentOccupancyUnits ?? body.current_occupancy_units ?? 0),
+      status: body.status ?? 'active',
     }
   }
 
@@ -1332,7 +1358,7 @@ const getResource = async <T>(path: string): Promise<T> => {
     const { data, error } = await supabase
       .from('product_categories')
       .select('*')
-      .order('name', { ascending: true })
+      .order('display_order', { ascending: true })
     if (error) throw error
     return ((data || []).map(normalizeCategoryRow)) as T
   }

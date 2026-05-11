@@ -1,0 +1,6 @@
+id,email,password_hash,full_name,role,status
+"1","admin@example.com","hashed_password","Admin User","Admin","active"
+"2","sales@example.com","hashed_password","Sales Manager","Sales_Manager","active"
+"3","purchasing@example.com","hashed_password","Purchasing Manager","Purchasing_Manager","active"
+"4","warehouse@example.com","hashed_password","Warehouse Manager","Warehouse_Manager","active"
+"5","accountant@example.com","hashed_password","Accountant","Accountant","active"
