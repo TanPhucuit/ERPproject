@@ -271,7 +271,7 @@ export const RecordModal: React.FC<{
                 </label>
                 {field.type === 'textarea' ? (
                   <textarea
-                    value={formData[field.name] || ''}
+                    value={formData[field.name] !== undefined && formData[field.name] !== null ? formData[field.name] : ''}
                     disabled={field.disabled}
                     onChange={(event) => handleChange(field, event.target.value)}
                     placeholder={field.placeholder}
@@ -295,7 +295,7 @@ export const RecordModal: React.FC<{
                 ) : (
                   <input
                     type={field.type}
-                    value={formData[field.name] || ''}
+                    value={formData[field.name] !== undefined && formData[field.name] !== null ? formData[field.name] : ''}
                     disabled={field.disabled}
                     onChange={(event) => handleChange(field, event.target.value)}
                     placeholder={field.placeholder}

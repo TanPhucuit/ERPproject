@@ -551,7 +551,7 @@ CREATE TABLE IF NOT EXISTS bin_locations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   warehouse_id UUID NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
   zone_id UUID REFERENCES warehouse_zones(id) ON DELETE CASCADE,
-  bin_code VARCHAR(20) NOT NULL,  -- A1, A2, B1, etc.
+  bin_code VARCHAR(50) NOT NULL,  -- A1, A2, B1, or complex codes like WH-HCM-01-A-R01-01-L1
   description TEXT,
   capacity_units INT,
   current_occupancy_units INT DEFAULT 0,
