@@ -237,7 +237,8 @@ const warehouseFields: FormField[] = [
   { name: 'postalCode', label: 'Postal Code', type: 'text' },
   { name: 'managerName', label: 'Warehouse Manager', type: 'select', options: [] },
   { name: 'capacitySqm', label: 'Capacity (sqm)', type: 'number' },
-  { name: 'currentOccupancySqm', label: 'Current Occupancy (sqm)', type: 'number' },
+  // NOTE: currentOccupancySqm is AUTO-CALCULATED from bin_locations - do NOT show in form
+  // It will be updated by trigger when bins are added/modified
   {
     name: 'status',
     label: 'Status',
@@ -255,7 +256,8 @@ const binLocationFields: FormField[] = [
   { name: 'binCode', label: 'Bin Code', type: 'text', required: true },
   { name: 'description', label: 'Description', type: 'textarea' },
   { name: 'capacityUnits', label: 'Capacity Units', type: 'number' },
-  { name: 'currentOccupancyUnits', label: 'Current Occupancy', type: 'number' },
+  // NOTE: currentOccupancyUnits is AUTO-CALCULATED from stock_in_bins - do NOT show in form
+  // It will be updated by trigger when stock is added/removed from this bin
   {
     name: 'status',
     label: 'Status',
@@ -451,6 +453,7 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
       { key: 'province', label: 'Province' },
       { key: 'managerName', label: 'Manager' },
       { key: 'capacitySqm', label: 'Capacity (sqm)', align: 'right' },
+      { key: 'currentOccupancySqm', label: 'Occupancy (sqm)', align: 'right' },
       { key: 'status', label: 'Status' },
     ],
   },

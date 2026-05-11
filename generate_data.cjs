@@ -185,6 +185,8 @@ const generateCategories = () => {
 };
 
 // PRODUCTS (500 products)
+// NOTE: profit_margin_percent is GENERATED field in database - do NOT include in CSV
+// image_url is optional and should be null for generated data
 const generateProducts = () => {
   console.log('Generating 500 products...');
   const products = [];
@@ -197,7 +199,7 @@ const generateProducts = () => {
     const prefix = randomElement(prefixes);
     const model = `${randomInt(100, 999)}${String.fromCharCode(65 + randomInt(0, 25))}`;
     const listPrice = randomFloat(500, 5000);
-    const costPrice = randomFloat(300, 3000);
+    const costPrice = randomFloat(300, Math.min(3000, listPrice * 0.9)); // cost should be less than list price
     products.push({
       id: i,
       sku: `SKU-${String(i).padStart(5, '0')}`,
@@ -205,9 +207,10 @@ const generateProducts = () => {
       description: `High-quality ${type} for SmartHome applications.`,
       category_id: cat.id,
       uom_id: randomInt(1, 6),
-      image_url: `/images/products/${type.toLowerCase()}-${model.toLowerCase()}.jpg`,
+      image_url: null, // Optional - should be null for generated data
       list_price: listPrice,
       cost_price: costPrice,
+      // NOTE: profit_margin_percent is GENERATED ALWAYS AS in database - do NOT include here
       reorder_level: randomInt(5, 50),
       reorder_quantity: randomInt(20, 200),
       supplier_lead_time_days: randomInt(7, 30),
@@ -224,6 +227,9 @@ const generateProducts = () => {
 };
 
 // CUSTOMERS (1000 customers)
+// NOTE: credit_used is CALCULATED from unpaid invoices - do NOT manually set
+// shipping_same_as_billing is determined by actual data - defaults to true
+// billing_city, billing_province, billing_postal_code should be extracted from billing_address
 const generateCustomers = () => {
   console.log('Generating 1000 customers...');
   const customers = [];
@@ -233,23 +239,31 @@ const generateCustomers = () => {
     const type = isCompany ? 'B2B' : 'B2C';
     const name = isCompany ? generateCompanyName() : generateCustomerName();
     const contact = isCompany ? generateCustomerName() : name;
+    const billingAddress = generateAddress(city);
+    const shippingSameAsBilling = Math.random() > 0.3;
     customers.push({
       id: i,
-      customer_number: `CUS-${type}-${String(i).padStart(4, '0')}`,
+      customer_number: `CUST-${type}-${String(i).padStart(4, '0')}`,
       name,
-      company_tax_id: isCompany ? generateTaxId() : '',
+      company_tax_id: isCompany ? generateTaxId() : null,
       customer_type: type,
       contact_person_name: contact,
       contact_person_email: `contact${i}@email.com`,
       contact_person_phone: generatePhone(),
-      billing_address: generateAddress(city),
-      shipping_address: generateAddress(city),
+      billing_address: billingAddress,
+      shipping_address: shippingSameAsBilling ? billingAddress : generateAddress(city),
+      billing_city: city,
+      billing_province: city,
+      billing_postal_code: String(randomInt(70000, 90000)),
+      shipping_same_as_billing: shippingSameAsBilling,
       payment_terms: randomElement(paymentTerms),
       credit_limit: type === 'B2B' ? randomInt(50000, 500000) : 0,
-      tax_code: generateTaxId(),
+      credit_used: 0, // CALCULATED from unpaid invoices - do NOT manually set
+      // NOTE: company_tax_id is the main tax field, tax_code is deprecated
       status: randomElement(statuses),
-      notes: '',
       created_at: randomDateTime(),
+      updated_at: randomDateTime(),
+      is_deleted: false,
     });
   }
   data.customers = customers;
@@ -258,6 +272,8 @@ const generateCustomers = () => {
 };
 
 // SUPPLIERS (1000 suppliers) - Match actual schema
+// NOTE: total_spent and average_response_time_hours are CALCULATED from vendor_bills and rfq_supplier_quotations
+// logo_url is optional and should not be manually entered
 const generateSuppliers = () => {
   console.log('Generating 1000 suppliers...');
   const suppliers = [];
@@ -278,14 +294,15 @@ const generateSuppliers = () => {
       company_province: city,
       company_postal_code: String(randomInt(70000, 90000)),
       company_website: `https://www.supplier${i}.vn`,
-      logo_url: '',
+      logo_url: null, // NOT user input - optional field, should be null
       payment_terms: randomElement(paymentTerms),
       average_lead_time_days: randomInt(3, 30),
-      quality_rating: randomInt(3, 5),
+      quality_rating: randomFloat(3, 5),
       is_preferred: Math.random() > 0.7,
       status: randomElement(['active', 'active', 'active', 'inactive']), // Mostly active
-      total_spent: 0,
-      average_response_time_hours: randomInt(1, 48),
+      // NOTE: total_spent is CALCULATED from SUM of paid vendor_bills for this supplier
+      // average_response_time_hours is CALCULATED from rfq_supplier_quotations
+      // DO NOT manually set these values - they are business metrics
       created_at: randomDateTime(),
       updated_at: randomDateTime(),
       is_deleted: false,
@@ -296,7 +313,8 @@ const generateSuppliers = () => {
   return suppliers;
 };
 
-// WAREHOUSES (3 warehouses) - current_occupancy_sqm will be auto-calculated by trigger
+// WAREHOUSES (3 warehouses) - current_occupancy_sqm is CALCULATED from bin_locations
+// DO NOT manually set current_occupancy_sqm - it should be 0 and calculated by trigger
 const generateWarehouses = () => {
   console.log('Generating 3 warehouses...');
   const warehouses = [
@@ -310,6 +328,8 @@ const generateWarehouses = () => {
 };
 
 // BIN LOCATIONS (30 bin locations - 10 per warehouse)
+// NOTE: current_occupancy_units is CALCULATED from stock_in_bins table
+// DO NOT manually set current_occupancy_units - it should be 0 and calculated by trigger
 const generateBinLocations = () => {
   console.log('Generating 30 bin locations (10 per warehouse)...');
   const bins = [];
@@ -342,7 +362,7 @@ const generateBinLocations = () => {
         bin_code: `${wh.warehouse_code}-${cfg.zone}${cfg.row}-${cfg.col}-${cfg.level}`,
         description: `Bin ${cfg.zone}${cfg.row}${cfg.col}${cfg.level} in ${wh.name}`,
         capacity_units: randomInt(50, 500),
-        current_occupancy_units: randomInt(0, 200),
+        current_occupancy_units: 0, // CALCULATED from stock_in_bins - DO NOT manually set
         status: 'active',
         created_at: randomDateTime(),
         updated_at: randomDateTime(),
