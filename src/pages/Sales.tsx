@@ -15,7 +15,7 @@ import {
 import { useUIStore } from '../stores/uiStore'
 
 const quotationFieldsBase: FormField[] = [
-  { name: 'quotationNumber', label: 'Quotation #', type: 'text', required: true },
+  { name: 'quotationNumber', label: 'Quotation #', type: 'text' },
   { name: 'customerName', label: 'Customer', type: 'select', required: true, options: [] },
   { name: 'leadNumber', label: 'Lead', type: 'select', options: [] },
   { name: 'issuedDate', label: 'Quote Date', type: 'date', required: true },
@@ -24,6 +24,7 @@ const quotationFieldsBase: FormField[] = [
   { name: 'totalDiscount', label: 'Discount', type: 'number' },
   { name: 'taxAmount', label: 'Tax', type: 'number' },
   { name: 'totalAmount', label: 'Total', type: 'number', required: true },
+  // NOTE: estimated_profit is AUTO-CALCULATED in backend from line items
   {
     name: 'status',
     label: 'Status',
@@ -31,8 +32,9 @@ const quotationFieldsBase: FormField[] = [
     options: [
       { value: 'draft', label: 'Draft' },
       { value: 'sent', label: 'Sent' },
-      { value: 'won', label: 'Won' },
-      { value: 'lost', label: 'Lost' },
+      { value: 'accepted', label: 'Accepted' },
+      { value: 'rejected', label: 'Rejected' },
+      { value: 'expired', label: 'Expired' },
     ],
   },
   { name: 'notes', label: 'Notes', type: 'textarea' },
@@ -40,7 +42,7 @@ const quotationFieldsBase: FormField[] = [
 ]
 
 const orderFieldsBase: FormField[] = [
-  { name: 'orderNumber', label: 'Sales Order #', type: 'text', required: true },
+  { name: 'orderNumber', label: 'Sales Order #', type: 'text' },
   { name: 'customerName', label: 'Customer', type: 'select', required: true, options: [] },
   { name: 'quotationNumber', label: 'Quotation', type: 'select', options: [] },
   { name: 'orderDate', label: 'Order Date', type: 'date', required: true },
@@ -50,8 +52,7 @@ const orderFieldsBase: FormField[] = [
   { name: 'totalDiscount', label: 'Discount', type: 'number' },
   { name: 'taxAmount', label: 'Tax', type: 'number' },
   { name: 'totalAmount', label: 'Total', type: 'number', required: true },
-  { name: 'totalCost', label: 'Total Cost', type: 'number' },
-  { name: 'estimatedProfit', label: 'Estimated Profit', type: 'number' },
+  // NOTE: total_cost, estimated_profit, profit_margin_percent are AUTO-CALCULATED in backend
   { name: 'salesPersonName', label: 'Sales Person', type: 'select', options: [] },
   {
     name: 'status',
@@ -60,11 +61,12 @@ const orderFieldsBase: FormField[] = [
     options: [
       { value: 'draft', label: 'Draft' },
       { value: 'confirmed', label: 'Confirmed' },
+      { value: 'partially_shipped', label: 'Partially Shipped' },
+      { value: 'shipped', label: 'Shipped' },
       { value: 'delivered', label: 'Delivered' },
-      { value: 'completed', label: 'Completed' },
+      { value: 'cancelled', label: 'Cancelled' },
     ],
   },
-  { name: 'shippingAddress', label: 'Shipping Address', type: 'textarea' },
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
@@ -104,20 +106,18 @@ const SalesModule: React.FC = () => {
         setOrders(
           records.map((order) => ({
             ...order,
-            orderNumber: order.sales_order_number || order.orderNumber,
-            customerName: order.customer?.name || order.customerName || order.customer_id,
-            orderDate: order.order_date || order.date,
-            requiredDeliveryDate: order.required_delivery_date || order.dueDate,
+            orderNumber: order.sales_order_number,
+            customerName: order.customer?.name || order.customer_id,
+            orderDate: order.order_date,
+            requiredDeliveryDate: order.required_delivery_date,
             actualDeliveryDate: order.actual_delivery_date,
             totalAmountBeforeTax: order.total_amount_before_tax,
             totalDiscount: order.total_discount,
             taxAmount: order.tax_amount,
-            totalAmount: order.total_amount || order.total || 0,
+            totalAmount: order.total_amount || 0,
             totalCost: order.total_cost,
-            estimatedProfit: order.estimated_profit,
             salesPersonName: order.sales_person?.full_name || order.sales_person_id,
             quotationNumber: order.quotation_id,
-            shippingAddress: order.shipping_address,
             notes: order.notes,
           }))
         )
@@ -134,15 +134,14 @@ const SalesModule: React.FC = () => {
         setQuotations(
           records.map((quote) => ({
             ...quote,
-            quotationNumber: quote.quotation_number || quote.quoteNumber,
-            customerName: quote.customer?.name || quote.customerName || quote.customer_id,
-            issuedDate: quote.issued_date || quote.quote_date || quote.date,
-            validUntilDate: quote.valid_until_date || quote.valid_until || quote.expiryDate,
+            quotationNumber: quote.quotation_number,
+            customerName: quote.customer?.name || quote.customer_id,
+            issuedDate: quote.issued_date,
+            validUntilDate: quote.valid_until_date,
             totalAmountBeforeTax: quote.total_amount_before_tax,
             totalDiscount: quote.total_discount,
             taxAmount: quote.tax_amount,
-            totalAmount: quote.total_amount || quote.total || 0,
-            estimatedProfit: quote.estimated_profit,
+            totalAmount: quote.total_amount || 0,
             leadNumber: quote.lead_id,
             notes: quote.notes,
             internalNotes: quote.internal_notes,
@@ -179,7 +178,7 @@ const SalesModule: React.FC = () => {
     [customers]
   )
   const quotationOptions = useMemo(
-    () => quotations.map((quote) => ({ value: quote.id, label: `${quote.quotationNumber} - ${quote.customerName}` })),
+    () => quotations.map((quote) => ({ value: quote.id, label: `${quote.quotation_number} - ${quote.customerName}` })),
     [quotations]
   )
   const leadOptions = useMemo(
@@ -193,10 +192,10 @@ const SalesModule: React.FC = () => {
   const fields = useMemo(() => {
     const source = activeTab === 'orders' ? orderFieldsBase : quotationFieldsBase
     return source.map((field) => {
-      if (field.name === 'customerName') return { ...field, options: customerOptions }
-      if (field.name === 'quotationNumber') return { ...field, options: quotationOptions }
-      if (field.name === 'leadNumber') return { ...field, options: leadOptions }
-      if (field.name === 'salesPersonName') return { ...field, options: salesPersonOptions }
+      if (field.name === 'customer_id') return { ...field, options: customerOptions }
+      if (field.name === 'quotation_id') return { ...field, options: quotationOptions }
+      if (field.name === 'lead_id') return { ...field, options: leadOptions }
+      if (field.name === 'sales_person_id') return { ...field, options: salesPersonOptions }
       return field
     })
   }, [activeTab, customerOptions, quotationOptions, leadOptions, salesPersonOptions])
@@ -224,8 +223,6 @@ const SalesModule: React.FC = () => {
       totalDiscount: 0,
       taxAmount: 0,
       totalAmount: 0,
-      totalCost: 0,
-      estimatedProfit: 0,
       status: 'draft',
       notes: '',
     })
@@ -238,8 +235,8 @@ const SalesModule: React.FC = () => {
     const payload = isOrder
       ? {
           sales_order_number: record.orderNumber,
-          customer_id: record.customerName,
-          quotation_id: record.quotationNumber,
+          customer_id: customerOptions.find(c => c.label === record.customerName)?.value || record.customerName,
+          quotation_id: quotationOptions.find(q => q.label === record.quotationNumber)?.value || record.quotationNumber,
           order_date: record.orderDate,
           required_delivery_date: record.requiredDeliveryDate,
           actual_delivery_date: record.actualDeliveryDate,
@@ -247,24 +244,20 @@ const SalesModule: React.FC = () => {
           total_discount: record.totalDiscount,
           tax_amount: record.taxAmount,
           total_amount: record.totalAmount,
-          total_cost: record.totalCost,
-          estimated_profit: record.estimatedProfit,
-          sales_person_id: record.salesPersonName,
+          sales_person_id: salesPersonOptions.find(s => s.label === record.salesPersonName)?.value || record.salesPersonName,
           status: record.status,
-          shipping_address: record.shippingAddress,
           notes: record.notes,
         }
       : {
           quotation_number: record.quotationNumber,
-          customer_id: record.customerName,
-          lead_id: record.leadNumber,
+          customer_id: customerOptions.find(c => c.label === record.customerName)?.value || record.customerName,
+          lead_id: leadOptions.find(l => l.label === record.leadNumber)?.value || record.leadNumber,
           issued_date: record.issuedDate,
           valid_until_date: record.validUntilDate,
           total_amount_before_tax: record.totalAmountBeforeTax,
           total_discount: record.totalDiscount,
           tax_amount: record.taxAmount,
           total_amount: record.totalAmount,
-          estimated_profit: record.estimatedProfit,
           status: record.status,
           notes: record.notes,
           internal_notes: record.internalNotes,

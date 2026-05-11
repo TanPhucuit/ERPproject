@@ -20,6 +20,7 @@ const poFieldsBase: FormField[] = [
   { name: 'rfqNumber', label: 'RFQ', type: 'select', options: [] },
   { name: 'orderDate', label: 'PO Date', type: 'date', required: true },
   { name: 'requiredDeliveryDate', label: 'Required Delivery Date', type: 'date' },
+  { name: 'actualDeliveryDate', label: 'Actual Delivery Date', type: 'date' },
   { name: 'totalAmountBeforeTax', label: 'Subtotal', type: 'number' },
   { name: 'totalTax', label: 'Tax', type: 'number' },
   { name: 'totalAmount', label: 'Total', type: 'number', required: true },
@@ -30,9 +31,10 @@ const poFieldsBase: FormField[] = [
     type: 'select',
     options: [
       { value: 'draft', label: 'Draft' },
-      { value: 'pending', label: 'Pending' },
       { value: 'confirmed', label: 'Confirmed' },
+      { value: 'partial_received', label: 'Partial Received' },
       { value: 'received', label: 'Received' },
+      { value: 'cancelled', label: 'Cancelled' },
     ],
   },
   { name: 'notes', label: 'Notes', type: 'textarea' },
@@ -40,11 +42,9 @@ const poFieldsBase: FormField[] = [
 
 const rfqFieldsBase: FormField[] = [
   { name: 'rfqNumber', label: 'RFQ #', type: 'text', required: true },
-  { name: 'supplierName', label: 'Supplier', type: 'select', required: true, options: [] },
-  { name: 'productName', label: 'Product / Requirement', type: 'text', required: true },
   { name: 'issuedDate', label: 'Issued Date', type: 'date', required: true },
   { name: 'closingDate', label: 'Closing Date', type: 'date' },
-  { name: 'totalEstimatedCost', label: 'Target Price', type: 'number' },
+  { name: 'totalEstimatedCost', label: 'Total Estimated Cost', type: 'number' },
   {
     name: 'status',
     label: 'Status',
@@ -52,7 +52,7 @@ const rfqFieldsBase: FormField[] = [
     options: [
       { value: 'draft', label: 'Draft' },
       { value: 'sent', label: 'Sent' },
-      { value: 'awarded', label: 'Awarded' },
+      { value: 'closed', label: 'Closed' },
       { value: 'cancelled', label: 'Cancelled' },
     ],
   },
@@ -60,10 +60,10 @@ const rfqFieldsBase: FormField[] = [
 ]
 
 const flow: Record<string, string> = {
-  draft: 'sent',
-  pending: 'confirmed',
-  sent: 'awarded',
-  confirmed: 'received',
+  draft: 'confirmed',
+  confirmed: 'partial_received',
+  partial_received: 'received',
+  received: 'received',
 }
 
 const PurchaseModule: React.FC = () => {
@@ -88,13 +88,14 @@ const PurchaseModule: React.FC = () => {
         setPurchaseOrders(
           records.map((po) => ({
             ...po,
-            poNumber: po.purchase_order_number || po.poNumber,
-            supplierName: po.supplier?.name || po.supplierName || po.supplier_id,
-            orderDate: po.order_date || po.date,
-            requiredDeliveryDate: po.required_delivery_date || po.dueDate,
+            poNumber: po.purchase_order_number,
+            supplierName: po.supplier?.name || po.supplier_id,
+            orderDate: po.order_date,
+            requiredDeliveryDate: po.required_delivery_date,
+            actualDeliveryDate: po.actual_delivery_date,
             totalAmountBeforeTax: po.total_amount_before_tax,
             totalTax: po.total_tax,
-            totalAmount: po.total_amount || po.total || 0,
+            totalAmount: po.total_amount || 0,
             receivedAmount: po.received_amount,
             notes: po.notes,
             rfqNumber: po.rfq_id,
@@ -113,12 +114,10 @@ const PurchaseModule: React.FC = () => {
         setRfqs(
           records.map((rfq) => ({
             ...rfq,
-            rfqNumber: rfq.rfq_number || rfq.rfqNumber,
-            supplierName: rfq.supplier?.name || rfq.supplierName || 'Multiple Suppliers',
-            productName: rfq.description || rfq.productName || 'RFQ items',
-            issuedDate: rfq.issued_date || rfq.date,
-            closingDate: rfq.closing_date || rfq.due_date || rfq.dueDate,
-            totalEstimatedCost: rfq.total_estimated_cost || rfq.targetPrice || 0,
+            rfqNumber: rfq.rfq_number,
+            issuedDate: rfq.issued_date,
+            closingDate: rfq.closing_date,
+            totalEstimatedCost: rfq.total_estimated_cost || 0,
             notes: rfq.notes,
           }))
         )
@@ -149,8 +148,8 @@ const PurchaseModule: React.FC = () => {
   const fields = useMemo(() => {
     const source = activeTab === 'purchase-orders' ? poFieldsBase : rfqFieldsBase
     return source.map((field) => {
-      if (field.name === 'supplierName') return { ...field, options: supplierOptions }
-      if (field.name === 'rfqNumber' && activeTab === 'purchase-orders') return { ...field, options: rfqOptions }
+      if (field.name === 'supplier_id') return { ...field, options: supplierOptions }
+      if (field.name === 'rfq_id') return { ...field, options: rfqOptions }
       return field
     })
   }, [activeTab, supplierOptions, rfqOptions])
@@ -158,7 +157,7 @@ const PurchaseModule: React.FC = () => {
 
   const filteredRecords = useMemo(() => {
     return activeRecords.filter((record) => {
-      const haystack = `${record.poNumber || record.rfqNumber} ${record.supplierName} ${record.productName || ''}`.toLowerCase()
+      const haystack = `${record.purchase_order_number || record.rfq_number} ${record.supplierName || ''}`.toLowerCase()
       return haystack.includes(search.toLowerCase()) && (status === 'all' || record.status === status)
     })
   }, [activeRecords, search, status])
@@ -168,8 +167,6 @@ const PurchaseModule: React.FC = () => {
     setModalRecord({
       id: `${activeTab}-${Date.now()}`,
       [isPO ? 'poNumber' : 'rfqNumber']: `${isPO ? 'PO' : 'RFQ'}-${Date.now().toString().slice(-5)}`,
-      supplierName: '',
-      productName: '',
       orderDate: new Date().toISOString().slice(0, 10),
       issuedDate: new Date().toISOString().slice(0, 10),
       requiredDeliveryDate: '',
@@ -192,10 +189,11 @@ const PurchaseModule: React.FC = () => {
     const payload = isPO
       ? {
           purchase_order_number: record.poNumber,
-          supplier_id: record.supplierName,
-          rfq_id: record.rfqNumber,
+          supplier_id: supplierOptions.find(s => s.label === record.supplierName)?.value || record.supplierName,
+          rfq_id: rfqOptions.find(r => r.label === record.rfqNumber)?.value || record.rfqNumber,
           order_date: record.orderDate,
           required_delivery_date: record.requiredDeliveryDate,
+          actual_delivery_date: record.actualDeliveryDate,
           total_amount_before_tax: record.totalAmountBeforeTax,
           total_tax: record.totalTax,
           total_amount: record.totalAmount,
@@ -205,12 +203,9 @@ const PurchaseModule: React.FC = () => {
         }
       : {
           rfq_number: record.rfqNumber,
-          supplier_id: record.supplierName,
           issued_date: record.issuedDate,
           closing_date: record.closingDate,
           status: record.status,
-          description: record.productName,
-          total_estimated_cost: record.totalEstimatedCost,
           notes: record.notes,
         }
     try {
@@ -232,14 +227,25 @@ const PurchaseModule: React.FC = () => {
   }
 
   const advanceRecord = (record: any) => {
-    const nextStatus = flow[record.status]
+    // Different flow for PO and RFQ
+    const poFlow: Record<string, string> = {
+      draft: 'confirmed',
+      confirmed: 'partial_received',
+      partial_received: 'received',
+    }
+    const rfqFlow: Record<string, string> = {
+      draft: 'sent',
+      sent: 'closed',
+    }
+    const currentFlow = activeTab === 'purchase-orders' ? poFlow : rfqFlow
+    const nextStatus = currentFlow[record.status]
     if (!nextStatus) return
     setActiveRecords((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
   }
 
   const deleteRecord = async (record: any) => {
     const path = activeTab === 'purchase-orders' ? '/purchase/purchase-orders' : '/purchase/rfqs'
-    const recordName = record.poNumber || record.rfqNumber || 'this record'
+    const recordName = record.purchase_order_number || record.rfq_number || 'this record'
     if (!window.confirm(`Delete ${recordName}?`)) return
     try {
       await erpApi.delete(`${path}/${record.id}`)

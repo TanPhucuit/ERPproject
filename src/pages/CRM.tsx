@@ -31,7 +31,7 @@ const leadFields: FormField[] = [
     required: true,
     options: [
       { value: 'new', label: 'New' },
-      { value: 'qualified', label: 'Site Survey' },
+      { value: 'site_survey', label: 'Site Survey' },
       { value: 'proposition', label: 'Proposition' },
       { value: 'won', label: 'Won' },
       { value: 'lost', label: 'Lost' },
@@ -98,7 +98,7 @@ const CRMModule: React.FC = () => {
 
   const leadFieldsWithOptions = useMemo(() => {
     return leadFields.map((field) => {
-      if (field.name === 'ownerName') return { ...field, options: userOptions }
+      if (field.name === 'owner_id') return { ...field, options: userOptions }
       return field
     })
   }, [userOptions])
@@ -112,14 +112,14 @@ const CRMModule: React.FC = () => {
           records.map((lead) => ({
             ...lead,
             leadNumber: lead.lead_number,
-            companyName: lead.company_name || lead.company,
+            companyName: lead.company_name,
             contactPersonName: lead.contact_person_name,
             contactPersonPhone: lead.contact_person_phone,
             contactPersonEmail: lead.contact_person_email,
             companyAddress: lead.company_address,
             companyTaxId: lead.company_tax_id,
             ownerName: lead.owner?.full_name || lead.owner_id,
-            stage: lead.stage || lead.status,
+            stage: lead.stage_id,
             source: lead.source,
             leadRating: lead.lead_rating,
             estimatedValue: lead.estimated_value,
@@ -171,8 +171,8 @@ const CRMModule: React.FC = () => {
       contact_person_email: record.contactPersonEmail,
       company_address: record.companyAddress,
       company_tax_id: record.companyTaxId,
-      owner_id: record.ownerName,
-      stage: record.stage,
+      owner_id: userOptions.find(u => u.label === record.ownerName)?.value || record.ownerName,
+      stage_id: record.stage,
       source: record.source,
       lead_rating: record.leadRating,
       estimated_value: record.estimatedValue || 0,
@@ -199,17 +199,23 @@ const CRMModule: React.FC = () => {
   }
 
   const advanceLead = async (lead: any) => {
-    const nextStatus = nextLeadStatus[lead.status]
+    const nextLeadStatus: Record<string, string> = {
+      new: 'site_survey',
+      contacted: 'site_survey',
+      site_survey: 'proposition',
+      proposition: 'won',
+    }
+    const nextStatus = nextLeadStatus[lead.stage]
     if (!nextStatus) return
     try {
       if (!lead.id.startsWith('lead-')) {
-        await erpApi.put(`/crm/leads/${lead.id}`, { stage: nextStatus })
+        await erpApi.put(`/crm/leads/${lead.id}`, { stage_id: nextStatus })
       }
     } catch (error: any) {
       showNotification('error', `CRM stage update failed: ${error.message}`)
       return
     }
-    setLeads((current) => current.map((item) => (item.id === lead.id ? { ...item, status: nextStatus } : item)))
+    setLeads((current) => current.map((item) => (item.id === lead.id ? { ...item, stage: nextStatus } : item)))
   }
 
   const deleteLead = async (lead: any) => {

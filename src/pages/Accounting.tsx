@@ -22,21 +22,23 @@ const invoiceFieldsBase: FormField[] = [
   { name: 'salesOrderNumber', label: 'Sales Order', type: 'select', options: [] },
   { name: 'invoiceDate', label: 'Invoice Date', type: 'date', required: true },
   { name: 'dueDate', label: 'Due Date', type: 'date' },
-  { name: 'paidDate', label: 'Paid Date', type: 'date' },
   { name: 'totalAmountBeforeTax', label: 'Subtotal', type: 'number' },
   { name: 'totalTax', label: 'Tax', type: 'number' },
   { name: 'totalAmount', label: 'Total', type: 'number', required: true },
   { name: 'paidAmount', label: 'Paid Amount', type: 'number' },
-  { name: 'outstandingAmount', label: 'Outstanding', type: 'number' },
+  // NOTE: outstandingAmount is AUTO-CALCULATED (totalAmount - paidAmount) - do NOT include in form
   {
     name: 'status',
     label: 'Status',
     type: 'select',
     options: [
       { value: 'draft', label: 'Draft' },
-      { value: 'posted', label: 'Posted' },
+      { value: 'issued', label: 'Issued' },
+      { value: 'sent', label: 'Sent' },
+      { value: 'partial_paid', label: 'Partial Paid' },
       { value: 'paid', label: 'Paid' },
       { value: 'overdue', label: 'Overdue' },
+      { value: 'cancelled', label: 'Cancelled' },
     ],
   },
   { name: 'paymentTerms', label: 'Payment Terms', type: 'text' },
@@ -49,20 +51,23 @@ const billFieldsBase: FormField[] = [
   { name: 'purchaseOrderNumber', label: 'Purchase Order', type: 'select', options: [] },
   { name: 'billDate', label: 'Bill Date', type: 'date', required: true },
   { name: 'dueDate', label: 'Due Date', type: 'date' },
-  { name: 'paidDate', label: 'Paid Date', type: 'date' },
   { name: 'totalAmountBeforeTax', label: 'Subtotal', type: 'number' },
   { name: 'totalTax', label: 'Tax', type: 'number' },
   { name: 'totalAmount', label: 'Total', type: 'number', required: true },
   { name: 'paidAmount', label: 'Paid Amount', type: 'number' },
-  { name: 'outstandingAmount', label: 'Outstanding', type: 'number' },
+  // NOTE: outstandingAmount is AUTO-CALCULATED (totalAmount - paidAmount) - do NOT include in form
   {
     name: 'status',
     label: 'Status',
     type: 'select',
     options: [
       { value: 'draft', label: 'Draft' },
-      { value: 'posted', label: 'Posted' },
+      { value: 'received', label: 'Received' },
+      { value: 'verified', label: 'Verified' },
+      { value: 'partial_paid', label: 'Partial Paid' },
       { value: 'paid', label: 'Paid' },
+      { value: 'overdue', label: 'Overdue' },
+      { value: 'cancelled', label: 'Cancelled' },
     ],
   },
   { name: 'notes', label: 'Notes', type: 'textarea' },
@@ -81,7 +86,8 @@ const noteFieldsBase: FormField[] = [
     type: 'select',
     options: [
       { value: 'draft', label: 'Draft' },
-      { value: 'posted', label: 'Posted' },
+      { value: 'issued', label: 'Issued' },
+      { value: 'applied', label: 'Applied' },
     ],
   },
   { name: 'description', label: 'Description', type: 'textarea' },
@@ -97,10 +103,9 @@ const flow: Record<string, string> = {
 const normalizeInvoice = (invoice: any) => ({
   ...invoice,
   invoiceNumber: invoice.invoice_number,
-  customerName: invoice.customer?.name || invoice.customerName || invoice.customer || 'N/A',
+  customerName: invoice.customer?.name || invoice.customer_id,
   invoiceDate: invoice.invoice_date,
   dueDate: invoice.due_date,
-  paidDate: invoice.paid_date,
   totalAmountBeforeTax: invoice.total_amount_before_tax,
   totalTax: invoice.total_tax,
   totalAmount: invoice.total_amount || invoice.total,
@@ -144,14 +149,13 @@ const AccountingModule: React.FC = () => {
         setLoadError(null)
         setVendorBills(records.map((bill) => ({
           ...bill,
-          billNumber: bill.bill_number || bill.billNumber,
-          supplierName: bill.supplier?.name || bill.supplierName || bill.supplier_id,
-          billDate: bill.bill_date || bill.billDate,
-          dueDate: bill.due_date || bill.dueDate,
-          paidDate: bill.paid_date,
+          billNumber: bill.bill_number,
+          supplierName: bill.supplier?.name || bill.supplier_id,
+          billDate: bill.bill_date,
+          dueDate: bill.due_date,
           totalAmountBeforeTax: bill.total_amount_before_tax,
           totalTax: bill.total_tax,
-          totalAmount: bill.total_amount || bill.total || 0,
+          totalAmount: bill.total_amount || 0,
           paidAmount: bill.paid_amount,
           outstandingAmount: bill.outstanding_amount,
         })))
@@ -167,10 +171,10 @@ const AccountingModule: React.FC = () => {
         setLoadError(null)
         setCredits(records.map((note) => ({
           ...note,
-          noteNumber: note.credit_note_number || note.noteNumber,
-          partnerName: note.customer?.name || note.partnerName || note.customer_id,
-          noteDate: note.credit_date || note.noteDate,
-          totalAmount: note.total_amount || note.total || 0,
+          noteNumber: note.credit_note_number,
+          customerName: note.customer?.name || note.customer_id,
+          noteDate: note.credit_date,
+          totalAmount: note.total_amount || 0,
           referenceDocument: note.invoice_id,
         })))
       })
@@ -185,10 +189,10 @@ const AccountingModule: React.FC = () => {
         setLoadError(null)
         setDebits(records.map((note) => ({
           ...note,
-          noteNumber: note.debit_note_number || note.noteNumber,
-          partnerName: note.supplier?.name || note.partnerName || note.supplier_id,
-          noteDate: note.debit_date || note.noteDate,
-          totalAmount: note.total_amount || note.total || 0,
+          noteNumber: note.debit_note_number,
+          supplierName: note.supplier?.name || note.supplier_id,
+          noteDate: note.debit_date,
+          totalAmount: note.total_amount || 0,
           referenceDocument: note.bill_id,
         })))
       })
@@ -228,22 +232,28 @@ const AccountingModule: React.FC = () => {
   const activeFields = useMemo(() => {
     if (activeTab === 'invoices') {
       return invoiceFieldsBase.map((field) => {
-        if (field.name === 'customerName') return { ...field, options: customerOptions }
-        if (field.name === 'salesOrderNumber') return { ...field, options: salesOrderOptions }
+        if (field.name === 'customer_id') return { ...field, options: customerOptions }
+        if (field.name === 'sales_order_id') return { ...field, options: salesOrderOptions }
         return field
       })
     }
     if (activeTab === 'bills') {
       return billFieldsBase.map((field) => {
-        if (field.name === 'supplierName') return { ...field, options: supplierOptions }
-        if (field.name === 'purchaseOrderNumber') return { ...field, options: purchaseOrderOptions }
+        if (field.name === 'supplier_id') return { ...field, options: supplierOptions }
+        if (field.name === 'purchase_order_id') return { ...field, options: purchaseOrderOptions }
         return field
       })
     }
-    const noteOptions = activeTab === 'credit-notes' ? customerOptions : supplierOptions
-    const partnerLabel = activeTab === 'credit-notes' ? 'Customer' : 'Supplier'
+    if (activeTab === 'credit-notes') {
+      return noteFieldsBase.map((field) => {
+        if (field.name === 'customer_id') return { ...field, options: customerOptions }
+        if (field.name === 'invoice_id') return { ...field, options: salesOrderOptions }
+        return field
+      })
+    }
     return noteFieldsBase.map((field) => {
-      if (field.name === 'partnerName') return { ...field, label: partnerLabel, options: noteOptions }
+      if (field.name === 'supplier_id') return { ...field, options: supplierOptions }
+      if (field.name === 'bill_id') return { ...field, options: purchaseOrderOptions }
       return field
     })
   }, [activeTab, customerOptions, supplierOptions, salesOrderOptions, purchaseOrderOptions])
@@ -257,7 +267,7 @@ const AccountingModule: React.FC = () => {
 
   const filteredRecords = useMemo(() => {
     return activeRecords.filter((record) => {
-      const reference = record.invoice_number || record.billNumber || record.noteNumber
+      const reference = record.invoiceNumber || record.billNumber || record.noteNumber
       const partner = record.customerName || record.supplierName || record.partnerName
       const haystack = `${reference} ${partner} ${record.reason || ''}`.toLowerCase()
       return haystack.includes(search.toLowerCase()) && (status === 'all' || record.status === status)
@@ -273,22 +283,17 @@ const AccountingModule: React.FC = () => {
       noteNumber: `${prefix}-${Date.now().toString().slice(-5)}`,
       customerName: '',
       supplierName: '',
-      partnerName: '',
       invoiceDate: new Date().toISOString().slice(0, 10),
       billDate: new Date().toISOString().slice(0, 10),
       noteDate: new Date().toISOString().slice(0, 10),
       dueDate: '',
-      paidDate: '',
       totalAmountBeforeTax: 0,
       totalTax: 0,
       totalAmount: 0,
-      total: 0,
       paidAmount: 0,
-      outstandingAmount: 0,
       status: 'draft',
       reason: '',
       description: '',
-      notes: '',
     })
     setModalOpen(true)
   }
@@ -304,36 +309,32 @@ const AccountingModule: React.FC = () => {
 
     const payload = activeTab === 'invoices' ? {
       invoice_number: record.invoiceNumber,
-      customer_id: record.customerName,
-      sales_order_id: record.salesOrderNumber,
+      customer_id: customerOptions.find(c => c.label === record.customerName)?.value || record.customerName,
+      sales_order_id: salesOrderOptions.find(s => s.label === record.salesOrderNumber)?.value || record.salesOrderNumber,
       invoice_date: record.invoiceDate,
       due_date: record.dueDate,
-      paid_date: record.paidDate,
       total_amount_before_tax: record.totalAmountBeforeTax,
       total_tax: record.totalTax,
       total_amount: record.totalAmount,
       paid_amount: record.paidAmount,
-      outstanding_amount: record.outstandingAmount,
       status: record.status,
       payment_terms: record.paymentTerms,
       description: record.description,
     } : activeTab === 'bills' ? {
       bill_number: record.billNumber,
-      supplier_id: record.supplierName,
-      purchase_order_id: record.purchaseOrderNumber,
+      supplier_id: supplierOptions.find(s => s.label === record.supplierName)?.value || record.supplierName,
+      purchase_order_id: purchaseOrderOptions.find(p => p.label === record.purchaseOrderNumber)?.value || record.purchaseOrderNumber,
       bill_date: record.billDate,
       due_date: record.dueDate,
-      paid_date: record.paidDate,
       total_amount_before_tax: record.totalAmountBeforeTax,
       total_tax: record.totalTax,
       total_amount: record.totalAmount,
       paid_amount: record.paidAmount,
-      outstanding_amount: record.outstandingAmount,
       status: record.status,
       notes: record.notes,
     } : activeTab === 'credit-notes' ? {
       credit_note_number: record.noteNumber,
-      customer_id: record.partnerName,
+      customer_id: customerOptions.find(c => c.label === record.partnerName)?.value || record.partnerName,
       invoice_id: record.referenceDocument,
       reason: record.reason,
       credit_date: record.noteDate,
@@ -342,7 +343,7 @@ const AccountingModule: React.FC = () => {
       description: record.description,
     } : {
       debit_note_number: record.noteNumber,
-      supplier_id: record.partnerName,
+      supplier_id: supplierOptions.find(s => s.label === record.partnerName)?.value || record.partnerName,
       bill_id: record.referenceDocument,
       reason: record.reason,
       debit_date: record.noteDate,

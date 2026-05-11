@@ -59,13 +59,13 @@ const productFields: FormField[] = [
   { name: 'categoryName', label: 'Category', type: 'select', required: true, options: [] },
   { name: 'uomName', label: 'Unit of Measure', type: 'select', options: [] },
   { name: 'barcode', label: 'Barcode', type: 'text' },
-  { name: 'imageUrl', label: 'Image URL', type: 'text' },
-  { name: 'listPrice', label: 'List Price', type: 'number', required: true },
-  { name: 'costPrice', label: 'Cost Price', type: 'number', required: true },
-  { name: 'weightKg', label: 'Weight (kg)', type: 'number' },
-  { name: 'supplierLeadTimeDays', label: 'Supplier Lead Time (days)', type: 'number' },
-  { name: 'reorderLevel', label: 'Reorder Level', type: 'number' },
-  { name: 'reorderQuantity', label: 'Reorder Qty', type: 'number' },
+  { name: 'image_url', label: 'Image URL', type: 'text' },
+  { name: 'list_price', label: 'List Price', type: 'number', required: true },
+  { name: 'cost_price', label: 'Cost Price', type: 'number', required: true },
+  // NOTE: profit_margin_percent is GENERATED ALWAYS in database - do NOT include in form
+  { name: 'reorder_level', label: 'Reorder Level', type: 'number' },
+  { name: 'reorder_quantity', label: 'Reorder Qty', type: 'number' },
+  { name: 'supplier_lead_time_days', label: 'Supplier Lead Time (days)', type: 'number' },
   {
     name: 'status',
     label: 'Status',
@@ -80,10 +80,10 @@ const productFields: FormField[] = [
 ]
 
 const customerFields: FormField[] = [
-  { name: 'customerNumber', label: 'Customer Number', type: 'text' },
+  { name: 'customer_number', label: 'Customer Number', type: 'text' },
   { name: 'name', label: 'Customer Name', type: 'text', required: true },
   {
-    name: 'customerType',
+    name: 'customer_type',
     label: 'Customer Type',
     type: 'select',
     required: true,
@@ -92,17 +92,17 @@ const customerFields: FormField[] = [
       { value: 'B2C', label: 'B2C' },
     ],
   },
-  { name: 'companyTaxId', label: 'Tax ID', type: 'text' },
-  { name: 'contactName', label: 'Contact Name', type: 'text' },
-  { name: 'contactEmail', label: 'Contact Email', type: 'email' },
-  { name: 'contactPhone', label: 'Contact Phone', type: 'text' },
-  { name: 'billingAddress', label: 'Billing Address', type: 'textarea' },
-  { name: 'billingCity', label: 'Billing City', type: 'text' },
-  { name: 'billingProvince', label: 'Billing Province', type: 'text' },
-  { name: 'billingPostalCode', label: 'Billing Postal Code', type: 'text' },
-  { name: 'shippingAddress', label: 'Shipping Address', type: 'textarea' },
+  { name: 'company_tax_id', label: 'Tax ID', type: 'text' },
+  { name: 'contact_person_name', label: 'Contact Name', type: 'text' },
+  { name: 'contact_person_email', label: 'Contact Email', type: 'email' },
+  { name: 'contact_person_phone', label: 'Contact Phone', type: 'text' },
+  { name: 'billing_address', label: 'Billing Address', type: 'textarea' },
+  { name: 'billing_city', label: 'Billing City', type: 'text' },
+  { name: 'billing_province', label: 'Billing Province', type: 'text' },
+  { name: 'billing_postal_code', label: 'Billing Postal Code', type: 'text' },
+  { name: 'shipping_address', label: 'Shipping Address', type: 'textarea' },
   {
-    name: 'shippingSameAsBilling',
+    name: 'shipping_same_as_billing',
     label: 'Same as Billing',
     type: 'select',
     options: [
@@ -110,13 +110,15 @@ const customerFields: FormField[] = [
       { value: 'false', label: 'No' },
     ],
   },
-  { name: 'creditLimit', label: 'Credit Limit', type: 'number' },
+  { name: 'credit_limit', label: 'Credit Limit', type: 'number' },
+  // NOTE: credit_used is AUTO-CALCULATED from customer_invoices - do NOT include in form
   {
-    name: 'paymentTerms',
+    name: 'payment_terms',
     label: 'Payment Terms',
     type: 'select',
     options: [
       { value: 'NET30', label: 'NET30' },
+      { value: 'NET45', label: 'NET45' },
       { value: 'NET60', label: 'NET60' },
       { value: 'COD', label: 'COD' },
       { value: 'Prepaid', label: 'Prepaid' },
@@ -135,45 +137,41 @@ const customerFields: FormField[] = [
 ]
 
 const supplierFields: FormField[] = [
-  { name: 'supplierNumber', label: 'Supplier Number', type: 'text' },
+  { name: 'supplier_number', label: 'Supplier Number', type: 'text' },
   { name: 'name', label: 'Supplier Name', type: 'text', required: true },
-  { name: 'companyTaxId', label: 'Tax ID', type: 'text' },
+  { name: 'company_tax_id', label: 'Tax ID', type: 'text' },
   {
-    name: 'supplierTypeId',
+    name: 'supplier_type_id',
     label: 'Supplier Type',
     type: 'select',
     required: true,
-    options: [
-      { value: 'equipment', label: 'Equipment & Product Suppliers' },
-      { value: 'components', label: 'Component & Part Suppliers' },
-      { value: 'logistics', label: 'Logistics & Transportation' },
-      { value: 'services', label: 'Service Providers' },
-      { value: 'maintenance', label: 'Maintenance & Repair Services' },
-    ],
+    options: [],
   },
-  { name: 'contactName', label: 'Contact Name', type: 'text' },
-  { name: 'contactEmail', label: 'Contact Email', type: 'email' },
-  { name: 'contactPhone', label: 'Contact Phone', type: 'text' },
-  { name: 'companyAddress', label: 'Company Address', type: 'textarea' },
-  { name: 'companyCity', label: 'Company City', type: 'text' },
-  { name: 'companyProvince', label: 'Company Province', type: 'text' },
-  { name: 'companyPostalCode', label: 'Postal Code', type: 'text' },
-  { name: 'companyWebsite', label: 'Website', type: 'text' },
+  { name: 'contact_person_name', label: 'Contact Name', type: 'text' },
+  { name: 'contact_person_email', label: 'Contact Email', type: 'email' },
+  { name: 'contact_person_phone', label: 'Contact Phone', type: 'text' },
+  { name: 'company_address', label: 'Company Address', type: 'textarea' },
+  { name: 'company_city', label: 'Company City', type: 'text' },
+  { name: 'company_province', label: 'Company Province', type: 'text' },
+  { name: 'company_postal_code', label: 'Postal Code', type: 'text' },
+  { name: 'company_website', label: 'Website', type: 'text' },
+  // NOTE: logo_url is NOT user input - optional field
   {
-    name: 'paymentTerms',
+    name: 'payment_terms',
     label: 'Payment Terms',
     type: 'select',
     options: [
       { value: 'NET30', label: 'NET30' },
+      { value: 'NET45', label: 'NET45' },
       { value: 'NET60', label: 'NET60' },
       { value: 'COD', label: 'COD' },
       { value: 'Prepaid', label: 'Prepaid' },
     ],
   },
-  { name: 'averageLeadTimeDays', label: 'Lead Time Days', type: 'number' },
-  { name: 'qualityRating', label: 'Quality Rating (0-5)', type: 'number' },
+  { name: 'average_lead_time_days', label: 'Lead Time Days', type: 'number' },
+  { name: 'quality_rating', label: 'Quality Rating (0-5)', type: 'number' },
   {
-    name: 'isPreferred',
+    name: 'is_preferred',
     label: 'Preferred Supplier',
     type: 'select',
     options: [
@@ -181,6 +179,8 @@ const supplierFields: FormField[] = [
       { value: 'false', label: 'No' },
     ],
   },
+  // NOTE: total_spent is AUTO-CALCULATED from vendor_bills - do NOT include in form
+  // NOTE: average_response_time_hours is AUTO-CALCULATED from rfq_supplier_quotations - do NOT include in form
   {
     name: 'status',
     label: 'Status',
@@ -228,17 +228,16 @@ const userFields: FormField[] = [
 ]
 
 const warehouseFields: FormField[] = [
-  { name: 'warehouseCode', label: 'Warehouse Code', type: 'text', required: true },
+  { name: 'warehouse_code', label: 'Warehouse Code', type: 'text', required: true },
   { name: 'name', label: 'Warehouse Name', type: 'text', required: true },
   { name: 'description', label: 'Description', type: 'textarea' },
-  { name: 'locationAddress', label: 'Location Address', type: 'textarea' },
+  { name: 'location_address', label: 'Location Address', type: 'textarea' },
   { name: 'city', label: 'City', type: 'text' },
   { name: 'province', label: 'Province', type: 'text' },
-  { name: 'postalCode', label: 'Postal Code', type: 'text' },
+  { name: 'postal_code', label: 'Postal Code', type: 'text' },
   { name: 'managerName', label: 'Warehouse Manager', type: 'select', options: [] },
-  { name: 'capacitySqm', label: 'Capacity (sqm)', type: 'number' },
-  // NOTE: currentOccupancySqm is AUTO-CALCULATED from bin_locations - do NOT show in form
-  // It will be updated by trigger when bins are added/modified
+  { name: 'capacity_sqm', label: 'Capacity (sqm)', type: 'number' },
+  // NOTE: current_occupancy_sqm is AUTO-CALCULATED by trigger from bin_locations - do NOT include in form
   {
     name: 'status',
     label: 'Status',
@@ -253,11 +252,10 @@ const warehouseFields: FormField[] = [
 
 const binLocationFields: FormField[] = [
   { name: 'warehouseName', label: 'Warehouse', type: 'select', required: true, options: [] },
-  { name: 'binCode', label: 'Bin Code', type: 'text', required: true },
+  { name: 'bin_code', label: 'Bin Code', type: 'text', required: true },
   { name: 'description', label: 'Description', type: 'textarea' },
-  { name: 'capacityUnits', label: 'Capacity Units', type: 'number' },
-  // NOTE: currentOccupancyUnits is AUTO-CALCULATED from stock_in_bins - do NOT show in form
-  // It will be updated by trigger when stock is added/removed from this bin
+  { name: 'capacity_units', label: 'Capacity Units', type: 'number' },
+  // NOTE: current_occupancy_units is AUTO-CALCULATED by trigger from stock_in_bins - do NOT include in form
   {
     name: 'status',
     label: 'Status',
@@ -300,25 +298,24 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
       categoryName: '',
       uomName: '',
       barcode: '',
-      imageUrl: '',
-      listPrice: 0,
-      costPrice: 0,
-      weightKg: 0,
-      supplierLeadTimeDays: 7,
-      reorderLevel: 10,
-      reorderQuantity: 50,
+      image_url: '',
+      list_price: 0,
+      cost_price: 0,
+      reorder_level: 10,
+      reorder_quantity: 50,
+      supplier_lead_time_days: 7,
       status: 'active',
       description: '',
     }),
     fields: productFields,
-    searchKeys: ['sku', 'name', 'categoryName', 'description'],
+    searchKeys: ['sku', 'name', 'description'],
     statusKey: 'status',
     getColumns: () => [
       { key: 'sku', label: 'SKU' },
       { key: 'name', label: 'Product' },
       { key: 'categoryName', label: 'Category' },
-      { key: 'listPrice', label: 'List Price', align: 'right' },
-      { key: 'costPrice', label: 'Cost Price', align: 'right' },
+      { key: 'list_price', label: 'List Price', align: 'right' },
+      { key: 'cost_price', label: 'Cost Price', align: 'right' },
       { key: 'status', label: 'Status' },
     ],
   },
@@ -329,32 +326,32 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     primaryLabel: 'New Customer',
     title: 'Customers',
     createRecord: () => ({
-      customerNumber: '',
+      customer_number: '',
       name: '',
-      customerType: 'B2C',
-      companyTaxId: '',
-      contactName: '',
-      contactEmail: '',
-      contactPhone: '',
-      billingAddress: '',
-      billingCity: '',
-      billingProvince: '',
-      billingPostalCode: '',
-      shippingAddress: '',
-      shippingSameAsBilling: 'true',
-      creditLimit: 0,
-      paymentTerms: 'NET30',
+      customer_type: 'B2C',
+      company_tax_id: '',
+      contact_person_name: '',
+      contact_person_email: '',
+      contact_person_phone: '',
+      billing_address: '',
+      billing_city: '',
+      billing_province: '',
+      billing_postal_code: '',
+      shipping_address: '',
+      shipping_same_as_billing: 'true',
+      credit_limit: 0,
+      payment_terms: 'NET30',
       status: 'active',
     }),
     fields: customerFields,
-    searchKeys: ['customerNumber', 'name', 'contactName', 'contactEmail', 'contactPhone'],
+    searchKeys: ['customer_number', 'name', 'contact_person_name', 'contact_person_email', 'contact_person_phone'],
     statusKey: 'status',
     getColumns: () => [
-      { key: 'customerNumber', label: 'Customer No.' },
+      { key: 'customer_number', label: 'Customer No.' },
       { key: 'name', label: 'Customer' },
-      { key: 'customerType', label: 'Type' },
-      { key: 'contactName', label: 'Contact' },
-      { key: 'contactEmail', label: 'Email' },
+      { key: 'customer_type', label: 'Type' },
+      { key: 'contact_person_name', label: 'Contact' },
+      { key: 'contact_person_email', label: 'Email' },
       { key: 'status', label: 'Status' },
     ],
   },
@@ -365,35 +362,35 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     primaryLabel: 'New Supplier',
     title: 'Suppliers',
     createRecord: () => ({
-      supplierNumber: '',
+      supplier_number: '',
       name: '',
-      companyTaxId: '',
-      supplierTypeId: 'equipment',
-      contactName: '',
-      contactEmail: '',
-      contactPhone: '',
-      companyAddress: '',
-      companyCity: '',
-      companyProvince: '',
-      companyPostalCode: '',
-      companyWebsite: '',
-      paymentTerms: 'NET30',
-      averageLeadTimeDays: 7,
-      qualityRating: 3,
-      isPreferred: 'false',
+      company_tax_id: '',
+      supplier_type_id: '',
+      contact_person_name: '',
+      contact_person_email: '',
+      contact_person_phone: '',
+      company_address: '',
+      company_city: '',
+      company_province: '',
+      company_postal_code: '',
+      company_website: '',
+      payment_terms: 'NET30',
+      average_lead_time_days: 7,
+      quality_rating: 5,
+      is_preferred: 'false',
       status: 'active',
     }),
     fields: supplierFields,
-    searchKeys: ['supplierNumber', 'name', 'contactName', 'contactEmail', 'contactPhone'],
+    searchKeys: ['supplier_number', 'name', 'contact_person_name', 'contact_person_email', 'contact_person_phone'],
     statusKey: 'status',
     getColumns: () => [
-      { key: 'supplierNumber', label: 'Supplier No.' },
+      { key: 'supplier_number', label: 'Supplier No.' },
       { key: 'name', label: 'Supplier' },
-      { key: 'contactName', label: 'Contact' },
-      { key: 'contactPhone', label: 'Phone' },
-      { key: 'companyCity', label: 'City' },
-      { key: 'averageLeadTimeDays', label: 'Lead Days', align: 'right' },
-      { key: 'isPreferred', label: 'Preferred' },
+      { key: 'contact_person_name', label: 'Contact' },
+      { key: 'contact_person_phone', label: 'Phone' },
+      { key: 'company_city', label: 'City' },
+      { key: 'average_lead_time_days', label: 'Lead Days', align: 'right' },
+      { key: 'is_preferred', label: 'Preferred' },
       { key: 'status', label: 'Status' },
     ],
   },
@@ -431,29 +428,28 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     primaryLabel: 'New Warehouse',
     title: 'Warehouses',
     createRecord: () => ({
-      warehouseCode: '',
+      warehouse_code: '',
       name: '',
       description: '',
-      locationAddress: '',
+      location_address: '',
       city: '',
       province: '',
-      postalCode: '',
+      postal_code: '',
       managerName: '',
-      capacitySqm: 0,
-      currentOccupancySqm: 0,
+      capacity_sqm: 0,
       status: 'active',
     }),
     fields: warehouseFields,
-    searchKeys: ['warehouseCode', 'name', 'city', 'province', 'locationAddress'],
+    searchKeys: ['warehouse_code', 'name', 'city', 'province', 'location_address'],
     statusKey: 'status',
     getColumns: () => [
-      { key: 'warehouseCode', label: 'Code' },
+      { key: 'warehouse_code', label: 'Code' },
       { key: 'name', label: 'Warehouse' },
       { key: 'city', label: 'City' },
       { key: 'province', label: 'Province' },
       { key: 'managerName', label: 'Manager' },
-      { key: 'capacitySqm', label: 'Capacity (sqm)', align: 'right' },
-      { key: 'currentOccupancySqm', label: 'Occupancy (sqm)', align: 'right' },
+      { key: 'capacity_sqm', label: 'Capacity (sqm)', align: 'right' },
+      { key: 'current_occupancy_sqm', label: 'Occupancy (sqm)', align: 'right' },
       { key: 'status', label: 'Status' },
     ],
   },
@@ -465,21 +461,20 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     title: 'Bin Locations',
     createRecord: () => ({
       warehouseName: '',
-      binCode: '',
+      bin_code: '',
       description: '',
-      capacityUnits: 0,
-      currentOccupancyUnits: 0,
+      capacity_units: 0,
       status: 'active',
     }),
     fields: binLocationFields,
-    searchKeys: ['warehouseName', 'binCode', 'description'],
+    searchKeys: ['bin_code', 'description'],
     statusKey: 'status',
     getColumns: () => [
       { key: 'warehouseName', label: 'Warehouse' },
-      { key: 'binCode', label: 'Bin Code' },
+      { key: 'bin_code', label: 'Bin Code' },
       { key: 'description', label: 'Description' },
-      { key: 'capacityUnits', label: 'Capacity', align: 'right' },
-      { key: 'currentOccupancyUnits', label: 'Occupancy', align: 'right' },
+      { key: 'capacity_units', label: 'Capacity', align: 'right' },
+      { key: 'current_occupancy_units', label: 'Occupancy', align: 'right' },
       { key: 'status', label: 'Status' },
     ],
   },
@@ -523,8 +518,18 @@ const MasterDataPage: React.FC = () => {
 
   // Dropdown options for foreign keys
   const categoryOptions = useMemo(
-    () => datasets.categories.map((category) => ({ value: category.name, label: category.name })),
+    () => datasets.categories.map((category) => ({ value: category.id, label: category.name })),
     [datasets.categories]
+  )
+  const supplierTypeOptions = useMemo(
+    () => [
+      { value: 'equipment', label: 'Equipment & Product Suppliers' },
+      { value: 'components', label: 'Component & Part Suppliers' },
+      { value: 'logistics', label: 'Logistics & Transportation' },
+      { value: 'services', label: 'Service Providers' },
+      { value: 'maintenance', label: 'Maintenance & Repair Services' },
+    ],
+    []
   )
   const parentCategoryOptions = useMemo(
     () => [
@@ -541,7 +546,7 @@ const MasterDataPage: React.FC = () => {
     () =>
       datasets.warehouses.map((warehouse) => ({
         value: warehouse.id,
-        label: `${warehouse.name} (${warehouse.warehouseCode || warehouse.warehouse_code})`,
+        label: `${warehouse.name} (${warehouse.warehouse_code})`,
         name: warehouse.name,
       })),
     [datasets.warehouses]
@@ -630,15 +635,18 @@ const MasterDataPage: React.FC = () => {
       if (activeTab === 'binLocations') {
         if (field.name === 'warehouseName') return { ...field, type: 'select' as const, options: warehouseOptions }
       }
-      if (activeTab === 'warehouses' && field.name === 'managerName') {
-        return { ...field, type: 'select' as const, options: userOptions }
+      if (activeTab === 'warehouses') {
+        if (field.name === 'managerName') return { ...field, type: 'select' as const, options: userOptions }
+      }
+      if (activeTab === 'suppliers') {
+        if (field.name === 'supplierTypeId') return { ...field, type: 'select' as const, options: supplierTypeOptions }
       }
       if (activeTab === 'users' && field.name === 'departmentName') {
         return { ...field, type: 'select' as const, options: departmentOptions }
       }
       return field
     })
-  }, [activeTab, categoryOptions, uomOptions, warehouseOptions, userOptions, departmentOptions, parentCategoryOptions, config.fields])
+  }, [activeTab, categoryOptions, uomOptions, warehouseOptions, userOptions, departmentOptions, parentCategoryOptions, supplierTypeOptions, config.fields])
 
   const openCreate = () => {
     setModalError(null)
@@ -650,24 +658,24 @@ const MasterDataPage: React.FC = () => {
     setModalError(null)
     const recordCopy = { ...record }
     if (activeTab === 'binLocations') {
-      recordCopy.warehouseName = record.warehouse_id || ''
+      recordCopy.warehouseName = record.warehouse_id || record.warehouseName || ''
     }
     if (activeTab === 'products') {
-      recordCopy.categoryName = record.category?.name || record.categoryName || ''
-      recordCopy.uomName = record.uom?.name || record.uomName || ''
+      recordCopy.categoryName = record.category_id || record.category?.id || record.category?.name || ''
+      recordCopy.uomName = record.uom_id || record.uom?.id || record.uom?.name || ''
     }
     if (activeTab === 'warehouses') {
-      recordCopy.managerName = record.manager?.full_name || record.managerName || record.manager_id || ''
+      recordCopy.managerName = record.manager_id || record.manager?.id || record.manager?.full_name || ''
     }
     if (activeTab === 'categories') {
       recordCopy.parentName = record.parent_id || ''
-      recordCopy.isActive = record.is_active !== undefined ? String(record.is_active) : 'true'
     }
     if (activeTab === 'customers') {
-      recordCopy.shippingSameAsBilling = record.shipping_same_as_billing !== undefined ? String(record.shipping_same_as_billing) : 'true'
+      recordCopy.shipping_same_as_billing = record.shipping_same_as_billing !== undefined ? String(record.shipping_same_as_billing) : 'true'
     }
     if (activeTab === 'suppliers') {
-      recordCopy.isPreferred = record.is_preferred !== undefined ? String(record.is_preferred) : 'false'
+      recordCopy.is_preferred = record.is_preferred !== undefined ? String(record.is_preferred) : 'false'
+      recordCopy.supplierTypeId = record.supplier_type_id || ''
     }
     setModalRecord(recordCopy)
     setModalOpen(true)
@@ -676,9 +684,26 @@ const MasterDataPage: React.FC = () => {
   const handleSave = async (record: any) => {
     try {
       const recordToSave = { ...record }
-      if (activeTab === 'binLocations') {
-        recordToSave.warehouseName = warehouseOptions.find(w => w.value === record.warehouseName)?.name || record.warehouseName
+      
+      // Map FK fields to proper names for API
+      if (activeTab === 'products') {
+        recordToSave.category_id = categoryOptions.find(c => c.label === record.categoryName)?.value || record.categoryName
+        recordToSave.uom_id = uomOptions.find(u => u.label === record.uomName)?.value || record.uomName
       }
+      if (activeTab === 'binLocations') {
+        recordToSave.warehouse_id = warehouseOptions.find(w => w.label === record.warehouseName)?.value || record.warehouseName
+      }
+      if (activeTab === 'warehouses') {
+        recordToSave.manager_id = userOptions.find(u => u.label === record.managerName)?.value || record.managerName
+      }
+      if (activeTab === 'customers') {
+        recordToSave.shipping_same_as_billing = record.shipping_same_as_billing === true || record.shipping_same_as_billing === 'true'
+      }
+      if (activeTab === 'suppliers') {
+        recordToSave.is_preferred = record.is_preferred === true || record.is_preferred === 'true'
+        recordToSave.supplier_type_id = supplierTypeOptions.find(s => s.label === record.supplierTypeId)?.value || record.supplierTypeId
+      }
+      
       if (recordToSave.id) {
         await erpApi.put(`${config.endpoint}/${recordToSave.id}`, recordToSave)
       } else {
