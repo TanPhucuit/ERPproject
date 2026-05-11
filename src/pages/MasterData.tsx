@@ -141,11 +141,17 @@ const supplierFields: FormField[] = [
   { name: 'name', label: 'Supplier Name', type: 'text', required: true },
   { name: 'company_tax_id', label: 'Tax ID', type: 'text' },
   {
-    name: 'supplier_type_id',
+    name: 'supplierType',
     label: 'Supplier Type',
     type: 'select',
     required: true,
-    options: [],
+    options: [
+      { value: 'equipment', label: 'Equipment & Product Suppliers' },
+      { value: 'components', label: 'Component & Part Suppliers' },
+      { value: 'logistics', label: 'Logistics & Transportation' },
+      { value: 'services', label: 'Service Providers' },
+      { value: 'maintenance', label: 'Maintenance & Repair Services' },
+    ],
   },
   { name: 'contact_person_name', label: 'Contact Name', type: 'text' },
   { name: 'contact_person_email', label: 'Contact Email', type: 'email' },
@@ -639,7 +645,7 @@ const MasterDataPage: React.FC = () => {
         if (field.name === 'managerName') return { ...field, type: 'select' as const, options: userOptions }
       }
       if (activeTab === 'suppliers') {
-        if (field.name === 'supplierTypeId') return { ...field, type: 'select' as const, options: supplierTypeOptions }
+        if (field.name === 'supplierType') return { ...field, type: 'select' as const, options: supplierTypeOptions }
       }
       if (activeTab === 'users' && field.name === 'departmentName') {
         return { ...field, type: 'select' as const, options: departmentOptions }
@@ -675,7 +681,7 @@ const MasterDataPage: React.FC = () => {
     }
     if (activeTab === 'suppliers') {
       recordCopy.is_preferred = record.is_preferred !== undefined ? String(record.is_preferred) : 'false'
-      recordCopy.supplierTypeId = record.supplier_type_id || ''
+      recordCopy.supplierType = record.supplier_type_id || ''
     }
     setModalRecord(recordCopy)
     setModalOpen(true)
@@ -701,7 +707,7 @@ const MasterDataPage: React.FC = () => {
       }
       if (activeTab === 'suppliers') {
         recordToSave.is_preferred = record.is_preferred === true || record.is_preferred === 'true'
-        recordToSave.supplier_type_id = supplierTypeOptions.find(s => s.label === record.supplierTypeId)?.value || record.supplierTypeId
+        recordToSave.supplier_type_id = supplierTypeOptions.find(s => s.value === record.supplierType)?.value || record.supplierType
       }
       
       if (recordToSave.id) {

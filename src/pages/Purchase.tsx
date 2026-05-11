@@ -148,8 +148,8 @@ const PurchaseModule: React.FC = () => {
   const fields = useMemo(() => {
     const source = activeTab === 'purchase-orders' ? poFieldsBase : rfqFieldsBase
     return source.map((field) => {
-      if (field.name === 'supplier_id') return { ...field, options: supplierOptions }
-      if (field.name === 'rfq_id') return { ...field, options: rfqOptions }
+      if (field.name === 'supplierName') return { ...field, options: supplierOptions }
+      if (field.name === 'rfqNumber') return { ...field, options: rfqOptions }
       return field
     })
   }, [activeTab, supplierOptions, rfqOptions])

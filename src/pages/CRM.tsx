@@ -98,7 +98,7 @@ const CRMModule: React.FC = () => {
 
   const leadFieldsWithOptions = useMemo(() => {
     return leadFields.map((field) => {
-      if (field.name === 'owner_id') return { ...field, options: userOptions }
+      if (field.name === 'ownerName') return { ...field, options: userOptions }
       return field
     })
   }, [userOptions])

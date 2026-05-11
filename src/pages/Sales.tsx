@@ -192,10 +192,10 @@ const SalesModule: React.FC = () => {
   const fields = useMemo(() => {
     const source = activeTab === 'orders' ? orderFieldsBase : quotationFieldsBase
     return source.map((field) => {
-      if (field.name === 'customer_id') return { ...field, options: customerOptions }
-      if (field.name === 'quotation_id') return { ...field, options: quotationOptions }
-      if (field.name === 'lead_id') return { ...field, options: leadOptions }
-      if (field.name === 'sales_person_id') return { ...field, options: salesPersonOptions }
+      if (field.name === 'customerName') return { ...field, options: customerOptions }
+      if (field.name === 'quotationNumber') return { ...field, options: quotationOptions }
+      if (field.name === 'leadNumber') return { ...field, options: leadOptions }
+      if (field.name === 'salesPersonName') return { ...field, options: salesPersonOptions }
       return field
     })
   }, [activeTab, customerOptions, quotationOptions, leadOptions, salesPersonOptions])

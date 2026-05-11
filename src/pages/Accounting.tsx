@@ -232,28 +232,28 @@ const AccountingModule: React.FC = () => {
   const activeFields = useMemo(() => {
     if (activeTab === 'invoices') {
       return invoiceFieldsBase.map((field) => {
-        if (field.name === 'customer_id') return { ...field, options: customerOptions }
-        if (field.name === 'sales_order_id') return { ...field, options: salesOrderOptions }
+        if (field.name === 'customerName') return { ...field, options: customerOptions }
+        if (field.name === 'salesOrderNumber') return { ...field, options: salesOrderOptions }
         return field
       })
     }
     if (activeTab === 'bills') {
       return billFieldsBase.map((field) => {
-        if (field.name === 'supplier_id') return { ...field, options: supplierOptions }
-        if (field.name === 'purchase_order_id') return { ...field, options: purchaseOrderOptions }
+        if (field.name === 'supplierName') return { ...field, options: supplierOptions }
+        if (field.name === 'purchaseOrderNumber') return { ...field, options: purchaseOrderOptions }
         return field
       })
     }
     if (activeTab === 'credit-notes') {
       return noteFieldsBase.map((field) => {
-        if (field.name === 'customer_id') return { ...field, options: customerOptions }
-        if (field.name === 'invoice_id') return { ...field, options: salesOrderOptions }
+        if (field.name === 'partnerName') return { ...field, options: customerOptions }
+        if (field.name === 'referenceDocument') return { ...field, options: salesOrderOptions }
         return field
       })
     }
     return noteFieldsBase.map((field) => {
-      if (field.name === 'supplier_id') return { ...field, options: supplierOptions }
-      if (field.name === 'bill_id') return { ...field, options: purchaseOrderOptions }
+      if (field.name === 'partnerName') return { ...field, options: supplierOptions }
+      if (field.name === 'referenceDocument') return { ...field, options: purchaseOrderOptions }
       return field
     })
   }, [activeTab, customerOptions, supplierOptions, salesOrderOptions, purchaseOrderOptions])
