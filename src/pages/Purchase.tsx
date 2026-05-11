@@ -17,9 +17,13 @@ import { useUIStore } from '../stores/uiStore'
 const poFieldsBase: FormField[] = [
   { name: 'poNumber', label: 'PO #', type: 'text', required: true },
   { name: 'supplierName', label: 'Supplier', type: 'select', required: true, options: [] },
-  { name: 'date', label: 'PO Date', type: 'date', required: true },
-  { name: 'dueDate', label: 'Expected Delivery', type: 'date' },
-  { name: 'total', label: 'Total', type: 'number', required: true },
+  { name: 'rfqNumber', label: 'RFQ', type: 'select', options: [] },
+  { name: 'orderDate', label: 'PO Date', type: 'date', required: true },
+  { name: 'requiredDeliveryDate', label: 'Required Delivery Date', type: 'date' },
+  { name: 'totalAmountBeforeTax', label: 'Subtotal', type: 'number' },
+  { name: 'totalTax', label: 'Tax', type: 'number' },
+  { name: 'totalAmount', label: 'Total', type: 'number', required: true },
+  { name: 'receivedAmount', label: 'Received Amount', type: 'number' },
   {
     name: 'status',
     label: 'Status',
@@ -38,9 +42,9 @@ const rfqFieldsBase: FormField[] = [
   { name: 'rfqNumber', label: 'RFQ #', type: 'text', required: true },
   { name: 'supplierName', label: 'Supplier', type: 'select', required: true, options: [] },
   { name: 'productName', label: 'Product / Requirement', type: 'text', required: true },
-  { name: 'date', label: 'Issued Date', type: 'date', required: true },
-  { name: 'dueDate', label: 'Deadline', type: 'date' },
-  { name: 'targetPrice', label: 'Target Price', type: 'number' },
+  { name: 'issuedDate', label: 'Issued Date', type: 'date', required: true },
+  { name: 'closingDate', label: 'Closing Date', type: 'date' },
+  { name: 'totalEstimatedCost', label: 'Target Price', type: 'number' },
   {
     name: 'status',
     label: 'Status',
@@ -52,6 +56,7 @@ const rfqFieldsBase: FormField[] = [
       { value: 'cancelled', label: 'Cancelled' },
     ],
   },
+  { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
 const flow: Record<string, string> = {
@@ -67,6 +72,7 @@ const PurchaseModule: React.FC = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
   const [rfqs, setRfqs] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
+  const [rfqList, setRfqList] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
@@ -84,9 +90,14 @@ const PurchaseModule: React.FC = () => {
             ...po,
             poNumber: po.purchase_order_number || po.poNumber,
             supplierName: po.supplier?.name || po.supplierName || po.supplier_id,
-            date: po.order_date || po.date,
-            dueDate: po.expected_delivery_date || po.dueDate,
-            total: po.total_amount || po.total || 0,
+            orderDate: po.order_date || po.date,
+            requiredDeliveryDate: po.required_delivery_date || po.dueDate,
+            totalAmountBeforeTax: po.total_amount_before_tax,
+            totalTax: po.total_tax,
+            totalAmount: po.total_amount || po.total || 0,
+            receivedAmount: po.received_amount,
+            notes: po.notes,
+            rfqNumber: po.rfq_id,
           }))
         )
       })
@@ -105,11 +116,13 @@ const PurchaseModule: React.FC = () => {
             rfqNumber: rfq.rfq_number || rfq.rfqNumber,
             supplierName: rfq.supplier?.name || rfq.supplierName || 'Multiple Suppliers',
             productName: rfq.description || rfq.productName || 'RFQ items',
-            date: rfq.issued_date || rfq.date,
-            dueDate: rfq.due_date || rfq.dueDate,
-            targetPrice: rfq.estimated_total || rfq.targetPrice || 0,
+            issuedDate: rfq.issued_date || rfq.date,
+            closingDate: rfq.closing_date || rfq.due_date || rfq.dueDate,
+            totalEstimatedCost: rfq.total_estimated_cost || rfq.targetPrice || 0,
+            notes: rfq.notes,
           }))
         )
+        setRfqList(records)
       })
       .catch((error) => {
         setRfqs([])
@@ -126,17 +139,21 @@ const PurchaseModule: React.FC = () => {
 
   const activeRecords = activeTab === 'purchase-orders' ? purchaseOrders : rfqs
   const supplierOptions = useMemo(
-    () => suppliers.map((supplier) => ({ value: supplier.name, label: `${supplier.name}${supplier.supplierNumber ? ` (${supplier.supplierNumber})` : ''}` })),
+    () => suppliers.map((supplier) => ({ value: supplier.id, label: `${supplier.name}${supplier.supplier_number ? ` (${supplier.supplier_number})` : ''}` })),
     [suppliers]
+  )
+  const rfqOptions = useMemo(
+    () => rfqList.map((rfq) => ({ value: rfq.id, label: `${rfq.rfq_number} - ${rfq.supplier?.name || 'Supplier'}` })),
+    [rfqList]
   )
   const fields = useMemo(() => {
     const source = activeTab === 'purchase-orders' ? poFieldsBase : rfqFieldsBase
-    return source.map((field) =>
-      field.name === 'supplierName'
-        ? { ...field, options: supplierOptions }
-        : field
-    )
-  }, [activeTab, supplierOptions])
+    return source.map((field) => {
+      if (field.name === 'supplierName') return { ...field, options: supplierOptions }
+      if (field.name === 'rfqNumber' && activeTab === 'purchase-orders') return { ...field, options: rfqOptions }
+      return field
+    })
+  }, [activeTab, supplierOptions, rfqOptions])
   const title = activeTab === 'purchase-orders' ? 'Purchase Order' : 'RFQ'
 
   const filteredRecords = useMemo(() => {
@@ -153,10 +170,15 @@ const PurchaseModule: React.FC = () => {
       [isPO ? 'poNumber' : 'rfqNumber']: `${isPO ? 'PO' : 'RFQ'}-${Date.now().toString().slice(-5)}`,
       supplierName: '',
       productName: '',
-      date: new Date().toISOString().slice(0, 10),
-      dueDate: '',
-      total: 0,
-      targetPrice: 0,
+      orderDate: new Date().toISOString().slice(0, 10),
+      issuedDate: new Date().toISOString().slice(0, 10),
+      requiredDeliveryDate: '',
+      closingDate: '',
+      totalAmountBeforeTax: 0,
+      totalTax: 0,
+      totalAmount: 0,
+      totalEstimatedCost: 0,
+      receivedAmount: 0,
       status: 'draft',
     })
     setModalOpen(true)
@@ -170,22 +192,26 @@ const PurchaseModule: React.FC = () => {
     const payload = isPO
       ? {
           purchase_order_number: record.poNumber,
-          supplier_id: record.supplier_id,
-          supplierName: record.supplierName,
-          order_date: record.date,
-          required_delivery_date: record.dueDate,
+          supplier_id: record.supplierName,
+          rfq_id: record.rfqNumber,
+          order_date: record.orderDate,
+          required_delivery_date: record.requiredDeliveryDate,
+          total_amount_before_tax: record.totalAmountBeforeTax,
+          total_tax: record.totalTax,
+          total_amount: record.totalAmount,
+          received_amount: record.receivedAmount,
           status: record.status,
-          total_amount: record.total,
           notes: record.notes,
         }
       : {
           rfq_number: record.rfqNumber,
-          issued_date: record.date,
-          closing_date: record.dueDate,
+          supplier_id: record.supplierName,
+          issued_date: record.issuedDate,
+          closing_date: record.closingDate,
           status: record.status,
           description: record.productName,
-          total_estimated_cost: record.targetPrice,
-          supplierName: record.supplierName,
+          total_estimated_cost: record.totalEstimatedCost,
+          notes: record.notes,
         }
     try {
       if (activeRecords.some((item) => item.id === record.id) && !record.id.startsWith(activeTab)) {

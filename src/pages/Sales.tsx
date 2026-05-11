@@ -15,11 +15,15 @@ import {
 import { useUIStore } from '../stores/uiStore'
 
 const quotationFieldsBase: FormField[] = [
-  { name: 'quoteNumber', label: 'Quotation #', type: 'text', required: true },
+  { name: 'quotationNumber', label: 'Quotation #', type: 'text', required: true },
   { name: 'customerName', label: 'Customer', type: 'select', required: true, options: [] },
-  { name: 'date', label: 'Quote Date', type: 'date', required: true },
-  { name: 'expiryDate', label: 'Expiry Date', type: 'date' },
-  { name: 'total', label: 'Amount', type: 'number', required: true },
+  { name: 'leadNumber', label: 'Lead', type: 'select', options: [] },
+  { name: 'issuedDate', label: 'Quote Date', type: 'date', required: true },
+  { name: 'validUntilDate', label: 'Expiry Date', type: 'date' },
+  { name: 'totalAmountBeforeTax', label: 'Subtotal', type: 'number' },
+  { name: 'totalDiscount', label: 'Discount', type: 'number' },
+  { name: 'taxAmount', label: 'Tax', type: 'number' },
+  { name: 'totalAmount', label: 'Total', type: 'number', required: true },
   {
     name: 'status',
     label: 'Status',
@@ -31,15 +35,24 @@ const quotationFieldsBase: FormField[] = [
       { value: 'lost', label: 'Lost' },
     ],
   },
-  { name: 'description', label: 'Description', type: 'textarea' },
+  { name: 'notes', label: 'Notes', type: 'textarea' },
+  { name: 'internalNotes', label: 'Internal Notes', type: 'textarea' },
 ]
 
 const orderFieldsBase: FormField[] = [
   { name: 'orderNumber', label: 'Sales Order #', type: 'text', required: true },
   { name: 'customerName', label: 'Customer', type: 'select', required: true, options: [] },
-  { name: 'date', label: 'Order Date', type: 'date', required: true },
-  { name: 'dueDate', label: 'Delivery Date', type: 'date' },
-  { name: 'total', label: 'Total', type: 'number', required: true },
+  { name: 'quotationNumber', label: 'Quotation', type: 'select', options: [] },
+  { name: 'orderDate', label: 'Order Date', type: 'date', required: true },
+  { name: 'requiredDeliveryDate', label: 'Required Delivery Date', type: 'date' },
+  { name: 'actualDeliveryDate', label: 'Actual Delivery Date', type: 'date' },
+  { name: 'totalAmountBeforeTax', label: 'Subtotal', type: 'number' },
+  { name: 'totalDiscount', label: 'Discount', type: 'number' },
+  { name: 'taxAmount', label: 'Tax', type: 'number' },
+  { name: 'totalAmount', label: 'Total', type: 'number', required: true },
+  { name: 'totalCost', label: 'Total Cost', type: 'number' },
+  { name: 'estimatedProfit', label: 'Estimated Profit', type: 'number' },
+  { name: 'salesPersonName', label: 'Sales Person', type: 'select', options: [] },
   {
     name: 'status',
     label: 'Status',
@@ -51,6 +64,7 @@ const orderFieldsBase: FormField[] = [
       { value: 'completed', label: 'Completed' },
     ],
   },
+  { name: 'shippingAddress', label: 'Shipping Address', type: 'textarea' },
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
@@ -72,6 +86,8 @@ const SalesModule: React.FC = () => {
   const [orders, setOrders] = useState<any[]>([])
   const [quotations, setQuotations] = useState<any[]>([])
   const [customers, setCustomers] = useState<any[]>([])
+  const [users, setUsers] = useState<any[]>([])
+  const [leads, setLeads] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
@@ -90,9 +106,19 @@ const SalesModule: React.FC = () => {
             ...order,
             orderNumber: order.sales_order_number || order.orderNumber,
             customerName: order.customer?.name || order.customerName || order.customer_id,
-            date: order.order_date || order.date,
-            dueDate: order.required_delivery_date || order.dueDate,
-            total: order.total_amount || order.total || 0,
+            orderDate: order.order_date || order.date,
+            requiredDeliveryDate: order.required_delivery_date || order.dueDate,
+            actualDeliveryDate: order.actual_delivery_date,
+            totalAmountBeforeTax: order.total_amount_before_tax,
+            totalDiscount: order.total_discount,
+            taxAmount: order.tax_amount,
+            totalAmount: order.total_amount || order.total || 0,
+            totalCost: order.total_cost,
+            estimatedProfit: order.estimated_profit,
+            salesPersonName: order.sales_person?.full_name || order.sales_person_id,
+            quotationNumber: order.quotation_id,
+            shippingAddress: order.shipping_address,
+            notes: order.notes,
           }))
         )
       })
@@ -108,11 +134,18 @@ const SalesModule: React.FC = () => {
         setQuotations(
           records.map((quote) => ({
             ...quote,
-            quoteNumber: quote.quotation_number || quote.quoteNumber,
+            quotationNumber: quote.quotation_number || quote.quoteNumber,
             customerName: quote.customer?.name || quote.customerName || quote.customer_id,
-            date: quote.quote_date || quote.date,
-            expiryDate: quote.valid_until || quote.expiryDate,
-            total: quote.total_amount || quote.total || 0,
+            issuedDate: quote.issued_date || quote.quote_date || quote.date,
+            validUntilDate: quote.valid_until_date || quote.valid_until || quote.expiryDate,
+            totalAmountBeforeTax: quote.total_amount_before_tax,
+            totalDiscount: quote.total_discount,
+            taxAmount: quote.tax_amount,
+            totalAmount: quote.total_amount || quote.total || 0,
+            estimatedProfit: quote.estimated_profit,
+            leadNumber: quote.lead_id,
+            notes: quote.notes,
+            internalNotes: quote.internal_notes,
           }))
         )
       })
@@ -123,25 +156,50 @@ const SalesModule: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    erpApi
-      .get<any[]>('/customers?limit=1000')
-      .then(setCustomers)
-      .catch(() => setCustomers([]))
+    Promise.all([
+      erpApi.get<any[]>('/customers?limit=1000'),
+      erpApi.get<any[]>('/users?limit=100'),
+      erpApi.get<any[]>('/crm/leads?limit=100'),
+    ])
+      .then(([customerData, userData, leadData]) => {
+        setCustomers(customerData)
+        setUsers(userData)
+        setLeads(leadData)
+      })
+      .catch(() => {
+        setCustomers([])
+        setUsers([])
+        setLeads([])
+      })
   }, [])
 
   const activeRecords = activeTab === 'orders' ? orders : quotations
   const customerOptions = useMemo(
-    () => customers.map((customer) => ({ value: customer.name, label: `${customer.name}${customer.customerNumber ? ` (${customer.customerNumber})` : ''}` })),
+    () => customers.map((customer) => ({ value: customer.id, label: `${customer.name}${customer.customer_number ? ` (${customer.customer_number})` : ''}` })),
     [customers]
+  )
+  const quotationOptions = useMemo(
+    () => quotations.map((quote) => ({ value: quote.id, label: `${quote.quotationNumber} - ${quote.customerName}` })),
+    [quotations]
+  )
+  const leadOptions = useMemo(
+    () => leads.map((lead) => ({ value: lead.id, label: `${lead.lead_number || lead.id} - ${lead.company_name}` })),
+    [leads]
+  )
+  const salesPersonOptions = useMemo(
+    () => users.filter(u => ['Sales_Manager', 'user'].includes(u.role)).map((user) => ({ value: user.id, label: user.full_name || user.email })),
+    [users]
   )
   const fields = useMemo(() => {
     const source = activeTab === 'orders' ? orderFieldsBase : quotationFieldsBase
-    return source.map((field) =>
-      field.name === 'customerName'
-        ? { ...field, options: customerOptions }
-        : field
-    )
-  }, [activeTab, customerOptions])
+    return source.map((field) => {
+      if (field.name === 'customerName') return { ...field, options: customerOptions }
+      if (field.name === 'quotationNumber') return { ...field, options: quotationOptions }
+      if (field.name === 'leadNumber') return { ...field, options: leadOptions }
+      if (field.name === 'salesPersonName') return { ...field, options: salesPersonOptions }
+      return field
+    })
+  }, [activeTab, customerOptions, quotationOptions, leadOptions, salesPersonOptions])
   const title = activeTab === 'orders' ? 'Sales Order' : 'Quotation'
 
   const filteredRecords = useMemo(() => {
@@ -156,13 +214,20 @@ const SalesModule: React.FC = () => {
     setModalError(null)
     setModalRecord({
       id: `${activeTab}-${Date.now()}`,
-      [activeTab === 'orders' ? 'orderNumber' : 'quoteNumber']: `${prefix}-${Date.now().toString().slice(-5)}`,
+      [activeTab === 'orders' ? 'orderNumber' : 'quotationNumber']: `${prefix}-${Date.now().toString().slice(-5)}`,
       customerName: '',
-      date: new Date().toISOString().slice(0, 10),
-      dueDate: '',
-      expiryDate: '',
+      orderDate: new Date().toISOString().slice(0, 10),
+      issuedDate: new Date().toISOString().slice(0, 10),
+      requiredDeliveryDate: '',
+      validUntilDate: '',
+      totalAmountBeforeTax: 0,
+      totalDiscount: 0,
+      taxAmount: 0,
+      totalAmount: 0,
+      totalCost: 0,
+      estimatedProfit: 0,
       status: 'draft',
-      total: 0,
+      notes: '',
     })
     setModalOpen(true)
   }
@@ -173,23 +238,36 @@ const SalesModule: React.FC = () => {
     const payload = isOrder
       ? {
           sales_order_number: record.orderNumber,
-          customer_id: record.customer_id,
-          customerName: record.customerName,
-          order_date: record.date,
-          required_delivery_date: record.dueDate,
+          customer_id: record.customerName,
+          quotation_id: record.quotationNumber,
+          order_date: record.orderDate,
+          required_delivery_date: record.requiredDeliveryDate,
+          actual_delivery_date: record.actualDeliveryDate,
+          total_amount_before_tax: record.totalAmountBeforeTax,
+          total_discount: record.totalDiscount,
+          tax_amount: record.taxAmount,
+          total_amount: record.totalAmount,
+          total_cost: record.totalCost,
+          estimated_profit: record.estimatedProfit,
+          sales_person_id: record.salesPersonName,
           status: record.status,
-          total_amount: record.total,
+          shipping_address: record.shippingAddress,
           notes: record.notes,
         }
       : {
-          quotation_number: record.quoteNumber,
-          customer_id: record.customer_id,
-          customerName: record.customerName,
-          quote_date: record.date,
-          valid_until: record.expiryDate,
+          quotation_number: record.quotationNumber,
+          customer_id: record.customerName,
+          lead_id: record.leadNumber,
+          issued_date: record.issuedDate,
+          valid_until_date: record.validUntilDate,
+          total_amount_before_tax: record.totalAmountBeforeTax,
+          total_discount: record.totalDiscount,
+          tax_amount: record.taxAmount,
+          total_amount: record.totalAmount,
+          estimated_profit: record.estimatedProfit,
           status: record.status,
-          total_amount: record.total,
-          notes: record.description,
+          notes: record.notes,
+          internal_notes: record.internalNotes,
         }
 
     try {

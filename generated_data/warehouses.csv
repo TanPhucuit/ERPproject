@@ -1,0 +1,6 @@
+id,warehouse_code,name,description,location_address,city,province,postal_code,capacity_sqm,current_occupancy_sqm,status,created_at
+"1","WH-HCM-01","Ho Chi Minh Central Warehouse","Main distribution center for Southern Vietnam","456 Industrial Zone 7, District 7, HCMC","Ho Chi Minh City","Ho Chi Minh City","700000","5000","3200","active","2024-01-01 00:00:00"
+"2","WH-HN-01","Hanoi Distribution Center","Main distribution center for Northern Vietnam","789 Industrial Park, Long Bien, Hanoi","Hanoi","Hanoi","100000","4500","2800","active","2024-01-01 00:00:00"
+"3","WH-SRV-01","Service & Warranty Center","Returns processing and warranty service center","123 Le Dai Hanh, Hai Ba Trung, Hanoi","Hanoi","Hanoi","100000","1500","450","active","2024-01-01 00:00:00"
+"4","WH-HCM-02","Showroom Storage","Storage for showroom display items","88 Nguyen Hue, District 1, HCMC","Ho Chi Minh City","Ho Chi Minh City","700000","800","600","active","2024-06-01 00:00:00"
+"5","WH-DN-01","Da Nang Regional Hub","Central Vietnam distribution hub","56 Hoang Dieu, Hai Chau, Da Nang","Da Nang","Da Nang","550000","2000","1200","active","2024-03-01 00:00:00"

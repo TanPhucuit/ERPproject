@@ -17,31 +17,44 @@ import {
 import { useUIStore } from '../stores/uiStore'
 
 const invoiceFieldsBase: FormField[] = [
-  { name: 'invoice_number', label: 'Invoice #', type: 'text', required: true },
+  { name: 'invoiceNumber', label: 'Invoice #', type: 'text', required: true },
   { name: 'customerName', label: 'Customer', type: 'select', required: true, options: [] },
-  { name: 'invoice_date', label: 'Invoice Date', type: 'date', required: true },
-  { name: 'due_date', label: 'Due Date', type: 'date' },
-  { name: 'total_amount', label: 'Total', type: 'number', required: true },
+  { name: 'salesOrderNumber', label: 'Sales Order', type: 'select', options: [] },
+  { name: 'invoiceDate', label: 'Invoice Date', type: 'date', required: true },
+  { name: 'dueDate', label: 'Due Date', type: 'date' },
+  { name: 'paidDate', label: 'Paid Date', type: 'date' },
+  { name: 'totalAmountBeforeTax', label: 'Subtotal', type: 'number' },
+  { name: 'totalTax', label: 'Tax', type: 'number' },
+  { name: 'totalAmount', label: 'Total', type: 'number', required: true },
+  { name: 'paidAmount', label: 'Paid Amount', type: 'number' },
+  { name: 'outstandingAmount', label: 'Outstanding', type: 'number' },
   {
     name: 'status',
     label: 'Status',
     type: 'select',
     options: [
       { value: 'draft', label: 'Draft' },
-      { value: 'pending', label: 'Posted' },
+      { value: 'posted', label: 'Posted' },
       { value: 'paid', label: 'Paid' },
       { value: 'overdue', label: 'Overdue' },
     ],
   },
-  { name: 'payment_terms', label: 'Payment Terms', type: 'text' },
+  { name: 'paymentTerms', label: 'Payment Terms', type: 'text' },
+  { name: 'description', label: 'Description', type: 'textarea' },
 ]
 
 const billFieldsBase: FormField[] = [
   { name: 'billNumber', label: 'Bill #', type: 'text', required: true },
   { name: 'supplierName', label: 'Supplier', type: 'select', required: true, options: [] },
+  { name: 'purchaseOrderNumber', label: 'Purchase Order', type: 'select', options: [] },
   { name: 'billDate', label: 'Bill Date', type: 'date', required: true },
   { name: 'dueDate', label: 'Due Date', type: 'date' },
-  { name: 'total', label: 'Total', type: 'number', required: true },
+  { name: 'paidDate', label: 'Paid Date', type: 'date' },
+  { name: 'totalAmountBeforeTax', label: 'Subtotal', type: 'number' },
+  { name: 'totalTax', label: 'Tax', type: 'number' },
+  { name: 'totalAmount', label: 'Total', type: 'number', required: true },
+  { name: 'paidAmount', label: 'Paid Amount', type: 'number' },
+  { name: 'outstandingAmount', label: 'Outstanding', type: 'number' },
   {
     name: 'status',
     label: 'Status',
@@ -52,14 +65,16 @@ const billFieldsBase: FormField[] = [
       { value: 'paid', label: 'Paid' },
     ],
   },
+  { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
 const noteFieldsBase: FormField[] = [
   { name: 'noteNumber', label: 'Note #', type: 'text', required: true },
   { name: 'partnerName', label: 'Customer / Supplier', type: 'select', required: true, options: [] },
+  { name: 'referenceDocument', label: 'Reference Invoice/Bill', type: 'select', options: [] },
   { name: 'noteDate', label: 'Date', type: 'date', required: true },
   { name: 'reason', label: 'Reason', type: 'text', required: true },
-  { name: 'total', label: 'Amount', type: 'number', required: true },
+  { name: 'totalAmount', label: 'Amount', type: 'number', required: true },
   {
     name: 'status',
     label: 'Status',
@@ -69,6 +84,7 @@ const noteFieldsBase: FormField[] = [
       { value: 'posted', label: 'Posted' },
     ],
   },
+  { name: 'description', label: 'Description', type: 'textarea' },
 ]
 
 const flow: Record<string, string> = {
@@ -80,7 +96,16 @@ const flow: Record<string, string> = {
 
 const normalizeInvoice = (invoice: any) => ({
   ...invoice,
-  customerName: invoice.customerName || invoice.customer?.name || invoice.customer || 'N/A',
+  invoiceNumber: invoice.invoice_number,
+  customerName: invoice.customer?.name || invoice.customerName || invoice.customer || 'N/A',
+  invoiceDate: invoice.invoice_date,
+  dueDate: invoice.due_date,
+  paidDate: invoice.paid_date,
+  totalAmountBeforeTax: invoice.total_amount_before_tax,
+  totalTax: invoice.total_tax,
+  totalAmount: invoice.total_amount || invoice.total,
+  paidAmount: invoice.paid_amount,
+  outstandingAmount: invoice.outstanding_amount,
 })
 
 const AccountingModule: React.FC = () => {
@@ -92,6 +117,8 @@ const AccountingModule: React.FC = () => {
   const [debits, setDebits] = useState<any[]>([])
   const [customers, setCustomers] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
+  const [salesOrders, setSalesOrders] = useState<any[]>([])
+  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
@@ -116,13 +143,18 @@ const AccountingModule: React.FC = () => {
       .then((records) => {
         setLoadError(null)
         setVendorBills(records.map((bill) => ({
-        ...bill,
-        billNumber: bill.bill_number || bill.billNumber,
-        supplierName: bill.supplier?.name || bill.supplierName || bill.supplier_id,
-        billDate: bill.bill_date || bill.billDate,
-        dueDate: bill.due_date || bill.dueDate,
-        total: bill.total_amount || bill.total || 0,
-      })))
+          ...bill,
+          billNumber: bill.bill_number || bill.billNumber,
+          supplierName: bill.supplier?.name || bill.supplierName || bill.supplier_id,
+          billDate: bill.bill_date || bill.billDate,
+          dueDate: bill.due_date || bill.dueDate,
+          paidDate: bill.paid_date,
+          totalAmountBeforeTax: bill.total_amount_before_tax,
+          totalTax: bill.total_tax,
+          totalAmount: bill.total_amount || bill.total || 0,
+          paidAmount: bill.paid_amount,
+          outstandingAmount: bill.outstanding_amount,
+        })))
       })
       .catch((error) => {
         setVendorBills([])
@@ -134,12 +166,13 @@ const AccountingModule: React.FC = () => {
       .then((records) => {
         setLoadError(null)
         setCredits(records.map((note) => ({
-        ...note,
-        noteNumber: note.credit_note_number || note.noteNumber,
-        partnerName: note.customer?.name || note.partnerName || note.customer_id,
-        noteDate: note.credit_date || note.noteDate,
-        total: note.total_amount || note.total || 0,
-      })))
+          ...note,
+          noteNumber: note.credit_note_number || note.noteNumber,
+          partnerName: note.customer?.name || note.partnerName || note.customer_id,
+          noteDate: note.credit_date || note.noteDate,
+          totalAmount: note.total_amount || note.total || 0,
+          referenceDocument: note.invoice_id,
+        })))
       })
       .catch((error) => {
         setCredits([])
@@ -151,12 +184,13 @@ const AccountingModule: React.FC = () => {
       .then((records) => {
         setLoadError(null)
         setDebits(records.map((note) => ({
-        ...note,
-        noteNumber: note.debit_note_number || note.noteNumber,
-        partnerName: note.supplier?.name || note.partnerName || note.supplier_id,
-        noteDate: note.debit_date || note.noteDate,
-        total: note.total_amount || note.total || 0,
-      })))
+          ...note,
+          noteNumber: note.debit_note_number || note.noteNumber,
+          partnerName: note.supplier?.name || note.partnerName || note.supplier_id,
+          noteDate: note.debit_date || note.noteDate,
+          totalAmount: note.total_amount || note.total || 0,
+          referenceDocument: note.bill_id,
+        })))
       })
       .catch((error) => {
         setDebits([])
@@ -168,31 +202,51 @@ const AccountingModule: React.FC = () => {
     Promise.all([
       erpApi.get<any[]>('/customers?limit=1000'),
       erpApi.get<any[]>('/suppliers?limit=1000'),
+      erpApi.get<any[]>('/sales-orders?limit=100'),
+      erpApi.get<any[]>('/purchase/purchase-orders?limit=100'),
     ])
-      .then(([customerData, supplierData]) => {
+      .then(([customerData, supplierData, soData, poData]) => {
         setCustomers(customerData)
         setSuppliers(supplierData)
+        setSalesOrders(soData)
+        setPurchaseOrders(poData)
       })
       .catch(() => {
         setCustomers([])
         setSuppliers([])
+        setSalesOrders([])
+        setPurchaseOrders([])
       })
   }, [])
 
   const activeRecords = activeTab === 'invoices' ? invoices : activeTab === 'bills' ? vendorBills : activeTab === 'credit-notes' ? credits : debits
-  const customerOptions = useMemo(() => customers.map((customer) => ({ value: customer.name, label: customer.name })), [customers])
-  const supplierOptions = useMemo(() => suppliers.map((supplier) => ({ value: supplier.name, label: supplier.name })), [suppliers])
+  const customerOptions = useMemo(() => customers.map((customer) => ({ value: customer.id, label: `${customer.name}${customer.customer_number ? ` (${customer.customer_number})` : ''}` })), [customers])
+  const supplierOptions = useMemo(() => suppliers.map((supplier) => ({ value: supplier.id, label: `${supplier.name}${supplier.supplier_number ? ` (${supplier.supplier_number})` : ''}` })), [suppliers])
+  const salesOrderOptions = useMemo(() => salesOrders.map((so) => ({ value: so.id, label: `${so.sales_order_number} - ${so.customer?.name || 'Customer'}` })), [salesOrders])
+  const purchaseOrderOptions = useMemo(() => purchaseOrders.map((po) => ({ value: po.id, label: `${po.purchase_order_number} - ${po.supplier?.name || 'Supplier'}` })), [purchaseOrders])
+
   const activeFields = useMemo(() => {
     if (activeTab === 'invoices') {
-      return invoiceFieldsBase.map((field) => field.name === 'customerName' ? { ...field, options: customerOptions } : field)
+      return invoiceFieldsBase.map((field) => {
+        if (field.name === 'customerName') return { ...field, options: customerOptions }
+        if (field.name === 'salesOrderNumber') return { ...field, options: salesOrderOptions }
+        return field
+      })
     }
     if (activeTab === 'bills') {
-      return billFieldsBase.map((field) => field.name === 'supplierName' ? { ...field, options: supplierOptions } : field)
+      return billFieldsBase.map((field) => {
+        if (field.name === 'supplierName') return { ...field, options: supplierOptions }
+        if (field.name === 'purchaseOrderNumber') return { ...field, options: purchaseOrderOptions }
+        return field
+      })
     }
     const noteOptions = activeTab === 'credit-notes' ? customerOptions : supplierOptions
     const partnerLabel = activeTab === 'credit-notes' ? 'Customer' : 'Supplier'
-    return noteFieldsBase.map((field) => field.name === 'partnerName' ? { ...field, label: partnerLabel, options: noteOptions } : field)
-  }, [activeTab, customerOptions, supplierOptions])
+    return noteFieldsBase.map((field) => {
+      if (field.name === 'partnerName') return { ...field, label: partnerLabel, options: noteOptions }
+      return field
+    })
+  }, [activeTab, customerOptions, supplierOptions, salesOrderOptions, purchaseOrderOptions])
   const activeTitle = activeTab === 'invoices' ? 'Customer Invoice' : activeTab === 'bills' ? 'Vendor Bill' : activeTab === 'credit-notes' ? 'Credit Note' : 'Debit Note'
   const setters: Record<string, React.Dispatch<React.SetStateAction<any[]>>> = {
     invoices: setInvoices,
@@ -214,21 +268,27 @@ const AccountingModule: React.FC = () => {
     const prefix = activeTab === 'invoices' ? 'INV' : activeTab === 'bills' ? 'BILL' : activeTab === 'credit-notes' ? 'CN' : 'DN'
     setModalRecord({
       id: `${activeTab}-${Date.now()}`,
-      invoice_number: `${prefix}-${Date.now().toString().slice(-5)}`,
+      invoiceNumber: `${prefix}-${Date.now().toString().slice(-5)}`,
       billNumber: `${prefix}-${Date.now().toString().slice(-5)}`,
       noteNumber: `${prefix}-${Date.now().toString().slice(-5)}`,
       customerName: '',
       supplierName: '',
       partnerName: '',
-      invoice_date: new Date().toISOString().slice(0, 10),
+      invoiceDate: new Date().toISOString().slice(0, 10),
       billDate: new Date().toISOString().slice(0, 10),
       noteDate: new Date().toISOString().slice(0, 10),
-      due_date: '',
       dueDate: '',
-      status: 'draft',
-      total_amount: 0,
+      paidDate: '',
+      totalAmountBeforeTax: 0,
+      totalTax: 0,
+      totalAmount: 0,
       total: 0,
+      paidAmount: 0,
+      outstandingAmount: 0,
+      status: 'draft',
       reason: '',
+      description: '',
+      notes: '',
     })
     setModalOpen(true)
   }
@@ -242,17 +302,61 @@ const AccountingModule: React.FC = () => {
           ? '/accounting/credit-notes'
           : '/accounting/debit-notes'
 
+    const payload = activeTab === 'invoices' ? {
+      invoice_number: record.invoiceNumber,
+      customer_id: record.customerName,
+      sales_order_id: record.salesOrderNumber,
+      invoice_date: record.invoiceDate,
+      due_date: record.dueDate,
+      paid_date: record.paidDate,
+      total_amount_before_tax: record.totalAmountBeforeTax,
+      total_tax: record.totalTax,
+      total_amount: record.totalAmount,
+      paid_amount: record.paidAmount,
+      outstanding_amount: record.outstandingAmount,
+      status: record.status,
+      payment_terms: record.paymentTerms,
+      description: record.description,
+    } : activeTab === 'bills' ? {
+      bill_number: record.billNumber,
+      supplier_id: record.supplierName,
+      purchase_order_id: record.purchaseOrderNumber,
+      bill_date: record.billDate,
+      due_date: record.dueDate,
+      paid_date: record.paidDate,
+      total_amount_before_tax: record.totalAmountBeforeTax,
+      total_tax: record.totalTax,
+      total_amount: record.totalAmount,
+      paid_amount: record.paidAmount,
+      outstanding_amount: record.outstandingAmount,
+      status: record.status,
+      notes: record.notes,
+    } : activeTab === 'credit-notes' ? {
+      credit_note_number: record.noteNumber,
+      customer_id: record.partnerName,
+      invoice_id: record.referenceDocument,
+      reason: record.reason,
+      credit_date: record.noteDate,
+      status: record.status,
+      total_amount: record.totalAmount,
+      description: record.description,
+    } : {
+      debit_note_number: record.noteNumber,
+      supplier_id: record.partnerName,
+      bill_id: record.referenceDocument,
+      reason: record.reason,
+      debit_date: record.noteDate,
+      status: record.status,
+      total_amount: record.totalAmount,
+      description: record.description,
+    }
+
     try {
       const exists = activeRecords.some((item) => item.id === record.id)
-      if (exists && (activeTab === 'invoices')) {
-        await erpApi.put(`${path}/${record.id}`, record)
-      } else if (!exists) {
-        const created = await erpApi.post<any>(path, {
-          ...record,
-          customerName: record.customerName,
-          supplierName: record.supplierName,
-          partnerName: record.partnerName,
-        })
+      if (exists) {
+        await erpApi.put(`${path}/${record.id}`, payload)
+      } else {
+        const created = await erpApi.post<any>(path, payload)
         record.id = created.id || record.id
       }
     } catch (error: any) {

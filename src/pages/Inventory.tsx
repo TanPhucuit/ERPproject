@@ -17,23 +17,28 @@ const stockFieldsBase: FormField[] = [
   { name: 'warehouseName', label: 'Warehouse', type: 'select', required: true, options: [] },
   { name: 'productName', label: 'Product', type: 'select', required: true, options: [] },
   { name: 'binCode', label: 'Bin Location', type: 'select', options: [] },
-  { name: 'quantity', label: 'On Hand', type: 'number', required: true },
+  { name: 'quantityOnHand', label: 'On Hand', type: 'number', required: true },
+  { name: 'quantityReserved', label: 'Reserved', type: 'number' },
+  { name: 'quantityAvailable', label: 'Available', type: 'number' },
+  { name: 'quantityInTransit', label: 'In Transit', type: 'number' },
   { name: 'reorderLevel', label: 'Reorder Level', type: 'number' },
   {
-    name: 'status',
-    label: 'Status',
+    name: 'reorderStatus',
+    label: 'Reorder Status',
     type: 'select',
     options: [
       { value: 'normal', label: 'Normal' },
-      { value: 'low', label: 'Low' },
+      { value: 'low', label: 'Low Stock' },
       { value: 'critical', label: 'Critical' },
+      { value: 'out_of_stock', label: 'Out of Stock' },
     ],
   },
+  { name: 'lastCountedAt', label: 'Last Counted', type: 'date' },
 ]
 
 const movementFieldsBase: FormField[] = [
   { name: 'reference', label: 'Reference', type: 'text', required: true },
-  { name: 'partnerName', label: 'Customer / Supplier', type: 'select', required: true, options: [] },
+  { name: 'partnerName', label: 'Customer / Supplier', type: 'select', options: [] },
   { name: 'warehouseName', label: 'Warehouse', type: 'select', required: true, options: [] },
   { name: 'scheduledDate', label: 'Scheduled Date', type: 'date' },
   {
@@ -54,6 +59,7 @@ const countFieldsBase: FormField[] = [
   { name: 'warehouseName', label: 'Warehouse', type: 'select', required: true, options: [] },
   { name: 'binCode', label: 'Bin Location', type: 'select', required: true, options: [] },
   { name: 'countDate', label: 'Count Date', type: 'date' },
+  { name: 'lastAdjustedAt', label: 'Last Adjusted', type: 'date' },
   {
     name: 'status',
     label: 'Status',
@@ -100,9 +106,13 @@ const InventoryModule: React.FC = () => {
             ...item,
             warehouseName: item.warehouse?.warehouse_name || item.warehouse?.name || item.warehouse_id,
             productName: item.product?.name || item.product_id,
-            quantity: item.quantity_on_hand || 0,
+            quantityOnHand: item.quantity_on_hand || 0,
+            quantityReserved: item.quantity_reserved || 0,
+            quantityAvailable: item.quantity_available || 0,
+            quantityInTransit: item.quantity_in_transit || 0,
             reorderLevel: item.product?.reorder_level || 0,
-            status: item.reorder_status || 'normal',
+            reorderStatus: item.reorder_status || 'normal',
+            lastCountedAt: item.last_counted_at,
           }))
         )
       })
@@ -154,7 +164,8 @@ const InventoryModule: React.FC = () => {
           reference: item.adjustment_number,
           warehouseName: item.warehouse?.warehouse_name || item.warehouse?.name || item.warehouse_id,
           countDate: item.count_date,
-          binCode: item.binCode || 'Multiple Bins',
+          binCode: item.bin_location?.bin_code || 'Multiple Bins',
+          lastAdjustedAt: item.last_adjusted_at,
         })))
       })
       .catch((error) => {
@@ -240,9 +251,12 @@ const InventoryModule: React.FC = () => {
       productName: '',
       partnerName: '',
       binCode: '',
-      quantity: 0,
+      quantityOnHand: 0,
+      quantityReserved: 0,
+      quantityAvailable: 0,
+      quantityInTransit: 0,
       reorderLevel: 0,
-      status: activeTab === 'stock' ? 'normal' : 'draft',
+      reorderStatus: activeTab === 'stock' ? 'normal' : 'draft',
       scheduledDate: new Date().toISOString().slice(0, 10),
       countDate: new Date().toISOString().slice(0, 10),
     })
@@ -355,22 +369,48 @@ const InventoryModule: React.FC = () => {
           <table className="w-full min-w-[900px]">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Reference / Product</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Warehouse</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Partner / Bin</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Quantity</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+                {activeTab === 'stock' ? (
+                  <>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Product</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Warehouse</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Bin</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">On Hand</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Available</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Reorder Status</th>
+                  </>
+                ) : (
+                  <>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Reference</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Warehouse</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Partner</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+                  </>
+                )}
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredRecords.map((record) => (
                 <tr key={record.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-semibold text-gray-900">{record.reference || record.productName}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{record.warehouseName}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{record.partnerName || record.binCode}</td>
-                  <td className="px-4 py-3 text-right text-sm font-semibold">{record.quantity ?? '-'}</td>
-                  <td className="px-4 py-3"><StatusBadge status={record.status} /></td>
+                  {activeTab === 'stock' ? (
+                    <>
+                      <td className="px-4 py-3 text-sm font-semibold text-gray-900">{record.productName}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{record.warehouseName}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{record.binCode || '-'}</td>
+                      <td className="px-4 py-3 text-right text-sm font-medium">{record.quantityOnHand ?? 0}</td>
+                      <td className="px-4 py-3 text-right text-sm font-medium">{record.quantityAvailable ?? 0}</td>
+                      <td className="px-4 py-3"><StatusBadge status={record.reorderStatus || 'normal'} /></td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.reference || record.delivery_order_number || record.goods_receipt_number}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{record.warehouseName}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{record.partnerName}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{record.scheduledDate || record.countDate || '-'}</td>
+                      <td className="px-4 py-3"><StatusBadge status={record.status} /></td>
+                    </>
+                  )}
                   <td className="px-4 py-3">{renderActions(record)}</td>
                 </tr>
               ))}

@@ -16,13 +16,16 @@ import {
 import { useUIStore } from '../stores/uiStore'
 
 const leadFields: FormField[] = [
-  { name: 'first_name', label: 'First Name', type: 'text', required: true },
-  { name: 'last_name', label: 'Last Name', type: 'text', required: true },
-  { name: 'company', label: 'Company', type: 'text', required: true },
-  { name: 'email', label: 'Email', type: 'email', required: true },
-  { name: 'phone', label: 'Phone', type: 'text' },
+  { name: 'leadNumber', label: 'Lead Number', type: 'text' },
+  { name: 'companyName', label: 'Company Name', type: 'text', required: true },
+  { name: 'contactPersonName', label: 'Contact Person', type: 'text' },
+  { name: 'contactPersonPhone', label: 'Phone', type: 'text' },
+  { name: 'contactPersonEmail', label: 'Email', type: 'email', required: true },
+  { name: 'companyAddress', label: 'Company Address', type: 'textarea' },
+  { name: 'companyTaxId', label: 'Tax ID', type: 'text' },
+  { name: 'ownerName', label: 'Sales Person', type: 'select', options: [] },
   {
-    name: 'status',
+    name: 'stage',
     label: 'Stage',
     type: 'select',
     required: true,
@@ -35,7 +38,7 @@ const leadFields: FormField[] = [
     ],
   },
   {
-    name: 'lead_source',
+    name: 'source',
     label: 'Source',
     type: 'select',
     options: [
@@ -43,11 +46,24 @@ const leadFields: FormField[] = [
       { value: 'referral', label: 'Referral' },
       { value: 'showroom', label: 'Showroom' },
       { value: 'architect', label: 'Architect Partner' },
+      { value: 'cold_call', label: 'Cold Call' },
+      { value: 'social_media', label: 'Social Media' },
     ],
   },
-  { name: 'estimated_value', label: 'Estimated Value', type: 'number' },
-  { name: 'next_follow_up', label: 'Next Follow Up', type: 'date' },
-  { name: 'internal_notes', label: 'Internal Notes', type: 'textarea' },
+  {
+    name: 'leadRating',
+    label: 'Rating',
+    type: 'select',
+    options: [
+      { value: 'hot', label: 'Hot' },
+      { value: 'warm', label: 'Warm' },
+      { value: 'cold', label: 'Cold' },
+    ],
+  },
+  { name: 'estimatedValue', label: 'Estimated Value', type: 'number' },
+  { name: 'probabilityPercent', label: 'Probability (%)', type: 'number' },
+  { name: 'expectedCloseDate', label: 'Expected Close Date', type: 'date' },
+  { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
 const activities = [
@@ -67,12 +83,25 @@ const CRMModule: React.FC = () => {
   const showNotification = useUIStore((state) => state.showNotification)
   const [activeTab, setActiveTab] = useState('leads')
   const [leads, setLeads] = useState<any[]>([])
+  const [users, setUsers] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [modalRecord, setModalRecord] = useState<any>(null)
   const [modalOpen, setModalOpen] = useState(false)
+
+  const userOptions = useMemo(
+    () => users.map((user) => ({ value: user.id, label: `${user.full_name || user.fullName} (${user.role})` })),
+    [users]
+  )
+
+  const leadFieldsWithOptions = useMemo(() => {
+    return leadFields.map((field) => {
+      if (field.name === 'ownerName') return { ...field, options: userOptions }
+      return field
+    })
+  }, [userOptions])
 
   useEffect(() => {
     erpApi
@@ -82,12 +111,21 @@ const CRMModule: React.FC = () => {
         setLeads(
           records.map((lead) => ({
             ...lead,
-            first_name: lead.first_name || lead.name?.split(' ')[0] || lead.company_name || '',
-            last_name: lead.last_name || '',
-            name: lead.name || lead.company_name || lead.lead_number,
-            company: lead.company || lead.company_name || 'N/A',
-            status: lead.status || lead.stage || 'new',
-            estimated_value: lead.estimated_value || 0,
+            leadNumber: lead.lead_number,
+            companyName: lead.company_name || lead.company,
+            contactPersonName: lead.contact_person_name,
+            contactPersonPhone: lead.contact_person_phone,
+            contactPersonEmail: lead.contact_person_email,
+            companyAddress: lead.company_address,
+            companyTaxId: lead.company_tax_id,
+            ownerName: lead.owner?.full_name || lead.owner_id,
+            stage: lead.stage || lead.status,
+            source: lead.source,
+            leadRating: lead.lead_rating,
+            estimatedValue: lead.estimated_value,
+            probabilityPercent: lead.probability_percent,
+            expectedCloseDate: lead.expected_close_date,
+            notes: lead.notes,
           }))
         )
       })
@@ -95,6 +133,11 @@ const CRMModule: React.FC = () => {
         setLeads([])
         setLoadError(error.message)
       })
+
+    erpApi
+      .get<any[]>('/users?limit=100')
+      .then(setUsers)
+      .catch(() => setUsers([]))
   }, [])
 
   const filteredLeads = useMemo(() => {
@@ -109,41 +152,48 @@ const CRMModule: React.FC = () => {
   const openCreate = () => {
     setModalRecord({
       id: `lead-${Date.now()}`,
-      status: 'new',
-      lead_source: 'website',
-      estimated_value: 0,
+      leadNumber: `LEAD-${Date.now().toString().slice(-6)}`,
+      stage: 'new',
+      source: 'website',
+      leadRating: 'warm',
+      estimatedValue: 0,
+      probabilityPercent: 50,
     })
     setModalOpen(true)
   }
 
   const handleSave = async (record: any) => {
-    const fullName = record.name || `${record.first_name || ''} ${record.last_name || ''}`.trim()
-    const nextRecord = { ...record, name: fullName, value: record.estimated_value }
     const payload = {
-      lead_number: nextRecord.lead_number || `LEAD-${Date.now()}`,
-      company_name: nextRecord.company || nextRecord.name,
-      contact_name: nextRecord.name,
-      email: nextRecord.email,
-      phone: nextRecord.phone,
-      stage: nextRecord.status || 'new',
-      estimated_value: nextRecord.estimated_value || 0,
-      probability_percent: nextRecord.status === 'won' ? 100 : 50,
-      lead_source: nextRecord.lead_source,
+      lead_number: record.leadNumber || `LEAD-${Date.now()}`,
+      company_name: record.companyName,
+      contact_person_name: record.contactPersonName,
+      contact_person_phone: record.contactPersonPhone,
+      contact_person_email: record.contactPersonEmail,
+      company_address: record.companyAddress,
+      company_tax_id: record.companyTaxId,
+      owner_id: record.ownerName,
+      stage: record.stage,
+      source: record.source,
+      lead_rating: record.leadRating,
+      estimated_value: record.estimatedValue || 0,
+      probability_percent: record.probabilityPercent || 50,
+      expected_close_date: record.expectedCloseDate,
+      notes: record.notes,
     }
     try {
-      if (leads.some((lead) => lead.id === nextRecord.id) && !nextRecord.id.startsWith('lead-')) {
-        await erpApi.put(`/crm/leads/${nextRecord.id}`, payload)
+      if (leads.some((lead) => lead.id === record.id) && !record.id.startsWith('lead-')) {
+        await erpApi.put(`/crm/leads/${record.id}`, payload)
       } else {
         const created = await erpApi.post<any>('/crm/leads', payload)
-        nextRecord.id = created.id || nextRecord.id
+        record.id = created.id || record.id
       }
     } catch (error: any) {
       showNotification('error', `CRM save failed: ${error.message}`)
       return
     }
     setLeads((current) => {
-      const exists = current.some((lead) => lead.id === nextRecord.id)
-      return exists ? current.map((lead) => (lead.id === nextRecord.id ? nextRecord : lead)) : [nextRecord, ...current]
+      const exists = current.some((lead) => lead.id === record.id)
+      return exists ? current.map((lead) => (lead.id === record.id ? record : lead)) : [record, ...current]
     })
     setModalOpen(false)
   }
@@ -293,7 +343,7 @@ const CRMModule: React.FC = () => {
         isOpen={modalOpen}
         title={modalRecord?.id && leads.some((lead) => lead.id === modalRecord.id) ? 'Edit Lead' : 'Create Lead'}
         record={modalRecord}
-        fields={leadFields}
+        fields={leadFieldsWithOptions}
         onClose={() => setModalOpen(false)}
         onSave={handleSave}
       />
