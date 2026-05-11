@@ -252,7 +252,6 @@ const warehouseFields: FormField[] = [
 
 const binLocationFields: FormField[] = [
   { name: 'warehouseName', label: 'Warehouse', type: 'select', required: true, options: [] },
-  { name: 'zoneName', label: 'Zone', type: 'select', options: [] },
   { name: 'binCode', label: 'Bin Code', type: 'text', required: true },
   { name: 'description', label: 'Description', type: 'textarea' },
   { name: 'capacityUnits', label: 'Capacity Units', type: 'number' },
@@ -463,7 +462,6 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     title: 'Bin Locations',
     createRecord: () => ({
       warehouseName: '',
-      zoneName: '',
       binCode: '',
       description: '',
       capacityUnits: 0,
@@ -475,7 +473,6 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     statusKey: 'status',
     getColumns: () => [
       { key: 'warehouseName', label: 'Warehouse' },
-      { key: 'zoneName', label: 'Zone' },
       { key: 'binCode', label: 'Bin Code' },
       { key: 'description', label: 'Description' },
       { key: 'capacityUnits', label: 'Capacity', align: 'right' },
