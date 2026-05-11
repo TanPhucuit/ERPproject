@@ -211,13 +211,27 @@ const PurchaseModule: React.FC = () => {
     setActiveRecords((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
   }
 
+  const deleteRecord = async (record: any) => {
+    const path = activeTab === 'purchase-orders' ? '/purchase/purchase-orders' : '/purchase/rfqs'
+    const recordName = record.poNumber || record.rfqNumber || 'this record'
+    if (!window.confirm(`Delete ${recordName}?`)) return
+    try {
+      await erpApi.delete(`${path}/${record.id}`)
+    } catch (error: any) {
+      showNotification('error', `Purchase delete failed: ${error.message}`)
+      return
+    }
+    setActiveRecords((current) => current.filter((item) => item.id !== record.id))
+    showNotification('success', `${title} deleted.`)
+  }
+
   const renderActions = (record: any) => (
     <RecordActions
       onEdit={() => {
         setModalRecord(record)
         setModalOpen(true)
       }}
-      onDelete={() => setActiveRecords((current) => current.filter((item) => item.id !== record.id))}
+      onDelete={() => deleteRecord(record)}
       onAdvance={flow[record.status] ? () => advanceRecord(record) : undefined}
       advanceLabel={activeTab === 'purchase-orders' ? 'Receive' : 'Award'}
     />

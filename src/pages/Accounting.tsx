@@ -272,6 +272,26 @@ const AccountingModule: React.FC = () => {
     setters[activeTab]((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
   }
 
+  const deleteRecord = async (record: any) => {
+    const pathMap: Record<string, string> = {
+      invoices: '/accounting/invoices',
+      bills: '/accounting/bills',
+      'credit-notes': '/accounting/credit-notes',
+      'debit-notes': '/accounting/debit-notes',
+    }
+    const path = pathMap[activeTab]
+    const recordName = record.invoice_number || record.bill_number || record.note_number || 'this record'
+    if (!window.confirm(`Delete ${recordName}?`)) return
+    try {
+      await erpApi.delete(`${path}/${record.id}`)
+    } catch (error: any) {
+      showNotification('error', `Accounting delete failed: ${error.message}`)
+      return
+    }
+    setters[activeTab]((current) => current.filter((item) => item.id !== record.id))
+    showNotification('success', `${activeTitle} deleted.`)
+  }
+
   const renderActions = (record: any) => (
     <div className="flex items-center gap-1">
       {activeTab === 'invoices' && (
@@ -284,7 +304,7 @@ const AccountingModule: React.FC = () => {
           setModalRecord(record)
           setModalOpen(true)
         }}
-        onDelete={() => setters[activeTab]((current) => current.filter((item) => item.id !== record.id))}
+        onDelete={() => deleteRecord(record)}
         onAdvance={(flow[record.status] || (activeTab.includes('notes') && record.status === 'draft')) ? () => advanceRecord(record) : undefined}
         advanceLabel={activeTab.includes('notes') ? 'Post' : 'Pay'}
       />

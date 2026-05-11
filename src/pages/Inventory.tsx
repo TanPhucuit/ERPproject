@@ -279,13 +279,32 @@ const InventoryModule: React.FC = () => {
     activeSetters[activeTab]((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
   }
 
+  const deleteRecord = async (record: any) => {
+    const pathMap: Record<string, string> = {
+      deliveries: '/inventory/delivery-orders',
+      receipts: '/inventory/goods-receipts',
+      counts: '/inventory/adjustments',
+    }
+    const path = pathMap[activeTab]
+    const recordName = record.delivery_order_number || record.goods_receipt_number || record.adjustment_number || record.reference || 'this record'
+    if (!window.confirm(`Delete ${recordName}?`)) return
+    try {
+      await erpApi.delete(`${path}/${record.id}`)
+    } catch (error: any) {
+      showNotification('error', `Inventory delete failed: ${error.message}`)
+      return
+    }
+    activeSetters[activeTab]((current) => current.filter((item) => item.id !== record.id))
+    showNotification('success', `${activeTitle} deleted.`)
+  }
+
   const renderActions = (record: any) => (
     <RecordActions
       onEdit={() => {
         setModalRecord(record)
         setModalOpen(true)
       }}
-      onDelete={() => activeSetters[activeTab]((current) => current.filter((item) => item.id !== record.id))}
+      onDelete={() => deleteRecord(record)}
       onAdvance={(activeTab !== 'stock' && (flow[record.status] || (activeTab === 'counts' && record.status === 'draft'))) ? () => advanceRecord(record) : undefined}
       advanceLabel={activeTab === 'counts' ? 'Post' : 'Validate'}
     />

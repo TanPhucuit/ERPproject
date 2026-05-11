@@ -1,4 +1,0 @@
-id,warehouse_code,name,description,location_address,city,province,postal_code,manager_id,capacity_sqm,current_occupancy_sqm,status
-"1","WH-1","Northern District Warehouse","Main warehouse location 1","860 Hickory Street, Ho Chi Minh","Ho Chi Minh","Ho Chi Minh","13187-7089","4","6000","1431","active"
-"2","WH-2","Central District Warehouse","Main warehouse location 2","958 Western Road, Hanoi","Hanoi","Hanoi","54182-8230","4","7000","3341","active"
-"3","WH-3","Southern District Warehouse","Main warehouse location 3","302 Pleasant Street, Da Nang","Da Nang","Da Nang","89455","4","8000","2960","active"

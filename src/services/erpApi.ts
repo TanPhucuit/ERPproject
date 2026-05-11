@@ -687,6 +687,19 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       body.valid_until_date || body.valid_until || body.expiryDate,
       'Quotation expiry date must be on or after quote date.'
     )
+    
+    // Business Rule: High discount (>15%) requires Sales Manager approval notification
+    const discountPercent = body.discount_percent || body.discount || 0
+    if (discountPercent > 15) {
+      console.warn(`[Business Rule] Quotation has high discount (${discountPercent}%). Sales Manager approval required.`)
+    }
+    
+    // Business Rule: SmartHome products should be validated
+    const productCount = body.products?.length || 0
+    if (productCount === 0) {
+      throw new Error('Quotation must have at least one product.')
+    }
+    
     const customerId = body.customer_id || (await resolveCustomerId(body.customerName))
     return {
       quotation_number: body.quotation_number || body.quoteNumber,
@@ -696,8 +709,9 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       valid_until_date: body.valid_until_date || body.valid_until || body.expiryDate || normalizeDate(undefined, 14),
       status: quotationStatusToDb[body.status] || body.status || 'draft',
       total_amount: Number(body.total_amount || body.total || 0),
+      discount_percent: discountPercent,
       notes: body.notes || body.description || null,
-      internal_notes: body.internal_notes || null,
+      internal_notes: body.internal_notes || (discountPercent > 15 ? 'High discount - requires Sales Manager approval' : null),
       created_by_id: body.created_by_id || currentUserId,
     }
   }
@@ -711,7 +725,46 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       body.required_delivery_date || body.dueDate || body.deliveryDate,
       'Delivery date must be on or after order date.'
     )
+    
+    // Business Rule: Check customer outstanding debt for B2B customers
     const customerId = body.customer_id || (await resolveCustomerId(body.customerName))
+    const { data: customerData } = await supabase.from('customers').select('customer_type, credit_used, credit_limit').eq('id', customerId).single()
+    if (customerData && customerData.customer_type === 'B2B') {
+      const outstandingDebt = customerData.credit_used || 0
+      const creditLimit = customerData.credit_limit || 0
+      if (outstandingDebt > creditLimit * 0.8) {
+        throw new Error(`[Business Rule] Customer has outstanding debt (${outstandingDebt.toLocaleString()} VND) exceeding 80% of credit limit. Cannot create sales order until payment is received.`)
+      }
+    }
+    
+    // Business Rule: SmartHome - inventory check at 3 warehouses (Hanoi, HCMC, Bao Hanh)
+    const { data: warehouses } = await supabase.from('warehouses').select('id, name').in('status', ['active'])
+    if (warehouses && warehouses.length > 0) {
+      const warehouseIds = warehouses.map((w: any) => w.id)
+      const { data: stockLevels } = await supabase
+        .from('stock_levels')
+        .select('product_id, quantity_on_hand, warehouse_id')
+        .in('warehouse_id', warehouseIds)
+        .gt('quantity_on_hand', 0)
+      
+      // Group stock by product
+      const stockByProduct: Record<string, number> = {}
+      if (stockLevels) {
+        stockLevels.forEach((stock: any) => {
+          stockByProduct[stock.product_id] = (stockByProduct[stock.product_id] || 0) + stock.quantity_on_hand
+        })
+      }
+      
+      // Check if ordered products have stock
+      const orderProducts = body.products || []
+      for (const product of orderProducts) {
+        const availableStock = stockByProduct[product.product_id] || 0
+        if (availableStock < (product.quantity_ordered || product.quantity || 0)) {
+          console.warn(`[Business Rule] Product ${product.product_id} has insufficient stock. Available: ${availableStock}, Ordered: ${product.quantity_ordered || product.quantity || 0}`)
+        }
+      }
+    }
+    
     return {
       sales_order_number: body.sales_order_number || body.orderNumber,
       quotation_id: body.quotation_id || null,
@@ -740,6 +793,13 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       body.closing_date || body.due_date || body.dueDate,
       'RFQ deadline must be on or after issued date.'
     )
+    
+    // Business Rule: RFQ must be sent to at least 3 suppliers for comparison (SmartHome procurement)
+    const supplierCount = body.supplier_ids?.length || 1
+    if (supplierCount < 3 && !body.supplierName.includes('Multiple')) {
+      console.warn(`[Business Rule] SmartHome best practice: Send RFQ to at least 3 suppliers for competitive pricing.`)
+    }
+    
     return {
       rfq_number: body.rfq_number || body.rfqNumber,
       issued_date: body.issued_date || body.date || new Date().toISOString().slice(0, 10),
@@ -760,7 +820,25 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       body.required_delivery_date || body.expected_delivery_date || body.dueDate,
       'Expected delivery date must be on or after PO date.'
     )
+    
+    // Business Rule: PO should be linked to an RFQ for traceability
+    if (!body.rfq_id && !body.rfq_number) {
+      console.warn(`[Business Rule] Purchase Order is not linked to an RFQ. Consider creating RFQ first for better procurement tracking.`)
+    }
+    
+    // Business Rule: Check supplier lead time against product reorder levels
     const supplierId = body.supplier_id || (await resolveSupplierId(body.supplierName))
+    const { data: supplierData } = await supabase.from('suppliers').select('average_lead_time_days, quality_rating').eq('id', supplierId).single()
+    if (supplierData) {
+      const avgLeadTime = supplierData.average_lead_time_days || 7
+      if (avgLeadTime > 14) {
+        console.warn(`[Business Rule] Supplier has long average lead time (${avgLeadTime} days). Plan inventory accordingly.`)
+      }
+      if (supplierData.quality_rating && supplierData.quality_rating < 3) {
+        throw new Error(`[Business Rule] Supplier quality rating is low (${supplierData.quality_rating}/5). Consider alternative suppliers.`)
+      }
+    }
+    
     return {
       purchase_order_number: body.purchase_order_number || body.poNumber,
       supplier_id: supplierId,
@@ -790,11 +868,15 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/inventory/goods-receipts' || pathname.startsWith('/inventory/goods-receipts/')) {
+    // Business Rule: SmartHome IoT devices require Serial/MAC address scanning
+    const purchaseOrderId = body.purchase_order_id || (await resolvePurchaseOrderId(body.reference, body.partnerName))
+    console.info(`[Business Rule] Goods Receipt for PO. All IoT devices (Camera, Robot, Smart Lock) must have Serial/MAC scanned for warranty tracking.`)
+    
     const warehouseId = body.warehouse_id || (await resolveWarehouseId(body.warehouseName))
     await resolveSupplierId(body.partnerName)
     return {
       goods_receipt_number: body.goods_receipt_number || body.reference,
-      purchase_order_id: body.purchase_order_id || (await resolvePurchaseOrderId(body.reference, body.partnerName)),
+      purchase_order_id: purchaseOrderId,
       warehouse_id: warehouseId,
       status: receiptStatusToDb[body.status] || body.status || 'draft',
       received_date: body.received_date || body.scheduledDate || new Date().toISOString().slice(0, 10),
@@ -805,6 +887,13 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   if (pathname === '/inventory/adjustments' || pathname.startsWith('/inventory/adjustments/')) {
     const warehouseId = body.warehouse_id || (await resolveWarehouseId(body.warehouseName))
     await ensureBinExists(warehouseId, body.binCode || body.reason)
+    
+    // Business Rule: Stock count must cover all 30 bin locations (SmartHome warehouse)
+    const { count: binCount } = await supabase.from('bin_locations').select('*', { count: 'exact', head: true }).eq('warehouse_id', warehouseId)
+    if (binCount) {
+      console.info(`[Business Rule] Warehouse has ${binCount} bin locations. Ensure all bins are counted for accurate inventory.`)
+    }
+    
     return {
       adjustment_number: body.adjustment_number || body.reference,
       warehouse_id: warehouseId,
@@ -822,10 +911,20 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       throw new Error('Invoice total must be greater than 0.')
     }
     ensureDateOrder(body.invoice_date, body.due_date || body.dueDate, 'Invoice due date must be on or after invoice date.')
+    
+    // Business Rule: Invoice created only when Sales Order is delivered successfully
+    const salesOrderId = body.sales_order_id || (await resolveSalesOrderId(body.sales_order_number, body.customerName))
+    if (salesOrderId) {
+      const { data: soData } = await supabase.from('sales_orders').select('status').eq('id', salesOrderId).single()
+      if (soData && !['delivered', 'completed', 'shipped'].includes(soData.status)) {
+        throw new Error(`[Business Rule] Cannot create invoice. Sales Order must be delivered first. Current status: ${soData.status}`)
+      }
+    }
+    
     const customerId = body.customer_id || (await resolveCustomerId(body.customerName))
     return {
       invoice_number: body.invoice_number,
-      sales_order_id: body.sales_order_id || (await resolveSalesOrderId(body.sales_order_number, body.customerName)),
+      sales_order_id: salesOrderId,
       customer_id: customerId,
       invoice_date: body.invoice_date || new Date().toISOString().slice(0, 10),
       due_date: body.due_date || body.dueDate || normalizeDate(undefined, 30),
@@ -848,6 +947,20 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       body.due_date || body.dueDate,
       'Bill due date must be on or after bill date.'
     )
+    
+    // Business Rule: Vendor Bill created only when Goods Receipt is completed
+    const purchaseOrderId = body.purchase_order_id || (await resolvePurchaseOrderId(body.purchase_order_number, body.supplierName))
+    if (purchaseOrderId) {
+      const { data: grData } = await supabase.from('goods_receipts')
+        .select('status')
+        .eq('purchase_order_id', purchaseOrderId)
+        .in('status', ['received', 'verified', 'completed'])
+        .limit(1)
+      if (!grData || grData.length === 0) {
+        throw new Error(`[Business Rule] Cannot create Vendor Bill. Must have at least one completed Goods Receipt for this PO.`)
+      }
+    }
+    
     const supplierId = body.supplier_id || (await resolveSupplierId(body.supplierName))
     return {
       bill_number: body.bill_number || body.billNumber,
@@ -1517,35 +1630,325 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
   throw new Error(`Unsupported write path: ${pathname}`)
 }
 
+// Helper to check if records exist with a foreign key
+const checkRelatedRecords = async (table: string, foreignKey: string, id: string): Promise<{ count: number; records: string }> => {
+  const { count, error } = await supabase.from(table).select('*', { count: 'exact', head: true }).eq(foreignKey, id)
+  if (error) throw error
+  return { count: count || 0, records: table }
+}
+
+// Helper to get related record names for error messages
+const getRelatedRecordNames = async (table: string, foreignKey: string, id: string, limit = 5): Promise<string[]> => {
+  const { data, error } = await supabase.from(table).select('*').eq(foreignKey, id).limit(limit)
+  if (error) return []
+  return (data || []).map((r: any) => r.name || r.code || r.number || r.email || r.id).slice(0, limit)
+}
+
 const deleteResource = async <T>(path: string) => {
   const { pathname } = parsePath(path)
   const id = pathname.split('/').pop()
 
-  const remove = async (table: string) => {
-    const { error } = await supabase.from(table).delete().eq('id', id)
+  // ========== SALES ORDERS ==========
+  if (pathname.startsWith('/sales-orders/')) {
+    // Check for delivery orders
+    const doCheck = await checkRelatedRecords('delivery_orders', 'sales_order_id', id!)
+    if (doCheck.count > 0) {
+      const deliveryOrders = await getRelatedRecordNames('delivery_orders', 'sales_order_id', id!)
+      throw new Error(`Không thể xóa Sales Order này vì có ${doCheck.count} Delivery Order(s) liên quan: ${deliveryOrders.join(', ')}. Vui lòng xóa Delivery Orders trước.`)
+    }
+    const { error } = await supabase.from('sales_orders').delete().eq('id', id)
     if (error) throw error
     return { success: true } as T
   }
 
-  if (pathname.startsWith('/sales-orders/quotations/')) return remove('quotations')
-  if (pathname.startsWith('/sales-orders/')) return remove('sales_orders')
-  if (pathname.startsWith('/purchase/rfqs/')) return remove('rfqs')
-  if (pathname.startsWith('/purchase/purchase-orders/')) return remove('purchase_orders')
-  if (pathname.startsWith('/inventory/delivery-orders/')) return remove('delivery_orders')
-  if (pathname.startsWith('/inventory/goods-receipts/')) return remove('goods_receipts')
-  if (pathname.startsWith('/inventory/adjustments/')) return remove('inventory_adjustments')
-  if (pathname.startsWith('/crm/leads/')) return remove('leads')
-  if (pathname.startsWith('/accounting/invoices/')) return remove('customer_invoices')
-  if (pathname.startsWith('/accounting/bills/')) return remove('vendor_bills')
-  if (pathname.startsWith('/accounting/credit-notes/')) return remove('credit_notes')
-  if (pathname.startsWith('/accounting/debit-notes/')) return remove('debit_notes')
-  if (pathname.startsWith('/users/')) return remove('users')
-  if (pathname.startsWith('/product-categories/')) return remove('product_categories')
-  if (pathname.startsWith('/products/')) return remove('products')
-  if (pathname.startsWith('/customers/')) return remove('customers')
-  if (pathname.startsWith('/suppliers/')) return remove('suppliers')
-  if (pathname.startsWith('/warehouse/warehouses/')) return remove('warehouses')
-  if (pathname.startsWith('/warehouse/bin-locations/')) return remove('bin_locations')
+  // ========== QUOTATIONS ==========
+  if (pathname.startsWith('/sales-orders/quotations/')) {
+    // Check if quotation is linked to a sales order
+    const { data: soData } = await supabase.from('sales_orders').select('id').eq('quotation_id', id).limit(1)
+    if (soData && soData.length > 0) {
+      throw new Error('Không thể xóa Quotation này vì đã được chuyển thành Sales Order. Vui lòng xóa Sales Order liên quan trước.')
+    }
+    const { error } = await supabase.from('quotations').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== CUSTOMERS ==========
+  if (pathname.startsWith('/customers/')) {
+    // Check for quotations
+    const qtCheck = await checkRelatedRecords('quotations', 'customer_id', id!)
+    if (qtCheck.count > 0) {
+      throw new Error(`Không thể xóa Customer này vì có ${qtCheck.count} Quotation(s) liên quan. Vui lòng xóa Quotation(s) trước.`)
+    }
+    // Check for sales orders
+    const soCheck = await checkRelatedRecords('sales_orders', 'customer_id', id!)
+    if (soCheck.count > 0) {
+      throw new Error(`Không thể xóa Customer này vì có ${soCheck.count} Sales Order(s) liên quan. Vui lòng xóa Sales Orders trước.`)
+    }
+    // Check for invoices
+    const invCheck = await checkRelatedRecords('customer_invoices', 'customer_id', id!)
+    if (invCheck.count > 0) {
+      throw new Error(`Không thể xóa Customer này vì có ${invCheck.count} Invoice(s) liên quan. Vui lòng xóa Invoices trước.`)
+    }
+    // Check for credit notes
+    const cnCheck = await checkRelatedRecords('credit_notes', 'customer_id', id!)
+    if (cnCheck.count > 0) {
+      throw new Error(`Không thể xóa Customer này vì có ${cnCheck.count} Credit Note(s) liên quan. Vui lòng xóa Credit Notes trước.`)
+    }
+    const { error } = await supabase.from('customers').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== PRODUCTS ==========
+  if (pathname.startsWith('/products/')) {
+    // Check for quotation lines
+    const qtLineCheck = await checkRelatedRecords('quotation_lines', 'product_id', id!)
+    if (qtLineCheck.count > 0) {
+      throw new Error(`Không thể xóa Product này vì có ${qtLineCheck.count} Quotation Line(s) liên quan.`)
+    }
+    // Check for sales order lines
+    const soLineCheck = await checkRelatedRecords('sales_order_lines', 'product_id', id!)
+    if (soLineCheck.count > 0) {
+      throw new Error(`Không thể xóa Product này vì có ${soLineCheck.count} Sales Order Line(s) liên quan.`)
+    }
+    // Check for stock levels
+    const stockCheck = await checkRelatedRecords('stock_levels', 'product_id', id!)
+    if (stockCheck.count > 0) {
+      throw new Error(`Không thể xóa Product này vì có ${stockCheck.count} Stock Level(s) liên quan. Vui lòng xóa Stock Levels trước.`)
+    }
+    const { error } = await supabase.from('products').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== PRODUCT CATEGORIES ==========
+  if (pathname.startsWith('/product-categories/')) {
+    const prodCheck = await checkRelatedRecords('products', 'category_id', id!)
+    if (prodCheck.count > 0) {
+      throw new Error(`Không thể xóa Category này vì có ${prodCheck.count} Product(s) thuộc category. Vui lòng xóa hoặc chuyển Products sang category khác trước.`)
+    }
+    const { error } = await supabase.from('product_categories').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== SUPPLIERS ==========
+  if (pathname.startsWith('/suppliers/')) {
+    // Check for quotations
+    const rfqCheck = await checkRelatedRecords('rfq_supplier_quotations', 'supplier_id', id!)
+    if (rfqCheck.count > 0) {
+      throw new Error(`Không thể xóa Supplier này vì có ${rfqCheck.count} RFQ Supplier Quotation(s) liên quan.`)
+    }
+    // Check for purchase orders
+    const poCheck = await checkRelatedRecords('purchase_orders', 'supplier_id', id!)
+    if (poCheck.count > 0) {
+      throw new Error(`Không thể xóa Supplier này vì có ${poCheck.count} Purchase Order(s) liên quan. Vui lòng xóa Purchase Orders trước.`)
+    }
+    // Check for vendor bills
+    const vbCheck = await checkRelatedRecords('vendor_bills', 'supplier_id', id!)
+    if (vbCheck.count > 0) {
+      throw new Error(`Không thể xóa Supplier này vì có ${vbCheck.count} Vendor Bill(s) liên quan. Vui lòng xóa Vendor Bills trước.`)
+    }
+    // Check for debit notes
+    const dnCheck = await checkRelatedRecords('debit_notes', 'supplier_id', id!)
+    if (dnCheck.count > 0) {
+      throw new Error(`Không thể xóa Supplier này vì có ${dnCheck.count} Debit Note(s) liên quan. Vui lòng xóa Debit Notes trước.`)
+    }
+    const { error } = await supabase.from('suppliers').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== PURCHASE ORDERS ==========
+  if (pathname.startsWith('/purchase/purchase-orders/')) {
+    // Check for goods receipts
+    const grCheck = await checkRelatedRecords('goods_receipts', 'purchase_order_id', id!)
+    if (grCheck.count > 0) {
+      throw new Error(`Không thể xóa Purchase Order này vì có ${grCheck.count} Goods Receipt(s) liên quan. Vui lòng xóa Goods Receipts trước.`)
+    }
+    // Check for vendor bills
+    const vbCheck = await checkRelatedRecords('vendor_bills', 'purchase_order_id', id!)
+    if (vbCheck.count > 0) {
+      throw new Error(`Không thể xóa Purchase Order này vì có ${vbCheck.count} Vendor Bill(s) liên quan. Vui lòng xóa Vendor Bills trước.`)
+    }
+    const { error } = await supabase.from('purchase_orders').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== RFQS ==========
+  if (pathname.startsWith('/purchase/rfqs/')) {
+    // Check for purchase orders
+    const poCheck = await checkRelatedRecords('purchase_orders', 'rfq_id', id!)
+    if (poCheck.count > 0) {
+      throw new Error('Không thể xóa RFQ này vì đã có Purchase Order được tạo từ RFQ. Vui lòng xóa Purchase Order trước.')
+    }
+    const { error } = await supabase.from('rfqs').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== DELIVERY ORDERS ==========
+  if (pathname.startsWith('/inventory/delivery-orders/')) {
+    // Check status - don't allow delete if already delivered
+    const { data: doData } = await supabase.from('delivery_orders').select('status').eq('id', id).single()
+    if (doData && ['delivered', 'shipped', 'in_transit'].includes(doData.status)) {
+      throw new Error(`Không thể xóa Delivery Order này vì đã ở trạng thái "${doData.status}". Chỉ có thể xóa Delivery Orders ở trạng thái Draft, Ready, hoặc Cancelled.`)
+    }
+    const { error } = await supabase.from('delivery_orders').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== GOODS RECEIPTS ==========
+  if (pathname.startsWith('/inventory/goods-receipts/')) {
+    // Check status - don't allow delete if already completed
+    const { data: grData } = await supabase.from('goods_receipts').select('status').eq('id', id).single()
+    if (grData && ['completed', 'verified'].includes(grData.status)) {
+      throw new Error(`Không thể xóa Goods Receipt này vì đã ở trạng thái "${grData.status}". Chỉ có thể xóa Goods Receipts ở trạng thái Draft, Received, hoặc Cancelled.`)
+    }
+    const { error } = await supabase.from('goods_receipts').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== CUSTOMER INVOICES ==========
+  if (pathname.startsWith('/accounting/invoices/')) {
+    // Check for credit notes
+    const cnCheck = await checkRelatedRecords('credit_notes', 'invoice_id', id!)
+    if (cnCheck.count > 0) {
+      throw new Error(`Không thể xóa Invoice này vì có ${cnCheck.count} Credit Note(s) liên quan. Vui lòng xóa Credit Notes trước.`)
+    }
+    // Check status - don't allow delete if already paid
+    const { data: invData } = await supabase.from('customer_invoices').select('status').eq('id', id).single()
+    if (invData && invData.status === 'paid') {
+      throw new Error('Không thể xóa Invoice đã thanh toán. Hãy tạo Credit Note để xử lý.')
+    }
+    const { error } = await supabase.from('customer_invoices').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== VENDOR BILLS ==========
+  if (pathname.startsWith('/accounting/bills/')) {
+    // Check for debit notes
+    const dnCheck = await checkRelatedRecords('debit_notes', 'bill_id', id!)
+    if (dnCheck.count > 0) {
+      throw new Error(`Không thể xóa Vendor Bill này vì có ${dnCheck.count} Debit Note(s) liên quan. Vui lòng xóa Debit Notes trước.`)
+    }
+    // Check status - don't allow delete if already paid
+    const { data: vbData } = await supabase.from('vendor_bills').select('status').eq('id', id).single()
+    if (vbData && vbData.status === 'paid') {
+      throw new Error('Không thể xóa Vendor Bill đã thanh toán. Hãy tạo Debit Note để xử lý.')
+    }
+    const { error } = await supabase.from('vendor_bills').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== CRM LEADS ==========
+  if (pathname.startsWith('/crm/leads/')) {
+    // Check if lead is Won/Lost and has related customer
+    const { data: leadData } = await supabase.from('leads').select('status, customer_id').eq('id', id).single()
+    if (leadData && leadData.customer_id) {
+      throw new Error('Không thể xóa Lead này vì đã chuyển thành Customer. Vui lòng xóa Customer liên quan trước.')
+    }
+    // Check for quotations created from lead
+    const qtCheck = await checkRelatedRecords('quotations', 'lead_id', id!)
+    if (qtCheck.count > 0) {
+      throw new Error(`Không thể xóa Lead này vì có ${qtCheck.count} Quotation(s) được tạo từ Lead. Vui lòng xóa Quotation(s) trước.`)
+    }
+    const { error } = await supabase.from('leads').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== USERS ==========
+  if (pathname.startsWith('/users/')) {
+    // Check if user is owner of any leads
+    const leadCheck = await checkRelatedRecords('leads', 'owner_id', id!)
+    if (leadCheck.count > 0) {
+      throw new Error(`Không thể xóa User này vì đang là Owner của ${leadCheck.count} Lead(s). Vui lòng chuyển Leads sang User khác trước.`)
+    }
+    // Check if user is creator of any quotations
+    const qtCheck = await checkRelatedRecords('quotations', 'created_by_id', id!)
+    if (qtCheck.count > 0) {
+      throw new Error(`Không thể xóa User này vì đã tạo ${qtCheck.count} Quotation(s). Không thể xóa người dùng đã tạo transaction.`)
+    }
+    // Check if user is sales person of any sales orders
+    const soCheck = await checkRelatedRecords('sales_orders', 'sales_person_id', id!)
+    if (soCheck.count > 0) {
+      throw new Error(`Không thể xóa User này vì là Sales Person của ${soCheck.count} Sales Order(s). Vui lòng chuyển Sales Orders sang User khác trước.`)
+    }
+    const { error } = await supabase.from('users').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== WAREHOUSES ==========
+  if (pathname.startsWith('/warehouse/warehouses/')) {
+    // Check for bin locations
+    const binCheck = await checkRelatedRecords('bin_locations', 'warehouse_id', id!)
+    if (binCheck.count > 0) {
+      throw new Error(`Không thể xóa Warehouse này vì có ${binCheck.count} Bin Location(s). Vui lòng xóa Bin Locations trước.`)
+    }
+    // Check for delivery orders
+    const doCheck = await checkRelatedRecords('delivery_orders', 'warehouse_id', id!)
+    if (doCheck.count > 0) {
+      throw new Error(`Không thể xóa Warehouse này vì có ${doCheck.count} Delivery Order(s) liên quan.`)
+    }
+    // Check for goods receipts
+    const grCheck = await checkRelatedRecords('goods_receipts', 'warehouse_id', id!)
+    if (grCheck.count > 0) {
+      throw new Error(`Không thể xóa Warehouse này vì có ${grCheck.count} Goods Receipt(s) liên quan.`)
+    }
+    // Check for stock levels
+    const stockCheck = await checkRelatedRecords('stock_levels', 'warehouse_id', id!)
+    if (stockCheck.count > 0) {
+      throw new Error(`Không thể xóa Warehouse này vì có ${stockCheck.count} Stock Level(s). Vui lòng xóa Stock Levels trước.`)
+    }
+    const { error } = await supabase.from('warehouses').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== BIN LOCATIONS ==========
+  if (pathname.startsWith('/warehouse/bin-locations/')) {
+    // Check for stock in bins
+    const sibCheck = await checkRelatedRecords('stock_in_bins', 'bin_location_id', id!)
+    if (sibCheck.count > 0) {
+      throw new Error(`Không thể xóa Bin Location này vì đang có ${sibCheck.count} Stock record(s). Vui lòng chuyển Stock sang Bin khác trước.`)
+    }
+    const { error } = await supabase.from('bin_locations').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== INVENTORY ADJUSTMENTS ==========
+  if (pathname.startsWith('/inventory/adjustments/')) {
+    const { data: adjData } = await supabase.from('inventory_adjustments').select('status').eq('id', id).single()
+    if (adjData && adjData.status === 'completed') {
+      throw new Error('Không thể xóa Inventory Adjustment đã được phê duyệt (Completed).')
+    }
+    const { error } = await supabase.from('inventory_adjustments').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== CREDIT NOTES ==========
+  if (pathname.startsWith('/accounting/credit-notes/')) {
+    const { error } = await supabase.from('credit_notes').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== DEBIT NOTES ==========
+  if (pathname.startsWith('/accounting/debit-notes/')) {
+    const { error } = await supabase.from('debit_notes').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
 
   throw new Error(`Unsupported delete path: ${pathname}`)
 }

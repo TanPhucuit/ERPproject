@@ -162,13 +162,25 @@ const CRMModule: React.FC = () => {
     setLeads((current) => current.map((item) => (item.id === lead.id ? { ...item, status: nextStatus } : item)))
   }
 
+  const deleteLead = async (lead: any) => {
+    if (!window.confirm(`Delete lead "${lead.name || lead.company}"?`)) return
+    try {
+      await erpApi.delete(`/crm/leads/${lead.id}`)
+    } catch (error: any) {
+      showNotification('error', `CRM delete failed: ${error.message}`)
+      return
+    }
+    setLeads((current) => current.filter((item) => item.id !== lead.id))
+    showNotification('success', 'Lead deleted.')
+  }
+
   const renderLeadActions = (lead: any) => (
     <RecordActions
       onEdit={() => {
         setModalRecord(lead)
         setModalOpen(true)
       }}
-      onDelete={() => setLeads((current) => current.filter((item) => item.id !== lead.id))}
+      onDelete={() => deleteLead(lead)}
       onAdvance={nextLeadStatus[lead.status] ? () => advanceLead(lead) : undefined}
       advanceLabel="Next Stage"
     />
