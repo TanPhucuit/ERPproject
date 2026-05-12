@@ -70,16 +70,26 @@ const calcTaxAmount = (subtotal: number, taxPct: number) =>
 const calcTotal = (subtotal: number, taxAmt: number) => subtotal + taxAmt
 
 // ========== TYPES ==========
-interface LeadProductLine {
-  id: string
-  product_id: string
-  product_name: string
-  product_sku: string
-  quantity: number
-  unit_price: number
-  discount_percent: number
-  line_total: number
+interface QuotationFormData {
+  id?: string
+  quotation_number?: string
+  lead_id: string
+  customer_id?: string
+  issued_date: string
+  valid_until_date: string
+  status: string
+  tax_percent: number
   notes?: string
+  products: {
+    id?: string
+    product_id: string
+    product_name: string
+    product_sku: string
+    quantity: number
+    unit_price: number
+    discount_percent: number
+    line_total: number
+  }[]
 }
 
 interface LeadFormData {
@@ -101,10 +111,9 @@ interface LeadFormData {
   expected_close_date: string
   notes: string
   customer_type: string
-  billing_address: string
-  shipping_address: string
-  tax_percent: number
-  products: LeadProductLine[]
+  // Bỏ phần sản phẩm và thông tin tài chính khỏi Lead
+  // products: LeadProductLine[]
+  // tax_percent: number
 }
 
 // ========== LEAD FORM MODAL ==========
@@ -112,12 +121,11 @@ const LeadModal: React.FC<{
   isOpen: boolean
   record: LeadFormData | null
   users: any[]
-  products: any[]
   existingCustomer: any | null
   onClose: () => void
   onSave: (data: LeadFormData, autoDetectedCustomer: any | null) => void
   errorMessage?: string | null
-}> = ({ isOpen, record, users, products, existingCustomer, onClose, onSave, errorMessage }) => {
+}> = ({ isOpen, record, users, existingCustomer, onClose, onSave, errorMessage }) => {
   const [form, setForm] = useState<LeadFormData>({
     company_name: '',
     contact_person_name: '',
@@ -130,38 +138,19 @@ const LeadModal: React.FC<{
     stage: 'new',
     source: 'website',
     lead_rating: 'warm',
+    estimated_value: 0,
     probability_percent: 10,
     expected_close_date: '',
     notes: '',
     customer_type: 'B2C',
-    billing_address: '',
-    shipping_address: '',
-    tax_percent: 10,
-    products: [],
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [productSearch, setProductSearch] = useState('')
-  const [showProductDropdown, setShowProductDropdown] = useState(false)
   const [customerType, setCustomerType] = useState<'B2C' | 'B2B'>('B2C')
   const [autoDetected, setAutoDetected] = useState<any | null>(null)
 
   useEffect(() => {
     if (record) {
-      const p = (record.products || []).map((p: any) => ({
-        id: p.id || `lp-${Date.now()}`,
-        product_id: p.product_id || '',
-        product_name: p.product_name || p.product?.name || '',
-        product_sku: p.product_sku || p.product?.sku || '',
-        quantity: p.quantity || 1,
-        unit_price: p.unit_price || 0,
-        discount_percent: p.discount_percent || 0,
-        line_total: p.line_total || calcLineTotal(p.quantity || 1, p.unit_price || 0, p.discount_percent || 0),
-      }))
-      setForm({
-        ...record,
-        products: p,
-        tax_percent: record.tax_percent || 10,
-      })
+      setForm({ ...record })
       setCustomerType((record.customer_type as 'B2C' | 'B2B') || 'B2C')
     } else {
       setForm({
@@ -181,10 +170,6 @@ const LeadModal: React.FC<{
         expected_close_date: '',
         notes: '',
         customer_type: 'B2C',
-        billing_address: '',
-        shipping_address: '',
-        tax_percent: 10,
-        products: [],
       })
       setCustomerType('B2C')
     }
@@ -199,47 +184,10 @@ const LeadModal: React.FC<{
     }
   }, [existingCustomer, form.company_name])
 
-  // Auto-calculate financial totals
-  useEffect(() => {
-    const subtotal = calcSubtotal(form.products)
-    const tax_amount = calcTaxAmount(subtotal, form.tax_percent)
-    const total = calcTotal(subtotal, tax_amount)
-    setForm(f => ({ ...f, subtotal, tax_amount, total_amount: total }))
-  }, [form.products, form.tax_percent])
-
   const updateField = (key: keyof LeadFormData, value: any) => {
     setForm(f => ({ ...f, [key]: value }))
     if (errors[key]) setErrors(e => ({ ...e, [key]: '' }))
   }
-
-  const addProduct = (product: any) => {
-    if (form.products.some(p => p.product_id === product.id)) return
-    const line: LeadProductLine = {
-      id: `lp-${Date.now()}`,
-      product_id: product.id,
-      product_name: product.name,
-      product_sku: product.sku,
-      quantity: 1,
-      unit_price: Number(product.list_price || 0),
-      discount_percent: 0,
-      line_total: calcLineTotal(1, Number(product.list_price || 0), 0),
-    }
-    updateField('products', [...form.products, line])
-    setShowProductDropdown(false)
-    setProductSearch('')
-  }
-
-  const updateProductLine = (id: string, key: keyof LeadProductLine, value: number) => {
-    updateField('products', form.products.map(p => {
-      if (p.id !== id) return p
-      const next = { ...p, [key]: value }
-      next.line_total = calcLineTotal(next.quantity, next.unit_price, next.discount_percent)
-      return next
-    }))
-  }
-
-  const removeProduct = (id: string) =>
-    updateField('products', form.products.filter(p => p.id !== id))
 
   const handleSave = () => {
     const errs: Record<string, string> = {}
@@ -250,27 +198,18 @@ const LeadModal: React.FC<{
     onSave(form, autoDetected)
   }
 
-  const filteredProducts = products.filter(p =>
-    !form.products.some(lp => lp.product_id === p.id) &&
-    ((p.name || '').toLowerCase().includes(productSearch.toLowerCase()) ||
-     (p.sku || '').toLowerCase().includes(productSearch.toLowerCase()))
-  )
-
   const isAutoRequest = form.owner_id === 'auto_request'
-  const subtotal = calcSubtotal(form.products)
-  const tax_amount = calcTaxAmount(subtotal, form.tax_percent)
-  const total_amount = calcTotal(subtotal, tax_amount)
 
   const salesPersonOptions = [
     ...users.map(u => ({ value: u.id, label: `${u.full_name} (${u.role})` })),
-    { value: 'auto_request', label: '📋 Yêu cầu báo giá (hệ thống tự tạo quotation)' },
+    { value: 'auto_request', label: '📋 Yêu cầu tự động (tạo báo giá mẫu)' },
   ]
 
   if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto">
-      <div className="w-full max-w-5xl bg-white shadow-xl rounded-lg mt-4 mb-8">
+      <div className="w-full max-w-3xl bg-white shadow-xl rounded-lg mt-4 mb-8">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
           <h2 className="text-xl font-bold text-gray-900">
@@ -315,41 +254,41 @@ const LeadModal: React.FC<{
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
             <h3 className="mb-3 text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2">
               <User size={16} />
-              Customer Info
+              Thông tin Khách hàng Tiềm năng
               {autoDetected && (
                 <span className="text-xs font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
-                  ✓ Existing customer detected — auto-linking
+                  ✓ Đã tìm thấy khách hàng — sẽ liên kết khi thắng
                 </span>
               )}
             </h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="md:col-span-2">
                 <label className="mb-1 block text-sm font-semibold text-gray-700">
-                  Customer / Company Name <span className="text-red-500">*</span>
+                  Tên Công ty / Khách hàng <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={form.company_name}
                   onChange={e => { updateField('company_name', e.target.value); setAutoDetected(null) }}
-                  placeholder="Enter customer or company name"
+                  placeholder="Nhập tên công ty hoặc khách hàng"
                   className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${errors.company_name ? 'border-red-400' : 'border-gray-300'}`}
                 />
                 {errors.company_name && <p className="mt-1 text-xs text-red-600">{errors.company_name}</p>}
                 {autoDetected && (
                   <p className="mt-1 text-xs text-green-600">
-                    Detected: {autoDetected.name} ({autoDetected.customer_type}) — customer will be updated when lead is won
+                    Phát hiện: {autoDetected.name} ({autoDetected.customer_type}) — sẽ cập nhật khi lead thắng.
                   </p>
                 )}
                 {!autoDetected && form.company_name && (
-                  <p className="mt-1 text-xs text-blue-600">New customer — will be created when lead is won</p>
+                  <p className="mt-1 text-xs text-blue-600">Khách hàng mới — sẽ được tạo khi lead thắng.</p>
                 )}
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Contact Person</label>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Người liên hệ</label>
                 <input type="text" value={form.contact_person_name}
                   onChange={e => updateField('contact_person_name', e.target.value)}
-                  placeholder="Contact name"
+                  placeholder="Tên người liên hệ"
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
 
@@ -366,12 +305,12 @@ const LeadModal: React.FC<{
                 />
                 {errors.contact_person_email && <p className="mt-1 text-xs text-red-600">{errors.contact_person_email}</p>}
                 {autoDetected && (
-                  <p className="mt-1 text-xs text-green-600">Linked to: {autoDetected.name}</p>
+                  <p className="mt-1 text-xs text-green-600">Liên kết với: {autoDetected.name}</p>
                 )}
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Phone</label>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Số điện thoại</label>
                 <input type="text" value={form.contact_person_phone}
                   onChange={e => updateField('contact_person_phone', e.target.value)}
                   placeholder="+84..."
@@ -379,50 +318,209 @@ const LeadModal: React.FC<{
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Customer Type</label>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Loại khách hàng</p>
                 <div className="flex gap-3 mt-1">
                   {(['B2C', 'B2B'] as const).map(t => (
                     <label key={t} className={`flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer text-sm ${customerType === t ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}`}>
                       <input type="radio" name="ct" value={t} checked={customerType === t}
                         onChange={() => { setCustomerType(t); updateField('customer_type', t) }}
                         className="accent-blue-600" />
-                      {t === 'B2C' ? 'B2C - Individual' : 'B2B - Business'}
+                      {t === 'B2C' ? 'Cá nhân' : 'Doanh nghiệp'}
                     </label>
                   ))}
                 </div>
               </div>
 
               <div className="md:col-span-2">
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Address</label>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Địa chỉ</label>
                 <input type="text" value={form.company_address}
                   onChange={e => updateField('company_address', e.target.value)}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Tax ID</label>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Mã số thuế</label>
                 <input type="text" value={form.company_tax_id}
                   onChange={e => updateField('company_tax_id', e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Tax (%)</label>
-                <input type="number" min={0} max={100}
-                  value={form.tax_percent}
-                  onChange={e => updateField('tax_percent', Number(e.target.value))}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
             </div>
           </div>
 
+          {/* Lead Info */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Giá trị Dự kiến (VNĐ)</label>
+              <input type="number" min={0} value={form.estimated_value}
+                onChange={e => updateField('estimated_value', Number(e.target.value))}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Xác suất Thắng (%)</label>
+              <input type="number" min={0} max={100} value={form.probability_percent}
+                onChange={e => updateField('probability_percent', Number(e.target.value))}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Đánh giá Lead</label>
+              <select value={form.lead_rating}
+                onChange={e => updateField('lead_rating', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
+                {leadRatings.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Ngày dự kiến chốt</label>
+              <input type="date" value={form.expected_close_date}
+                onChange={e => updateField('expected_close_date', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Nhân viên Kinh doanh</label>
+              <select
+                value={form.owner_id}
+                onChange={e => updateField('owner_id', e.target.value)}
+                className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${isAutoRequest ? 'border-yellow-400 bg-yellow-50' : 'border-gray-300'}`}
+              >
+                <option value="">-- Chọn nhân viên --</option>
+                {salesPersonOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              {isAutoRequest && (
+                <div className="mt-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
+                  Lead này sẽ <strong>tự động tạo báo giá mẫu</strong> khi chuyển sang giai đoạn "Báo giá".
+                </div>
+              )}
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Ghi chú</label>
+              <textarea value={form.notes}
+                onChange={e => updateField('notes', e.target.value)}
+                rows={3}
+                placeholder="Ghi chú về nhu cầu, thông tin thêm..."
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
+          <button onClick={onClose}
+            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">
+            Hủy
+          </button>
+          <button onClick={handleSave}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+            {record?.id ? 'Cập nhật Lead' : 'Tạo Lead'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ========== QUOTATION MODAL ==========
+const QuotationModal: React.FC<{
+  isOpen: boolean
+  lead: any | null
+  products: any[]
+  onClose: () => void
+  onSave: (data: QuotationFormData) => void
+}> = ({ isOpen, lead, products, onClose, onSave }) => {
+  const [form, setForm] = useState<QuotationFormData>({
+    lead_id: '',
+    issued_date: new Date().toISOString().slice(0, 10),
+    valid_until_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+    status: 'draft',
+    tax_percent: 10,
+    products: [],
+  })
+  const [productSearch, setProductSearch] = useState('')
+  const [showProductDropdown, setShowProductDropdown] = useState(false)
+
+  useEffect(() => {
+    if (lead) {
+      setForm(f => ({
+        ...f,
+        lead_id: lead.id,
+        customer_id: lead.customer_id, // if lead is already linked to a customer
+      }))
+    }
+  }, [lead, isOpen])
+
+  const updateField = (key: keyof QuotationFormData, value: any) => {
+    setForm(f => ({ ...f, [key]: value }))
+  }
+
+  const addProduct = (product: any) => {
+    if (form.products.some(p => p.product_id === product.id)) return
+    const line = {
+      id: `qp-${Date.now()}`,
+      product_id: product.id,
+      product_name: product.name,
+      product_sku: product.sku,
+      quantity: 1,
+      unit_price: Number(product.list_price || 0),
+      discount_percent: 0,
+      line_total: calcLineTotal(1, Number(product.list_price || 0), 0),
+    }
+    updateField('products', [...form.products, line])
+    setShowProductDropdown(false)
+    setProductSearch('')
+  }
+
+  const updateProductLine = (id: string, key: keyof QuotationFormData['products'][0], value: number) => {
+    updateField('products', form.products.map(p => {
+      if (p.id !== id) return p
+      const next = { ...p, [key]: value }
+      next.line_total = calcLineTotal(next.quantity, next.unit_price, next.discount_percent)
+      return next
+    }))
+  }
+
+  const removeProduct = (id: string) =>
+    updateField('products', form.products.filter(p => p.id !== id))
+
+  const handleSave = () => {
+    if (form.products.length === 0) {
+      alert('Báo giá phải có ít nhất một sản phẩm.')
+      return
+    }
+    onSave(form)
+  }
+
+  const filteredProducts = products.filter(p =>
+    !form.products.some(lp => lp.product_id === p.id) &&
+    ((p.name || '').toLowerCase().includes(productSearch.toLowerCase()) ||
+     (p.sku || '').toLowerCase().includes(productSearch.toLowerCase()))
+  )
+
+  const subtotal = calcSubtotal(form.products)
+  const tax_amount = calcTaxAmount(subtotal, form.tax_percent)
+  const total_amount = calcTotal(subtotal, tax_amount)
+
+  if (!isOpen || !lead) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto">
+      <div className="w-full max-w-5xl bg-white shadow-xl rounded-lg mt-4 mb-8">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <h2 className="text-xl font-bold text-gray-900">
+            Tạo Báo giá cho Lead: {lead.company_name}
+          </h2>
+          <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="max-h-[80vh] overflow-y-auto p-6 space-y-6">
           {/* Products Section */}
           <div className="rounded-lg border border-gray-200 p-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">
-                Requested Products ({form.products.length})
+                Sản phẩm Báo giá ({form.products.length})
               </h3>
               <p className="text-sm font-semibold text-blue-700">
-                Subtotal: {formatCurrency(subtotal)}
+                Tổng phụ: {formatCurrency(subtotal)}
               </p>
             </div>
 
@@ -435,7 +533,7 @@ const LeadModal: React.FC<{
                   value={productSearch}
                   onChange={e => { setProductSearch(e.target.value); setShowProductDropdown(true) }}
                   onFocus={() => setShowProductDropdown(true)}
-                  placeholder="Search products to add..."
+                  placeholder="Tìm sản phẩm để thêm vào báo giá..."
                   className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none"
                 />
               </div>
@@ -455,11 +553,6 @@ const LeadModal: React.FC<{
                   ))}
                 </div>
               )}
-              {showProductDropdown && productSearch && filteredProducts.length === 0 && (
-                <div className="absolute z-20 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg p-4 text-sm text-gray-500">
-                  No products found
-                </div>
-              )}
             </div>
 
             {/* Product Lines Table */}
@@ -468,11 +561,11 @@ const LeadModal: React.FC<{
                 <table className="w-full text-sm">
                   <thead className="bg-gray-100">
                     <tr>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-700">Product</th>
-                      <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">Qty</th>
-                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Unit Price</th>
-                      <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">Disc%</th>
-                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Amount</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-700">Sản phẩm</th>
+                      <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">SL</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Đơn giá</th>
+                      <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">CK %</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Thành tiền</th>
                       <th className="px-2 py-2 w-10"></th>
                     </tr>
                   </thead>
@@ -486,26 +579,26 @@ const LeadModal: React.FC<{
                         <td className="px-2 py-2">
                           <input type="number" min={1}
                             value={line.quantity}
-                            onChange={e => updateProductLine(line.id, 'quantity', Number(e.target.value))}
+                            onChange={e => updateProductLine(line.id!, 'quantity', Number(e.target.value))}
                             className="w-full rounded border border-gray-300 px-2 py-1 text-center text-sm focus:border-blue-500 focus:outline-none" />
                         </td>
                         <td className="px-2 py-2">
                           <input type="number" min={0}
                             value={line.unit_price}
-                            onChange={e => updateProductLine(line.id, 'unit_price', Number(e.target.value))}
+                            onChange={e => updateProductLine(line.id!, 'unit_price', Number(e.target.value))}
                             className="w-full rounded border border-gray-300 px-2 py-1 text-right text-sm focus:border-blue-500 focus:outline-none" />
                         </td>
                         <td className="px-2 py-2">
                           <input type="number" min={0} max={100}
                             value={line.discount_percent}
-                            onChange={e => updateProductLine(line.id, 'discount_percent', Number(e.target.value))}
+                            onChange={e => updateProductLine(line.id!, 'discount_percent', Number(e.target.value))}
                             className="w-full rounded border border-gray-300 px-2 py-1 text-center text-sm focus:border-blue-500 focus:outline-none" />
                         </td>
                         <td className="px-2 py-2 text-right font-semibold text-blue-700">
                           {formatCurrency(line.line_total)}
                         </td>
                         <td className="px-2 py-2 text-center">
-                          <button onClick={() => removeProduct(line.id)} className="rounded p-1 text-red-500 hover:bg-red-50">
+                          <button onClick={() => removeProduct(line.id!)} className="rounded p-1 text-red-500 hover:bg-red-50">
                             <Trash2 size={14} />
                           </button>
                         </td>
@@ -514,17 +607,17 @@ const LeadModal: React.FC<{
                   </tbody>
                   <tfoot className="bg-gray-50">
                     <tr>
-                      <td colSpan={4} className="px-3 py-2 text-right font-semibold text-gray-700">Subtotal:</td>
+                      <td colSpan={4} className="px-3 py-2 text-right font-semibold text-gray-700">Tổng phụ:</td>
                       <td className="px-2 py-2 text-right font-bold text-blue-700">{formatCurrency(subtotal)}</td>
                       <td></td>
                     </tr>
                     <tr>
-                      <td colSpan={4} className="px-3 py-1 text-right font-semibold text-gray-700">Tax ({form.tax_percent}%):</td>
+                      <td colSpan={4} className="px-3 py-1 text-right font-semibold text-gray-700">Thuế ({form.tax_percent}%):</td>
                       <td className="px-2 py-1 text-right text-sm text-gray-700">{formatCurrency(tax_amount)}</td>
                       <td></td>
                     </tr>
                     <tr className="bg-blue-50">
-                      <td colSpan={4} className="px-3 py-2 text-right font-bold text-gray-900">Total:</td>
+                      <td colSpan={4} className="px-3 py-2 text-right font-bold text-gray-900">Tổng cộng:</td>
                       <td className="px-2 py-2 text-right font-bold text-blue-800">{formatCurrency(total_amount)}</td>
                       <td></td>
                     </tr>
@@ -533,75 +626,20 @@ const LeadModal: React.FC<{
               </div>
             ) : (
               <div className="rounded-md border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
-                No products yet. Search and add products above.
+                Chưa có sản phẩm. Tìm và thêm sản phẩm ở trên.
               </div>
             )}
           </div>
-
-          {/* Lead Info */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Estimated Value</label>
-              <div className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-right font-semibold text-blue-700">
-                {formatCurrency(total_amount)}
-              </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Win Probability (%)</label>
-              <input type="number" min={0} max={100} value={form.probability_percent}
-                onChange={e => updateField('probability_percent', Number(e.target.value))}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Lead Rating</label>
-              <select value={form.lead_rating}
-                onChange={e => updateField('lead_rating', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
-                {leadRatings.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Expected Close Date</label>
-              <input type="date" value={form.expected_close_date}
-                onChange={e => updateField('expected_close_date', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
-            </div>
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Sales Person</label>
-              <select
-                value={form.owner_id}
-                onChange={e => updateField('owner_id', e.target.value)}
-                className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${isAutoRequest ? 'border-yellow-400 bg-yellow-50' : 'border-gray-300'}`}
-              >
-                <option value="">-- Select Sales Person --</option>
-                {salesPersonOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-              {isAutoRequest && (
-                <div className="mt-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
-                  This lead <strong>does not require a Sales Person</strong>. When the customer accepts a quote, the system will automatically create a Quotation.
-                </div>
-              )}
-            </div>
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
-              <textarea value={form.notes}
-                onChange={e => updateField('notes', e.target.value)}
-                rows={3}
-                placeholder="Notes about this lead..."
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
-            </div>
-          </div>
         </div>
 
-        {/* Footer */}
         <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
           <button onClick={onClose}
             className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">
-            Cancel
+            Hủy
           </button>
           <button onClick={handleSave}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-            {record?.id ? 'Update Lead' : 'Create Lead'}
+            className="rounded-md bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700">
+            Tạo Báo giá
           </button>
         </div>
       </div>
@@ -639,7 +677,7 @@ const ActivityModal: React.FC<{
       onSaved()
       onClose()
     } catch (e: any) {
-      alert('Error: ' + e.message)
+      alert('Lỗi: ' + e.message)
     } finally {
       setSaving(false)
     }
@@ -649,49 +687,49 @@ const ActivityModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Log Activity</h3>
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Ghi nhận Hoạt động</h3>
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">Activity Type</label>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Loại hoạt động</label>
             <select value={activityType} onChange={e => setActivityType(e.target.value)}
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
-              <option value="">-- Select --</option>
+              <option value="">-- Chọn --</option>
               <option>Call</option><option>Email</option><option>Meeting</option><option>Site Visit</option><option>Quote Sent</option>
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">Description</label>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Mô tả</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
-              placeholder="Activity description..."
+              placeholder="Mô tả hoạt động..."
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">Outcome</label>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Kết quả</label>
             <input type="text" value={outcome} onChange={e => setOutcome(e.target.value)}
-              placeholder="Outcome / result..."
+              placeholder="Kết quả..."
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Date / Time</label>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Ngày/Giờ</label>
               <input type="datetime-local" value={date.slice(0, 16)} onChange={e => setDate(e.target.value)}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Performed By</label>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Người thực hiện</label>
               <select value={performer} onChange={e => setPerformer(e.target.value)}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
-                <option value="">-- Auto --</option>
+                <option value="">-- Tự động --</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
               </select>
             </div>
           </div>
         </div>
         <div className="flex justify-end gap-3 mt-6">
-          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700">Cancel</button>
+          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700">Hủy</button>
           <button onClick={handleSave} disabled={saving || !activityType || !description}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
-            {saving ? 'Saving...' : 'Save Activity'}
+            {saving ? 'Đang lưu...' : 'Lưu Hoạt động'}
           </button>
         </div>
       </div>
@@ -713,13 +751,15 @@ const CRMModule: React.FC = () => {
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('all')
   const [viewMode, setViewMode] = useState<ViewMode>('list')
-  const [modalRecord, setModalRecord] = useState<LeadFormData | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
+  const [leadModalRecord, setLeadModalRecord] = useState<LeadFormData | null>(null)
+  const [leadModalOpen, setLeadModalOpen] = useState(false)
+  const [quotationModalOpen, setQuotationModalOpen] = useState(false)
+  const [quotationLead, setQuotationLead] = useState<any | null>(null)
   const [modalError, setModalError] = useState<string | null>(null)
   const [activityModalOpen, setActivityModalOpen] = useState(false)
   const [activityLeadId, setActivityLeadId] = useState('')
   const [existingCustomer, setExistingCustomer] = useState<any | null>(null)
-  const [savingCustomer, setSavingCustomer] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const loadAll = async () => {
     try {
@@ -760,20 +800,10 @@ const CRMModule: React.FC = () => {
       return matchSearch && matchStage
     }), [leads, search, stageFilter])
 
-  const openCreate = () => { setModalRecord(null); setModalError(null); setExistingCustomer(null); setModalOpen(true) }
+  const openCreateLead = () => { setLeadModalRecord(null); setModalError(null); setExistingCustomer(null); setLeadModalOpen(true) }
 
-  const openEdit = (lead: any) => {
-    const prods = (lead.products || []).map((p: any) => ({
-      id: p.id || `lp-${Date.now()}`,
-      product_id: p.product_id || '',
-      product_name: p.product_name || p.product?.name || '',
-      product_sku: p.product_sku || p.product?.sku || '',
-      quantity: p.quantity || 1,
-      unit_price: p.unit_price || 0,
-      discount_percent: p.discount_percent || 0,
-      line_total: p.line_total || calcLineTotal(p.quantity || 1, p.unit_price || 0, p.discount_percent || 0),
-    }))
-    setModalRecord({
+  const openEditLead = (lead: any) => {
+    setLeadModalRecord({
       id: lead.id,
       lead_number: lead.lead_number,
       company_name: lead.company_name || '',
@@ -792,18 +822,14 @@ const CRMModule: React.FC = () => {
       expected_close_date: lead.expected_close_date || '',
       notes: lead.notes || '',
       customer_type: lead.customer_type || 'B2C',
-      billing_address: lead.billing_address || '',
-      shipping_address: lead.shipping_address || '',
-      tax_percent: lead.tax_percent || 10,
-      products: prods,
     })
     setModalError(null)
     setExistingCustomer(lead.customer || null)
-    setModalOpen(true)
+    setLeadModalOpen(true)
   }
 
-  const handleSave = async (formData: LeadFormData, autoDetectedCustomer: any | null) => {
-    setSavingCustomer(true)
+  const handleSaveLead = async (formData: LeadFormData, autoDetectedCustomer: any | null) => {
+    setSaving(true)
     try {
       // Auto-detect customer by email before saving
       let detectedCustomer = autoDetectedCustomer
@@ -818,78 +844,98 @@ const CRMModule: React.FC = () => {
       }
 
       const payload = {
-        company_name: formData.company_name,
-        contact_person_name: formData.contact_person_name,
-        contact_person_phone: formData.contact_person_phone,
-        contact_person_email: formData.contact_person_email,
-        company_address: formData.company_address,
-        company_tax_id: formData.company_tax_id,
+        ...formData,
         owner_id: formData.owner_id === 'auto_request' ? null : (formData.owner_id || null),
-        source: formData.source,
-        lead_rating: formData.lead_rating,
-        estimated_value: calcSubtotal(formData.products),
-        probability_percent: formData.probability_percent,
         expected_close_date: formData.expected_close_date || null,
-        notes: formData.notes,
-        customer_type: formData.customer_type,
-        billing_address: formData.billing_address,
-        shipping_address: formData.shipping_address,
-        tax_percent: formData.tax_percent,
-        products: formData.products.map(p => ({
-          product_id: p.product_id,
-          product_name: p.product_name,
-          product_sku: p.product_sku,
-          quantity: p.quantity,
-          unit_price: p.unit_price,
-          discount_percent: p.discount_percent,
-        })),
       }
 
-      if (modalRecord?.id && !String(modalRecord.id).startsWith('lead-')) {
-        await erpApi.put(`/crm/leads/${modalRecord.id}`, payload)
+      if (leadModalRecord?.id) {
+        await erpApi.put(`/crm/leads/${leadModalRecord.id}`, payload)
       } else {
         await erpApi.post('/crm/leads', payload)
       }
       await loadAll()
-      setModalOpen(false)
-      setModalRecord(null)
+      setLeadModalOpen(false)
+      setLeadModalRecord(null)
       setModalError(null)
       showNotification('success', 'Lead đã được lưu thành công.')
     } catch (e: any) {
       setModalError(e.message)
     } finally {
-      setSavingCustomer(false)
+      setSaving(false)
+    }
+  }
+
+  const handleSaveQuotation = async (formData: QuotationFormData) => {
+    setSaving(true)
+    try {
+      await erpApi.post('/sales/quotations', formData)
+      await loadAll()
+      setQuotationModalOpen(false)
+      setQuotationLead(null)
+      showNotification('success', 'Báo giá đã được tạo thành công.')
+    } catch (e: any) {
+      showNotification('error', `Tạo báo giá thất bại: ${e.message}`)
+    } finally {
+      setSaving(false)
     }
   }
 
   const advanceLead = async (lead: any) => {
-    const next = nextLeadStage[stageName(lead.stage_id || lead.stage)]
+    const currentStage = stageName(lead.stage_id || lead.stage)
+    const next = nextLeadStage[currentStage]
     if (!next) return
-    try {
-      // When advancing to 'won', auto-create customer
-      if (next === 'won') {
-        try {
-          const payload = {
-            name: lead.company_name,
-            customer_type: lead.customer_type || 'B2C',
-            contact_person_name: lead.contact_person_name,
-            contact_person_email: lead.contact_person_email,
-            contact_person_phone: lead.contact_person_phone,
-            billing_address: lead.company_address || '',
-            shipping_address: lead.company_address || '',
-            company_tax_id: lead.company_tax_id || null,
+
+    // Nếu là "Yêu cầu tự động" và chuyển sang "Báo giá", tự động tạo báo giá mẫu
+    if (lead.source === 'auto_request' && next === 'proposition') {
+        // Logic để tạo báo giá mẫu ở đây
+        // Ví dụ: lấy 3 sản phẩm đầu tiên trong danh sách
+        const sampleProducts = products.slice(0, 3).map(p => ({
+            product_id: p.id,
+            product_name: p.name,
+            product_sku: p.sku,
+            quantity: 1,
+            unit_price: p.list_price,
+            discount_percent: 0,
+            line_total: p.list_price,
+        }));
+
+        const quotationPayload: QuotationFormData = {
             lead_id: lead.id,
-            status: 'active',
-          }
-          await erpApi.post('/customers', payload)
-          showNotification('success', `Khách hàng "${lead.company_name}" đã được tạo tự động từ Lead!`)
-        } catch (e: any) {
-          console.warn('Auto-create customer failed:', e.message)
+            status: 'draft',
+            issued_date: new Date().toISOString().slice(0, 10),
+            valid_until_date: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
+            tax_percent: 10,
+            notes: 'Báo giá tự động từ hệ thống.',
+            products: sampleProducts,
+        };
+        await handleSaveQuotation(quotationPayload);
+    }
+
+    // Khi lead thắng, tự động tạo khách hàng
+    if (next === 'won') {
+      try {
+        const payload = {
+          name: lead.company_name,
+          customer_type: lead.customer_type || 'B2C',
+          contact_person_name: lead.contact_person_name,
+          contact_person_email: lead.contact_person_email,
+          contact_person_phone: lead.contact_person_phone,
+          billing_address: lead.company_address || '',
+          shipping_address: lead.company_address || '',
+          company_tax_id: lead.company_tax_id || null,
+          lead_id: lead.id,
+          status: 'active',
         }
+        await erpApi.post('/customers', payload)
+        showNotification('success', `Khách hàng "${lead.company_name}" đã được tạo tự động!`)
+      } catch (e: any) {
+        console.warn('Tự động tạo khách hàng thất bại:', e.message)
       }
-      if (!String(lead.id).startsWith('lead-')) {
-        await erpApi.put(`/crm/leads/${lead.id}`, { stage: next })
-      }
+    }
+
+    try {
+      await erpApi.put(`/crm/leads/${lead.id}`, { stage: next })
       await loadAll()
       showNotification('success', `Lead chuyển sang: ${stageLabel(leadStages.find(s => s.value === next))}`)
     } catch (e: any) {
@@ -900,9 +946,7 @@ const CRMModule: React.FC = () => {
   const deleteLead = async (lead: any) => {
     if (!window.confirm(`Xóa lead "${lead.company_name}"?`)) return
     try {
-      if (!String(lead.id).startsWith('lead-')) {
-        await erpApi.delete(`/crm/leads/${lead.id}`)
-      }
+      await erpApi.delete(`/crm/leads/${lead.id}`)
       await loadAll()
       showNotification('success', 'Lead đã được xóa.')
     } catch (e: any) {
@@ -910,30 +954,9 @@ const CRMModule: React.FC = () => {
     }
   }
 
-  const convertToQuotation = async (lead: any) => {
-    try {
-      const payload = {
-        lead_id: lead.id,
-        customer_id: lead.customer_id || undefined,
-        issued_date: new Date().toISOString().slice(0, 10),
-        valid_until_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-        status: 'sent',
-        tax_percent: lead.tax_percent || 10,
-        notes: `Quotation từ Lead ${lead.lead_number}`,
-        products: (lead.products || []).map((p: any, i: number) => ({
-          product_id: p.product_id,
-          product_name: p.product_name || p.product?.name,
-          quantity: p.quantity || 1,
-          unit_price: p.unit_price || p.product?.list_price || 0,
-          discount_percent: p.discount_percent || 0,
-          sequence: i + 1,
-        })),
-      }
-      await erpApi.post('/sales-orders/quotations', payload)
-      showNotification('success', 'Quotation đã được tạo từ Lead!')
-    } catch (e: any) {
-      showNotification('error', `Tạo quotation thất bại: ${e.message}`)
-    }
+  const openQuotationModal = (lead: any) => {
+    setQuotationLead(lead)
+    setQuotationModalOpen(true)
   }
 
   const renderLeadActions = (lead: any) => (
@@ -943,13 +966,13 @@ const CRMModule: React.FC = () => {
         <PlusCircle size={14} />
       </button>
       {stageName(lead.stage_id || lead.stage) !== 'won' && stageName(lead.stage_id || lead.stage) !== 'lost' && (
-        <button onClick={() => convertToQuotation(lead)}
-          className="rounded p-1.5 text-purple-600 hover:bg-purple-50" title="Tạo Quotation">
+        <button onClick={() => openQuotationModal(lead)}
+          className="rounded p-1.5 text-purple-600 hover:bg-purple-50" title="Tạo Báo giá">
           <FileText size={14} />
         </button>
       )}
       <RecordActions
-        onEdit={() => openEdit(lead)}
+        onEdit={() => openEditLead(lead)}
         onDelete={() => deleteLead(lead)}
         onAdvance={nextLeadStage[stageName(lead.stage_id || lead.stage)] ? () => advanceLead(lead) : undefined}
         advanceLabel="Chuyển tiếp"
@@ -969,7 +992,7 @@ const CRMModule: React.FC = () => {
         title="CRM"
         subtitle="Quản lý Lead: Tiếp cận → Khảo sát → Báo giá → Chốt đơn"
         primaryLabel="Tạo Lead mới"
-        onCreate={openCreate}
+        onCreate={openCreateLead}
       />
 
       {loadError && (
@@ -982,8 +1005,8 @@ const CRMModule: React.FC = () => {
         activeTab={activeTab}
         onChange={setActiveTab}
         tabs={[
-          { id: 'leads', label: 'Opportunities', count: leads.length },
-          { id: 'activities', label: 'Activities', count: activities.length },
+          { id: 'leads', label: 'Cơ hội', count: leads.length },
+          { id: 'activities', label: 'Hoạt động', count: activities.length },
         ]}
       />
 
