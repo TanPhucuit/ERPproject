@@ -1,259 +1,983 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Calendar, PhoneCall } from 'lucide-react'
+import {
+  Activity,
+  Calendar,
+  ChevronRight,
+  FileText,
+  Plus,
+  PhoneCall,
+  PlusCircle,
+  Search,
+  Trash2,
+  User,
+  UserCheck,
+  X,
+} from 'lucide-react'
 import { erpApi } from '../services/erpApi'
 import {
   ActionToolbar,
   formatCurrency,
-  FormField,
   KanbanBoard,
   ModuleHeader,
   ModuleTabs,
   RecordActions,
-  RecordModal,
   StatusBadge,
   ViewMode,
 } from '../components/OdooLite'
 import { useUIStore } from '../stores/uiStore'
 
-const leadFields: FormField[] = [
-  { name: 'leadNumber', label: 'Lead Number', type: 'text' },
-  { name: 'companyName', label: 'Company Name', type: 'text', required: true },
-  { name: 'contactPersonName', label: 'Contact Person', type: 'text' },
-  { name: 'contactPersonPhone', label: 'Phone', type: 'text' },
-  { name: 'contactPersonEmail', label: 'Email', type: 'email', required: true },
-  { name: 'companyAddress', label: 'Company Address', type: 'textarea' },
-  { name: 'companyTaxId', label: 'Tax ID', type: 'text' },
-  { name: 'ownerName', label: 'Sales Person', type: 'select', options: [] },
-  {
-    name: 'stage',
-    label: 'Stage',
-    type: 'select',
-    required: true,
-    options: [
-      { value: 'new', label: 'New' },
-      { value: 'site_survey', label: 'Site Survey' },
-      { value: 'proposition', label: 'Proposition' },
-      { value: 'won', label: 'Won' },
-      { value: 'lost', label: 'Lost' },
-    ],
-  },
-  {
-    name: 'source',
-    label: 'Source',
-    type: 'select',
-    options: [
-      { value: 'website', label: 'Website' },
-      { value: 'referral', label: 'Referral' },
-      { value: 'showroom', label: 'Showroom' },
-      { value: 'architect', label: 'Architect Partner' },
-      { value: 'cold_call', label: 'Cold Call' },
-      { value: 'social_media', label: 'Social Media' },
-    ],
-  },
-  {
-    name: 'leadRating',
-    label: 'Rating',
-    type: 'select',
-    options: [
-      { value: 'hot', label: 'Hot' },
-      { value: 'warm', label: 'Warm' },
-      { value: 'cold', label: 'Cold' },
-    ],
-  },
-  { name: 'estimatedValue', label: 'Estimated Value', type: 'number' },
-  { name: 'probabilityPercent', label: 'Probability (%)', type: 'number' },
-  { name: 'expectedCloseDate', label: 'Expected Close Date', type: 'date' },
-  { name: 'notes', label: 'Notes', type: 'textarea' },
+// ========== CONSTANTS ==========
+const leadStages = [
+  { value: 'new', label: 'Mới tiếp nhận', color: 'yellow' },
+  { value: 'site_survey', label: 'Khảo sát', color: 'blue' },
+  { value: 'proposition', label: 'Báo giá', color: 'purple' },
+  { value: 'won', label: 'Đã ký', color: 'green' },
+  { value: 'lost', label: 'Mất khách', color: 'red' },
 ]
-
-const activities = [
-  { id: 'act-1', type: 'Call', description: 'Follow-up site survey for apartment package', date: '2024-03-15', time: '14:30' },
-  { id: 'act-2', type: 'Email', description: 'Send SmartHome proposal and device list', date: '2024-03-16', time: '09:00' },
-  { id: 'act-3', type: 'Meeting', description: 'Demo camera, smart lock, and sensor package', date: '2024-03-18', time: '10:30' },
-]
-
-const nextLeadStatus: Record<string, string> = {
-  new: 'qualified',
-  contacted: 'qualified',
-  qualified: 'proposition',
+const nextLeadStage: Record<string, string> = {
+  new: 'site_survey',
+  site_survey: 'proposition',
   proposition: 'won',
 }
+const leadSources = [
+  { value: 'website', label: 'Website' },
+  { value: 'referral', label: 'Giới thiệu' },
+  { value: 'showroom', label: 'Showroom' },
+  { value: 'architect', label: 'Kiến trúc sư' },
+  { value: 'cold_call', label: 'Cold Call' },
+  { value: 'social_media', label: 'Mạng xã hội' },
+  { value: 'auto_request', label: 'Yêu cầu tự động' },
+]
+const leadRatings = [
+  { value: 'hot', label: 'Hot', color: 'text-red-500' },
+  { value: 'warm', label: 'Warm', color: 'text-orange-500' },
+  { value: 'cold', label: 'Cold', color: 'text-blue-500' },
+]
+const activityIcons: Record<string, React.ReactNode> = {
+  Call: <PhoneCall size={14} className="text-blue-500" />,
+  Email: <span className="text-green-500 text-xs">@</span>,
+  Meeting: <User size={14} className="text-purple-500" />,
+  'Site Visit': <Activity size={14} className="text-orange-500" />,
+  'Quote Sent': <FileText size={14} className="text-teal-500" />,
+}
 
-const CRMModule: React.FC = () => {
-  const showNotification = useUIStore((state) => state.showNotification)
-  const [activeTab, setActiveTab] = useState('leads')
-  const [leads, setLeads] = useState<any[]>([])
-  const [users, setUsers] = useState<any[]>([])
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [status, setStatus] = useState('all')
-  const [viewMode, setViewMode] = useState<ViewMode>('list')
-  const [modalRecord, setModalRecord] = useState<any>(null)
-  const [modalOpen, setModalOpen] = useState(false)
+// ========== CALCULATION HELPERS ==========
+const calcLineTotal = (q: number, p: number, d: number) => q * p * (1 - d / 100)
+const calcSubtotal = (lines: any[]) =>
+  lines.reduce((sum, l) => sum + (l.line_total || 0), 0)
+const calcTaxAmount = (subtotal: number, taxPct: number) =>
+  subtotal * taxPct / 100
+const calcTotal = (subtotal: number, taxAmt: number) => subtotal + taxAmt
 
-  const userOptions = useMemo(
-    () => users.map((user) => ({ value: user.id, label: `${user.full_name || user.fullName} (${user.role})` })),
-    [users]
-  )
+// ========== TYPES ==========
+interface LeadProductLine {
+  id: string
+  product_id: string
+  product_name: string
+  product_sku: string
+  quantity: number
+  unit_price: number
+  discount_percent: number
+  line_total: number
+  notes?: string
+}
 
-  const leadFieldsWithOptions = useMemo(() => {
-    return leadFields.map((field) => {
-      if (field.name === 'ownerName') return { ...field, options: userOptions }
-      return field
-    })
-  }, [userOptions])
+interface LeadFormData {
+  id?: string
+  lead_number?: string
+  company_name: string
+  contact_person_name: string
+  contact_person_phone: string
+  contact_person_email: string
+  company_address: string
+  company_tax_id: string
+  owner_id: string
+  owner_name: string
+  stage: string
+  source: string
+  lead_rating: string
+  estimated_value: number
+  probability_percent: number
+  expected_close_date: string
+  notes: string
+  customer_type: string
+  billing_address: string
+  shipping_address: string
+  tax_percent: number
+  products: LeadProductLine[]
+}
+
+// ========== LEAD FORM MODAL ==========
+const LeadModal: React.FC<{
+  isOpen: boolean
+  record: LeadFormData | null
+  users: any[]
+  products: any[]
+  existingCustomer: any | null
+  onClose: () => void
+  onSave: (data: LeadFormData, autoDetectedCustomer: any | null) => void
+  errorMessage?: string | null
+}> = ({ isOpen, record, users, products, existingCustomer, onClose, onSave, errorMessage }) => {
+  const [form, setForm] = useState<LeadFormData>({
+    company_name: '',
+    contact_person_name: '',
+    contact_person_phone: '',
+    contact_person_email: '',
+    company_address: '',
+    company_tax_id: '',
+    owner_id: '',
+    owner_name: '',
+    stage: 'new',
+    source: 'website',
+    lead_rating: 'warm',
+    estimated_value: 0,
+    probability_percent: 10,
+    expected_close_date: '',
+    notes: '',
+    customer_type: 'B2C',
+    billing_address: '',
+    shipping_address: '',
+    tax_percent: 10,
+    products: [],
+  })
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [productSearch, setProductSearch] = useState('')
+  const [showProductDropdown, setShowProductDropdown] = useState(false)
+  const [customerType, setCustomerType] = useState<'B2C' | 'B2B'>('B2C')
+  const [autoDetected, setAutoDetected] = useState<any | null>(null)
 
   useEffect(() => {
-    erpApi
-      .get<any[]>('/crm/leads?limit=100')
-      .then((records) => {
-        setLoadError(null)
-        setLeads(
-          records.map((lead) => ({
-            ...lead,
-            leadNumber: lead.lead_number,
-            companyName: lead.company_name,
-            contactPersonName: lead.contact_person_name,
-            contactPersonPhone: lead.contact_person_phone,
-            contactPersonEmail: lead.contact_person_email,
-            companyAddress: lead.company_address,
-            companyTaxId: lead.company_tax_id,
-            ownerName: lead.owner?.full_name || lead.owner_id,
-            stage: lead.stage_id,
-            source: lead.source,
-            leadRating: lead.lead_rating,
-            estimatedValue: lead.estimated_value,
-            probabilityPercent: lead.probability_percent,
-            expectedCloseDate: lead.expected_close_date,
-            notes: lead.notes,
-          }))
-        )
+    if (record) {
+      const p = (record.products || []).map((p: any) => ({
+        id: p.id || `lp-${Date.now()}`,
+        product_id: p.product_id || '',
+        product_name: p.product_name || p.product?.name || '',
+        product_sku: p.product_sku || p.product?.sku || '',
+        quantity: p.quantity || 1,
+        unit_price: p.unit_price || 0,
+        discount_percent: p.discount_percent || 0,
+        line_total: p.line_total || calcLineTotal(p.quantity || 1, p.unit_price || 0, p.discount_percent || 0),
+      }))
+      setForm({
+        ...record,
+        products: p,
+        tax_percent: record.tax_percent || 10,
       })
-      .catch((error) => {
-        setLeads([])
-        setLoadError(error.message)
+      setCustomerType((record.customer_type as 'B2C' | 'B2B') || 'B2C')
+    } else {
+      setForm({
+        company_name: '',
+        contact_person_name: '',
+        contact_person_phone: '',
+        contact_person_email: '',
+        company_address: '',
+        company_tax_id: '',
+        owner_id: '',
+        owner_name: '',
+        stage: 'new',
+        source: 'website',
+        lead_rating: 'warm',
+        estimated_value: 0,
+        probability_percent: 10,
+        expected_close_date: '',
+        notes: '',
+        customer_type: 'B2C',
+        billing_address: '',
+        shipping_address: '',
+        tax_percent: 10,
+        products: [],
       })
+      setCustomerType('B2C')
+    }
+    setErrors({})
+    setAutoDetected(null)
+  }, [record, isOpen])
 
-    erpApi
-      .get<any[]>('/users?limit=100')
-      .then(setUsers)
-      .catch(() => setUsers([]))
-  }, [])
+  // Auto-fill when existingCustomer prop arrives from parent
+  useEffect(() => {
+    if (existingCustomer && form.company_name) {
+      setAutoDetected(existingCustomer)
+    }
+  }, [existingCustomer, form.company_name])
 
-  const filteredLeads = useMemo(() => {
-    return leads.filter((lead) => {
-      const haystack = `${lead.first_name} ${lead.last_name} ${lead.name} ${lead.company} ${lead.email} ${lead.phone}`.toLowerCase()
-      const matchesSearch = haystack.includes(search.toLowerCase())
-      const matchesStatus = status === 'all' || lead.status === status
-      return matchesSearch && matchesStatus
-    })
-  }, [leads, search, status])
+  // Auto-calculate financial totals
+  useEffect(() => {
+    const subtotal = calcSubtotal(form.products)
+    const tax_amount = calcTaxAmount(subtotal, form.tax_percent)
+    const total = calcTotal(subtotal, tax_amount)
+    setForm(f => ({ ...f, subtotal, tax_amount, total_amount: total }))
+  }, [form.products, form.tax_percent])
 
-  const openCreate = () => {
+  const updateField = (key: keyof LeadFormData, value: any) => {
+    setForm(f => ({ ...f, [key]: value }))
+    if (errors[key]) setErrors(e => ({ ...e, [key]: '' }))
+  }
+
+  const addProduct = (product: any) => {
+    if (form.products.some(p => p.product_id === product.id)) return
+    const line: LeadProductLine = {
+      id: `lp-${Date.now()}`,
+      product_id: product.id,
+      product_name: product.name,
+      product_sku: product.sku,
+      quantity: 1,
+      unit_price: Number(product.list_price || 0),
+      discount_percent: 0,
+      line_total: calcLineTotal(1, Number(product.list_price || 0), 0),
+    }
+    updateField('products', [...form.products, line])
+    setShowProductDropdown(false)
+    setProductSearch('')
+  }
+
+  const updateProductLine = (id: string, key: keyof LeadProductLine, value: number) => {
+    updateField('products', form.products.map(p => {
+      if (p.id !== id) return p
+      const next = { ...p, [key]: value }
+      next.line_total = calcLineTotal(next.quantity, next.unit_price, next.discount_percent)
+      return next
+    }))
+  }
+
+  const removeProduct = (id: string) =>
+    updateField('products', form.products.filter(p => p.id !== id))
+
+  const handleSave = () => {
+    const errs: Record<string, string> = {}
+    if (!form.company_name.trim()) errs.company_name = 'Tên khách hàng là bắt buộc'
+    if (!form.contact_person_email.trim()) errs.contact_person_email = 'Email là bắt buộc'
+    setErrors(errs)
+    if (Object.keys(errs).length > 0) return
+    onSave(form, autoDetected)
+  }
+
+  const filteredProducts = products.filter(p =>
+    !form.products.some(lp => lp.product_id === p.id) &&
+    ((p.name || '').toLowerCase().includes(productSearch.toLowerCase()) ||
+     (p.sku || '').toLowerCase().includes(productSearch.toLowerCase()))
+  )
+
+  const isAutoRequest = form.owner_id === 'auto_request'
+  const subtotal = calcSubtotal(form.products)
+  const tax_amount = calcTaxAmount(subtotal, form.tax_percent)
+  const total_amount = calcTotal(subtotal, tax_amount)
+
+  const salesPersonOptions = [
+    ...users.map(u => ({ value: u.id, label: `${u.full_name} (${u.role})` })),
+    { value: 'auto_request', label: '📋 Yêu cầu báo giá (hệ thống tự tạo quotation)' },
+  ]
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto">
+      <div className="w-full max-w-5xl bg-white shadow-xl rounded-lg mt-4 mb-8">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <h2 className="text-xl font-bold text-gray-900">
+            {record?.id ? 'Sửa Lead' : 'Tạo Lead mới'}
+          </h2>
+          <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800">
+            <X size={20} />
+          </button>
+        </div>
+
+        {errorMessage && (
+          <div className="mx-6 mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3">
+            <p className="text-sm font-semibold text-red-800">Lỗi: {errorMessage}</p>
+          </div>
+        )}
+
+        <div className="max-h-[80vh] overflow-y-auto p-6 space-y-6">
+          {/* Lead Number + Source */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Mã Lead</label>
+              <input
+                type="text"
+                value={form.lead_number || '(sẽ tạo tự động)'}
+                readOnly
+                className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Nguồn Lead</label>
+              <select
+                value={form.source}
+                onChange={e => updateField('source', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              >
+                {leadSources.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Customer Auto-Detection */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <h3 className="mb-3 text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2">
+              <User size={16} />
+              Thông tin khách hàng
+              {autoDetected && (
+                <span className="text-xs font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                  ✓ Khách đã tồn tại trong hệ thống — đang ghép tự động
+                </span>
+              )}
+            </h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-semibold text-gray-700">
+                  Tên khách hàng / Công ty <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.company_name}
+                  onChange={e => { updateField('company_name', e.target.value); setAutoDetected(null) }}
+                  placeholder="Nhập tên khách hàng hoặc công ty"
+                  className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${errors.company_name ? 'border-red-400' : 'border-gray-300'}`}
+                />
+                {errors.company_name && <p className="mt-1 text-xs text-red-600">{errors.company_name}</p>}
+                {autoDetected && (
+                  <p className="mt-1 text-xs text-green-600">
+                    Đã nhận diện: {autoDetected.name} ({autoDetected.customer_type}) — khách hàng sẽ được cập nhật khi lead thắng
+                  </p>
+                )}
+                {!autoDetected && form.company_name && (
+                  <p className="mt-1 text-xs text-blue-600">Khách hàng mới — sẽ được tạo khi lead thắng</p>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Người liên hệ</label>
+                <input type="text" value={form.contact_person_name}
+                  onChange={e => updateField('contact_person_name', e.target.value)}
+                  placeholder="Người phụ trách"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">
+                  Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={form.contact_person_email}
+                  onChange={e => { updateField('contact_person_email', e.target.value); setAutoDetected(null) }}
+                  className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${errors.contact_person_email ? 'border-red-400' : 'border-gray-300'}`}
+                  placeholder="email@example.com"
+                />
+                {errors.contact_person_email && <p className="mt-1 text-xs text-red-600">{errors.contact_person_email}</p>}
+                {autoDetected && (
+                  <p className="mt-1 text-xs text-green-600">Đã ghép customer: {autoDetected.name}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Điện thoại</label>
+                <input type="text" value={form.contact_person_phone}
+                  onChange={e => updateField('contact_person_phone', e.target.value)}
+                  placeholder="090..."
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Loại khách hàng</label>
+                <div className="flex gap-3 mt-1">
+                  {(['B2C', 'B2B'] as const).map(t => (
+                    <label key={t} className={`flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer text-sm ${customerType === t ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}`}>
+                      <input type="radio" name="ct" value={t} checked={customerType === t}
+                        onChange={() => { setCustomerType(t); updateField('customer_type', t) }}
+                        className="accent-blue-600" />
+                      {t === 'B2C' ? '👤 Khách lẻ' : '🏢 Đại lý'}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Địa chỉ</label>
+                <input type="text" value={form.company_address}
+                  onChange={e => updateField('company_address', e.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Mã số thuế</label>
+                <input type="text" value={form.company_tax_id}
+                  onChange={e => updateField('company_tax_id', e.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Thuế (%)</label>
+                <input type="number" min={0} max={100}
+                  value={form.tax_percent}
+                  onChange={e => updateField('tax_percent', Number(e.target.value))}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+              </div>
+            </div>
+          </div>
+
+          {/* Products Section */}
+          <div className="rounded-lg border border-gray-200 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">
+                📦 Sản phẩm yêu cầu ({form.products.length})
+              </h3>
+              <p className="text-sm font-semibold text-blue-700">
+                Subtotal: {formatCurrency(subtotal)}
+              </p>
+            </div>
+
+            {/* Product Search */}
+            <div className="relative mb-3">
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={productSearch}
+                  onChange={e => { setProductSearch(e.target.value); setShowProductDropdown(true) }}
+                  onFocus={() => setShowProductDropdown(true)}
+                  placeholder="Tìm sản phẩm để thêm..."
+                  className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              {showProductDropdown && filteredProducts.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg max-h-52 overflow-y-auto">
+                  {filteredProducts.slice(0, 12).map(p => (
+                    <button key={p.id}
+                      onClick={() => addProduct(p)}
+                      className="w-full px-4 py-2.5 text-left text-sm hover:bg-blue-50 flex justify-between items-center border-b border-gray-50 last:border-0"
+                    >
+                      <div>
+                        <p className="font-medium text-gray-900">{p.name}</p>
+                        <p className="text-xs text-gray-400">{p.sku}</p>
+                      </div>
+                      <span className="text-xs font-semibold text-blue-600">{formatCurrency(p.list_price)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {showProductDropdown && productSearch && filteredProducts.length === 0 && (
+                <div className="absolute z-20 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg p-4 text-sm text-gray-500">
+                  Không tìm thấy sản phẩm
+                </div>
+              )}
+            </div>
+
+            {/* Product Lines Table */}
+            {form.products.length > 0 ? (
+              <div className="overflow-hidden rounded-md border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-700">Sản phẩm</th>
+                      <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">SL</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Đơn giá</th>
+                      <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">CK%</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Thành tiền</th>
+                      <th className="px-2 py-2 w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {form.products.map(line => (
+                      <tr key={line.id} className="hover:bg-gray-50">
+                        <td className="px-3 py-2">
+                          <p className="font-medium text-gray-900">{line.product_name}</p>
+                          <p className="text-xs text-gray-400">{line.product_sku}</p>
+                        </td>
+                        <td className="px-2 py-2">
+                          <input type="number" min={1}
+                            value={line.quantity}
+                            onChange={e => updateProductLine(line.id, 'quantity', Number(e.target.value))}
+                            className="w-full rounded border border-gray-300 px-2 py-1 text-center text-sm focus:border-blue-500 focus:outline-none" />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input type="number" min={0}
+                            value={line.unit_price}
+                            onChange={e => updateProductLine(line.id, 'unit_price', Number(e.target.value))}
+                            className="w-full rounded border border-gray-300 px-2 py-1 text-right text-sm focus:border-blue-500 focus:outline-none" />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input type="number" min={0} max={100}
+                            value={line.discount_percent}
+                            onChange={e => updateProductLine(line.id, 'discount_percent', Number(e.target.value))}
+                            className="w-full rounded border border-gray-300 px-2 py-1 text-center text-sm focus:border-blue-500 focus:outline-none" />
+                        </td>
+                        <td className="px-2 py-2 text-right font-semibold text-blue-700">
+                          {formatCurrency(line.line_total)}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <button onClick={() => removeProduct(line.id)} className="rounded p-1 text-red-500 hover:bg-red-50">
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-gray-50">
+                    <tr>
+                      <td colSpan={4} className="px-3 py-2 text-right font-semibold text-gray-700">Tạm tính (Subtotal):</td>
+                      <td className="px-2 py-2 text-right font-bold text-blue-700">{formatCurrency(subtotal)}</td>
+                      <td></td>
+                    </tr>
+                    <tr>
+                      <td colSpan={4} className="px-3 py-1 text-right font-semibold text-gray-700">Thuế ({form.tax_percent}%):</td>
+                      <td className="px-2 py-1 text-right text-sm text-gray-700">{formatCurrency(tax_amount)}</td>
+                      <td></td>
+                    </tr>
+                    <tr className="bg-blue-50">
+                      <td colSpan={4} className="px-3 py-2 text-right font-bold text-gray-900">Tổng cộng (Total):</td>
+                      <td className="px-2 py-2 text-right font-bold text-blue-800">{formatCurrency(total_amount)}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
+                Chưa có sản phẩm nào. Tìm và thêm sản phẩm ở ô trên.
+              </div>
+            )}
+          </div>
+
+          {/* Lead Info */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Giá trị ước tính</label>
+              <input type="number" min={0} value={form.estimated_value}
+                onChange={e => updateField('estimated_value', Number(e.target.value))}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Xác suất thắng (%)</label>
+              <input type="number" min={0} max={100} value={form.probability_percent}
+                onChange={e => updateField('probability_percent', Number(e.target.value))}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Đánh giá</label>
+              <select value={form.lead_rating}
+                onChange={e => updateField('lead_rating', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
+                {leadRatings.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Ngày dự kiến ký</label>
+              <input type="date" value={form.expected_close_date}
+                onChange={e => updateField('expected_close_date', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Người phụ trách</label>
+              <select
+                value={form.owner_id}
+                onChange={e => updateField('owner_id', e.target.value)}
+                className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${isAutoRequest ? 'border-yellow-400 bg-yellow-50' : 'border-gray-300'}`}
+              >
+                <option value="">-- Chọn Sales Person --</option>
+                {salesPersonOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              {isAutoRequest && (
+                <div className="mt-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
+                  📋 Lead này <strong>không cần Sales Person</strong>. Khi khách chấp nhận báo giá, hệ thống tự động tạo Quotation.
+                  Nếu khách không chấp nhận, Sales Person khác có thể tạo Quotation cho lead này.
+                </div>
+              )}
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Ghi chú</label>
+              <textarea value={form.notes}
+                onChange={e => updateField('notes', e.target.value)}
+                rows={3}
+                placeholder="Ghi chú về lead..."
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
+          <button onClick={onClose}
+            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">
+            Hủy
+          </button>
+          <button onClick={handleSave}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+            {record?.id ? 'Cập nhật Lead' : 'Tạo Lead'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ========== ACTIVITY MODAL ==========
+const ActivityModal: React.FC<{
+  isOpen: boolean
+  leadId: string
+  users: any[]
+  onClose: () => void
+  onSaved: () => void
+}> = ({ isOpen, leadId, users, onClose, onSaved }) => {
+  const [activityType, setActivityType] = useState('')
+  const [description, setDescription] = useState('')
+  const [outcome, setOutcome] = useState('')
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 16))
+  const [performer, setPerformer] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    if (!activityType || !description) return
+    setSaving(true)
+    try {
+      await erpApi.post('/crm/activities', {
+        lead_id: leadId,
+        activity_type: activityType,
+        description,
+        outcome,
+        activity_date: date,
+        performed_by_id: performer || null,
+      })
+      onSaved()
+      onClose()
+    } catch (e: any) {
+      alert('Lỗi: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!isOpen) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Ghi nhận Activity</h3>
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Loại activity</label>
+            <select value={activityType} onChange={e => setActivityType(e.target.value)}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
+              <option value="">-- Chọn --</option>
+              <option>Call</option><option>Email</option><option>Meeting</option><option>Site Visit</option><option>Quote Sent</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Mô tả</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
+              placeholder="Nội dung hoạt động..."
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Kết quả</label>
+            <input type="text" value={outcome} onChange={e => setOutcome(e.target.value)}
+              placeholder="Kết quả / outcome..."
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Ngày/Giờ</label>
+              <input type="datetime-local" value={date.slice(0, 16)} onChange={e => setDate(e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Người thực hiện</label>
+              <select value={performer} onChange={e => setPerformer(e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
+                <option value="">-- Tự động --</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 mt-6">
+          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700">Hủy</button>
+          <button onClick={handleSave} disabled={saving || !activityType || !description}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+            {saving ? 'Đang lưu...' : 'Lưu Activity'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ========== MAIN CRM MODULE ==========
+const CRMModule: React.FC = () => {
+  const showNotification = useUIStore(s => s.showNotification)
+  const [activeTab, setActiveTab] = useState('leads')
+  const [leads, setLeads] = useState<any[]>([])
+  const [activities, setActivities] = useState<any[]>([])
+  const [users, setUsers] = useState<any[]>([])
+  const [products, setProducts] = useState<any[]>([])
+  const [leadStagesData, setLeadStagesData] = useState<any[]>([])
+  const [activityTypes, setActivityTypes] = useState<any[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [stageFilter, setStageFilter] = useState('all')
+  const [viewMode, setViewMode] = useState<ViewMode>('list')
+  const [modalRecord, setModalRecord] = useState<LeadFormData | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalError, setModalError] = useState<string | null>(null)
+  const [activityModalOpen, setActivityModalOpen] = useState(false)
+  const [activityLeadId, setActivityLeadId] = useState('')
+  const [existingCustomer, setExistingCustomer] = useState<any | null>(null)
+  const [savingCustomer, setSavingCustomer] = useState(false)
+
+  const loadAll = async () => {
+    try {
+      const [leadData, userData, productData, stageData, actTypeData, actData] = await Promise.all([
+        erpApi.get<any[]>('/crm/leads?limit=100'),
+        erpApi.get<any[]>('/users?limit=100'),
+        erpApi.get<any[]>('/products?limit=1000'),
+        erpApi.get<any[]>('/lead-stages'),
+        erpApi.get<any[]>('/activity-types'),
+        erpApi.get<any[]>('/crm/activities?limit=100'),
+      ])
+      setLeads(leadData)
+      setUsers(userData)
+      setProducts(productData)
+      setLeadStagesData(stageData)
+      setActivityTypes(actTypeData)
+      setActivities(actData)
+      setLoadError(null)
+    } catch (e: any) {
+      setLoadError(e.message)
+    }
+  }
+
+  useEffect(() => { loadAll() }, [])
+
+  const stageLabel = (stage: any) => {
+    if (!stage) return 'Mới'
+    return stage.display_name || stage.name || stage
+  }
+
+  const stageName = (stage: any) => stage?.name || stage
+
+  const filteredLeads = useMemo(() =>
+    leads.filter(l => {
+      const hay = `${l.company_name || ''} ${l.contact_person_name || ''} ${l.contact_person_email || ''} ${l.lead_number || ''}`.toLowerCase()
+      const matchSearch = hay.includes(search.toLowerCase())
+      const matchStage = stageFilter === 'all' || (stageName(l.stage_id || l.stage) || 'new') === stageFilter
+      return matchSearch && matchStage
+    }), [leads, search, stageFilter])
+
+  const openCreate = () => { setModalRecord(null); setModalError(null); setExistingCustomer(null); setModalOpen(true) }
+
+  const openEdit = (lead: any) => {
+    const prods = (lead.products || []).map((p: any) => ({
+      id: p.id || `lp-${Date.now()}`,
+      product_id: p.product_id || '',
+      product_name: p.product_name || p.product?.name || '',
+      product_sku: p.product_sku || p.product?.sku || '',
+      quantity: p.quantity || 1,
+      unit_price: p.unit_price || 0,
+      discount_percent: p.discount_percent || 0,
+      line_total: p.line_total || calcLineTotal(p.quantity || 1, p.unit_price || 0, p.discount_percent || 0),
+    }))
     setModalRecord({
-      id: `lead-${Date.now()}`,
-      leadNumber: `LEAD-${Date.now().toString().slice(-6)}`,
-      stage: 'new',
-      source: 'website',
-      leadRating: 'warm',
-      estimatedValue: 0,
-      probabilityPercent: 50,
+      id: lead.id,
+      lead_number: lead.lead_number,
+      company_name: lead.company_name || '',
+      contact_person_name: lead.contact_person_name || '',
+      contact_person_phone: lead.contact_person_phone || '',
+      contact_person_email: lead.contact_person_email || '',
+      company_address: lead.company_address || '',
+      company_tax_id: lead.company_tax_id || '',
+      owner_id: lead.owner_id || '',
+      owner_name: lead.owner?.full_name || '',
+      stage: stageName(lead.stage_id || lead.stage) || 'new',
+      source: lead.source || 'website',
+      lead_rating: lead.lead_rating || 'warm',
+      estimated_value: lead.estimated_value || 0,
+      probability_percent: lead.probability_percent || 10,
+      expected_close_date: lead.expected_close_date || '',
+      notes: lead.notes || '',
+      customer_type: lead.customer_type || 'B2C',
+      billing_address: lead.billing_address || '',
+      shipping_address: lead.shipping_address || '',
+      tax_percent: lead.tax_percent || 10,
+      products: prods,
     })
+    setModalError(null)
+    setExistingCustomer(lead.customer || null)
     setModalOpen(true)
   }
 
-  const handleSave = async (record: any) => {
-    const payload = {
-      lead_number: record.leadNumber || `LEAD-${Date.now()}`,
-      company_name: record.companyName,
-      contact_person_name: record.contactPersonName,
-      contact_person_phone: record.contactPersonPhone,
-      contact_person_email: record.contactPersonEmail,
-      company_address: record.companyAddress,
-      company_tax_id: record.companyTaxId,
-      owner_id: userOptions.find(u => u.label === record.ownerName)?.value || record.ownerName,
-      stage_id: record.stage,
-      source: record.source,
-      lead_rating: record.leadRating,
-      estimated_value: record.estimatedValue || 0,
-      probability_percent: record.probabilityPercent || 50,
-      expected_close_date: record.expectedCloseDate,
-      notes: record.notes,
-    }
+  const handleSave = async (formData: LeadFormData, autoDetectedCustomer: any | null) => {
+    setSavingCustomer(true)
     try {
-      if (leads.some((lead) => lead.id === record.id) && !record.id.startsWith('lead-')) {
-        await erpApi.put(`/crm/leads/${record.id}`, payload)
-      } else {
-        const created = await erpApi.post<any>('/crm/leads', payload)
-        record.id = created.id || record.id
+      // Auto-detect customer by email before saving
+      let detectedCustomer = autoDetectedCustomer
+      if (!detectedCustomer && formData.contact_person_email) {
+        try {
+          const allCustomers = await erpApi.get<any[]>('/customers?limit=1000')
+          detectedCustomer = allCustomers.find((c: any) =>
+            c.contact_person_email === formData.contact_person_email
+          ) || null
+          if (detectedCustomer) setExistingCustomer(detectedCustomer)
+        } catch {}
       }
-    } catch (error: any) {
-      showNotification('error', `CRM save failed: ${error.message}`)
-      return
+
+      const payload = {
+        company_name: formData.company_name,
+        contact_person_name: formData.contact_person_name,
+        contact_person_phone: formData.contact_person_phone,
+        contact_person_email: formData.contact_person_email,
+        company_address: formData.company_address,
+        company_tax_id: formData.company_tax_id,
+        owner_id: formData.owner_id === 'auto_request' ? null : (formData.owner_id || null),
+        is_auto_request: formData.owner_id === 'auto_request',
+        source: formData.source,
+        lead_rating: formData.lead_rating,
+        estimated_value: formData.estimated_value || calcSubtotal(formData.products),
+        probability_percent: formData.probability_percent,
+        expected_close_date: formData.expected_close_date || null,
+        notes: formData.notes,
+        customer_type: formData.customer_type,
+        billing_address: formData.billing_address,
+        shipping_address: formData.shipping_address,
+        tax_percent: formData.tax_percent,
+        products: formData.products.map(p => ({
+          product_id: p.product_id,
+          product_name: p.product_name,
+          product_sku: p.product_sku,
+          quantity: p.quantity,
+          unit_price: p.unit_price,
+          discount_percent: p.discount_percent,
+        })),
+      }
+
+      if (modalRecord?.id && !String(modalRecord.id).startsWith('lead-')) {
+        await erpApi.put(`/crm/leads/${modalRecord.id}`, payload)
+      } else {
+        await erpApi.post('/crm/leads', payload)
+      }
+      await loadAll()
+      setModalOpen(false)
+      setModalRecord(null)
+      setModalError(null)
+      showNotification('success', 'Lead đã được lưu thành công.')
+    } catch (e: any) {
+      setModalError(e.message)
+    } finally {
+      setSavingCustomer(false)
     }
-    setLeads((current) => {
-      const exists = current.some((lead) => lead.id === record.id)
-      return exists ? current.map((lead) => (lead.id === record.id ? record : lead)) : [record, ...current]
-    })
-    setModalOpen(false)
   }
 
   const advanceLead = async (lead: any) => {
-    const nextLeadStatus: Record<string, string> = {
-      new: 'site_survey',
-      contacted: 'site_survey',
-      site_survey: 'proposition',
-      proposition: 'won',
-    }
-    const nextStatus = nextLeadStatus[lead.stage]
-    if (!nextStatus) return
+    const next = nextLeadStage[stageName(lead.stage_id || lead.stage)]
+    if (!next) return
     try {
-      if (!lead.id.startsWith('lead-')) {
-        await erpApi.put(`/crm/leads/${lead.id}`, { stage_id: nextStatus })
+      // When advancing to 'won', auto-create customer
+      if (next === 'won') {
+        try {
+          const payload = {
+            name: lead.company_name,
+            customer_type: lead.customer_type || 'B2C',
+            contact_person_name: lead.contact_person_name,
+            contact_person_email: lead.contact_person_email,
+            contact_person_phone: lead.contact_person_phone,
+            billing_address: lead.company_address || '',
+            shipping_address: lead.company_address || '',
+            company_tax_id: lead.company_tax_id || null,
+            lead_id: lead.id,
+            status: 'active',
+          }
+          await erpApi.post('/customers', payload)
+          showNotification('success', `Khách hàng "${lead.company_name}" đã được tạo tự động từ Lead!`)
+        } catch (e: any) {
+          console.warn('Auto-create customer failed:', e.message)
+        }
       }
-    } catch (error: any) {
-      showNotification('error', `CRM stage update failed: ${error.message}`)
-      return
+      if (!String(lead.id).startsWith('lead-')) {
+        await erpApi.put(`/crm/leads/${lead.id}`, { stage: next })
+      }
+      await loadAll()
+      showNotification('success', `Lead chuyển sang: ${stageLabel(leadStages.find(s => s.value === next))}`)
+    } catch (e: any) {
+      showNotification('error', `Cập nhật trạng thái thất bại: ${e.message}`)
     }
-    setLeads((current) => current.map((item) => (item.id === lead.id ? { ...item, stage: nextStatus } : item)))
   }
 
   const deleteLead = async (lead: any) => {
-    if (!window.confirm(`Delete lead "${lead.name || lead.company}"?`)) return
+    if (!window.confirm(`Xóa lead "${lead.company_name}"?`)) return
     try {
-      await erpApi.delete(`/crm/leads/${lead.id}`)
-    } catch (error: any) {
-      showNotification('error', `CRM delete failed: ${error.message}`)
-      return
+      if (!String(lead.id).startsWith('lead-')) {
+        await erpApi.delete(`/crm/leads/${lead.id}`)
+      }
+      await loadAll()
+      showNotification('success', 'Lead đã được xóa.')
+    } catch (e: any) {
+      showNotification('error', `Xóa thất bại: ${e.message}`)
     }
-    setLeads((current) => current.filter((item) => item.id !== lead.id))
-    showNotification('success', 'Lead deleted.')
+  }
+
+  const convertToQuotation = async (lead: any) => {
+    try {
+      const payload = {
+        lead_id: lead.id,
+        customer_id: lead.customer_id || undefined,
+        issued_date: new Date().toISOString().slice(0, 10),
+        valid_until_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+        status: 'sent',
+        tax_percent: lead.tax_percent || 10,
+        notes: `Quotation từ Lead ${lead.lead_number}`,
+        products: (lead.products || []).map((p: any, i: number) => ({
+          product_id: p.product_id,
+          product_name: p.product_name || p.product?.name,
+          quantity: p.quantity || 1,
+          unit_price: p.unit_price || p.product?.list_price || 0,
+          discount_percent: p.discount_percent || 0,
+          sequence: i + 1,
+        })),
+      }
+      await erpApi.post('/sales-orders/quotations', payload)
+      showNotification('success', 'Quotation đã được tạo từ Lead!')
+    } catch (e: any) {
+      showNotification('error', `Tạo quotation thất bại: ${e.message}`)
+    }
   }
 
   const renderLeadActions = (lead: any) => (
-    <RecordActions
-      onEdit={() => {
-        setModalRecord(lead)
-        setModalOpen(true)
-      }}
-      onDelete={() => deleteLead(lead)}
-      onAdvance={nextLeadStatus[lead.status] ? () => advanceLead(lead) : undefined}
-      advanceLabel="Next Stage"
-    />
+    <div className="flex items-center gap-1">
+      <button onClick={() => { setActivityLeadId(lead.id); setActivityModalOpen(true) }}
+        className="rounded p-1.5 text-blue-600 hover:bg-blue-50" title="Ghi nhận Activity">
+        <PlusCircle size={14} />
+      </button>
+      {stageName(lead.stage_id || lead.stage) !== 'won' && stageName(lead.stage_id || lead.stage) !== 'lost' && (
+        <button onClick={() => convertToQuotation(lead)}
+          className="rounded p-1.5 text-purple-600 hover:bg-purple-50" title="Tạo Quotation">
+          <FileText size={14} />
+        </button>
+      )}
+      <RecordActions
+        onEdit={() => openEdit(lead)}
+        onDelete={() => deleteLead(lead)}
+        onAdvance={nextLeadStage[stageName(lead.stage_id || lead.stage)] ? () => advanceLead(lead) : undefined}
+        advanceLabel="Chuyển tiếp"
+      />
+    </div>
   )
+
+  const ratingColor = (r: string) => {
+    if (r === 'hot') return 'text-red-500'
+    if (r === 'warm') return 'text-orange-500'
+    return 'text-blue-400'
+  }
 
   return (
     <div className="space-y-6">
       <ModuleHeader
         title="CRM"
-        subtitle="Track SmartHome opportunities from new lead to won deal."
-        primaryLabel="New Lead"
+        subtitle="Quản lý Lead: Tiếp cận → Khảo sát → Báo giá → Chốt đơn"
+        primaryLabel="Tạo Lead mới"
         onCreate={openCreate}
       />
 
       {loadError && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Unable to load CRM data from backend: {loadError}
+          Không thể tải dữ liệu CRM: {loadError}
         </div>
       )}
 
@@ -271,54 +995,88 @@ const CRMModule: React.FC = () => {
           <ActionToolbar
             search={search}
             onSearchChange={setSearch}
-            status={status}
-            onStatusChange={setStatus}
-            statuses={Array.from(new Set(leads.map((lead) => lead.status)))}
+            status={stageFilter}
+            onStatusChange={setStageFilter}
+            statuses={leadStages.map(s => s.value)}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
           />
 
           {viewMode === 'list' ? (
             <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
-              <table className="w-full min-w-[900px]">
+              <table className="w-full min-w-[1100px]">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Opportunity</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Company</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Contact</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Stage</th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Expected Revenue</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Mã Lead</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Khách hàng</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Liên hệ</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Giá trị</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Xác suất</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Trạng thái</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Hành động</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {filteredLeads.map((lead) => (
+                  {filteredLeads.map(lead => (
                     <tr key={lead.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-semibold text-gray-900">{lead.name}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{lead.company}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{lead.email}</td>
-                      <td className="px-4 py-3"><StatusBadge status={lead.status} /></td>
-                      <td className="px-4 py-3 text-right text-sm font-semibold">{formatCurrency(lead.estimated_value || lead.value)}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <p className="font-semibold text-blue-700">{lead.lead_number}</p>
+                        <p className="text-xs text-gray-400">{lead.owner?.full_name || '—'}</p>
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <p className="font-semibold text-gray-900">{lead.company_name}</p>
+                        <p className={`text-xs font-semibold ${ratingColor(lead.lead_rating)}`}>
+                          {lead.lead_rating === 'hot' ? '🔥' : lead.lead_rating === 'warm' ? '☀️' : '❄️'} {lead.lead_rating}
+                          {lead.is_auto_request && <span className="ml-1 text-yellow-600">📋</span>}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        <p>{lead.contact_person_name}</p>
+                        <p className="text-xs text-gray-400">{lead.contact_person_email}</p>
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-semibold text-gray-900">
+                        {formatCurrency(lead.estimated_value || 0)}
+                      </td>
+                      <td className="px-4 py-3 text-center text-sm text-gray-700">
+                        {lead.probability_percent || 10}%
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <StatusBadge status={stageName(lead.stage_id || lead.stage)} />
+                      </td>
                       <td className="px-4 py-3">{renderLeadActions(lead)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {filteredLeads.length === 0 && (
+                <div className="p-8 text-center text-sm text-gray-500">
+                  Chưa có lead nào phù hợp
+                </div>
+              )}
             </div>
           ) : (
             <KanbanBoard
               records={filteredLeads}
-              groupBy={(lead) => lead.status}
-              renderCard={(lead) => (
-                <div key={lead.id} className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
-                  <div className="mb-3 flex items-start justify-between gap-3">
+              groupBy={l => stageName(l.stage_id || l.stage) || 'new'}
+              renderCard={lead => (
+                <div className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="mb-2 flex items-start justify-between gap-2">
                     <div>
-                      <p className="font-bold text-gray-900">{lead.name}</p>
-                      <p className="text-sm text-gray-600">{lead.company}</p>
+                      <p className="font-bold text-gray-900">{lead.company_name}</p>
+                      <p className="text-xs text-gray-400">{lead.lead_number}</p>
                     </div>
-                    <StatusBadge status={lead.status} />
+                    <StatusBadge status={stageName(lead.stage_id || lead.stage)} />
                   </div>
-                  <p className="text-sm font-semibold text-blue-700">{formatCurrency(lead.estimated_value || lead.value)}</p>
+                  <p className="text-sm text-gray-600">{lead.contact_person_name} • {lead.contact_person_email}</p>
+                  <div className="mt-2 flex items-center justify-between">
+                    <p className="text-sm font-bold text-blue-700">{formatCurrency(lead.estimated_value || 0)}</p>
+                    <span className={`text-xs font-semibold ${ratingColor(lead.lead_rating)}`}>{lead.probability_percent || 10}%</span>
+                  </div>
+                  {lead.is_auto_request && (
+                    <span className="mt-1 inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-semibold text-yellow-800">
+                      📋 Yêu cầu báo giá
+                    </span>
+                  )}
                   <div className="mt-3">{renderLeadActions(lead)}</div>
                 </div>
               )}
@@ -328,30 +1086,54 @@ const CRMModule: React.FC = () => {
       )}
 
       {activeTab === 'activities' && (
-        <div className="grid gap-4 md:grid-cols-3">
-          {activities.map((activity) => (
-            <div key={activity.id} className="rounded-md border border-gray-200 bg-white p-5 shadow-sm">
-              <div className="mb-3 flex items-center gap-2">
-                <PhoneCall size={18} className="text-blue-600" />
-                <span className="font-semibold text-gray-900">{activity.type}</span>
-              </div>
-              <p className="text-sm text-gray-700">{activity.description}</p>
-              <div className="mt-4 flex items-center gap-2 text-sm text-gray-500">
-                <Calendar size={16} />
-                {activity.date} at {activity.time}
-              </div>
+        <div>
+          {activities.length === 0 ? (
+            <div className="rounded-md border border-dashed border-gray-300 bg-white p-12 text-center">
+              <Activity size={40} className="mx-auto mb-3 text-gray-300" />
+              <p className="text-sm text-gray-500">Chưa có activity nào. Click "Ghi nhận Activity" trên một lead để bắt đầu.</p>
             </div>
-          ))}
+          ) : (
+            <div className="space-y-3">
+              {activities.map(act => (
+                <div key={act.id} className="flex items-start gap-4 rounded-md border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-gray-100">
+                    {activityIcons[act.activity_type] || <Activity size={14} className="text-gray-500" />}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-gray-900">{act.activity_type || 'Activity'}</span>
+                      <span className="text-xs text-gray-400">{act.performed_by?.full_name || '—'}</span>
+                    </div>
+                    <p className="text-sm text-gray-700 mt-0.5">{act.description}</p>
+                    {act.outcome && <p className="text-xs text-green-600 mt-0.5">→ {act.outcome}</p>}
+                    <p className="text-xs text-gray-400 mt-1">
+                      {act.activity_date ? new Date(act.activity_date).toLocaleString('vi-VN') : ''}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      <RecordModal
+      <LeadModal
         isOpen={modalOpen}
-        title={modalRecord?.id && leads.some((lead) => lead.id === modalRecord.id) ? 'Edit Lead' : 'Create Lead'}
         record={modalRecord}
-        fields={leadFieldsWithOptions}
-        onClose={() => setModalOpen(false)}
+        users={users}
+        products={products}
+        existingCustomer={existingCustomer}
+        onClose={() => { setModalOpen(false); setModalRecord(null); setExistingCustomer(null) }}
         onSave={handleSave}
+        errorMessage={modalError}
+      />
+
+      <ActivityModal
+        isOpen={activityModalOpen}
+        leadId={activityLeadId}
+        users={users}
+        onClose={() => { setActivityModalOpen(false); setActivityLeadId('') }}
+        onSaved={loadAll}
       />
     </div>
   )

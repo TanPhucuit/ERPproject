@@ -1,4 +1,4 @@
 ﻿id,warehouse_code,name,description,location_address,city,province,postal_code,manager_id,capacity_sqm,current_occupancy_sqm,status,created_at,updated_at,is_deleted
-1,WH-HCM,SmartHome Ho Chi Minh City Warehouse,Main distribution center for Southern Vietnam,"123 Industrial Zone 7, District 9, Ho Chi Minh City",Ho Chi Minh City,Ho Chi Minh City,70000,1,5000,0,active,2024-07-16 17:54:57,2024-08-17 00:57:00,false
-2,WH-HN,SmartHome Hanoi Warehouse,Distribution center for Northern Vietnam,"456 Industrial Zone 2, Long Bien District, Hanoi",Hanoi,Hanoi,10000,2,3000,0,active,2026-04-10 05:06:23,2025-01-19 08:24:22,false
-3,WH-DN,SmartHome Da Nang Warehouse,Distribution center for Central Vietnam,"789 Hoa Khanh Industrial Zone, Lien Chieu District, Da Nang",Da Nang,Da Nang,55000,3,2000,0,active,2026-02-13 07:54:38,2024-10-15 21:03:44,false
+1,WH-HCM,SmartHome Ho Chi Minh City Warehouse,Main distribution center for Southern Vietnam,"123 Industrial Zone 7, District 9, Ho Chi Minh City",Ho Chi Minh City,Ho Chi Minh City,70000,1,5000,0,active,2024-11-21 22:21:48,2025-10-25 03:47:29,false
+2,WH-HN,SmartHome Hanoi Warehouse,Distribution center for Northern Vietnam,"456 Industrial Zone 2, Long Bien District, Hanoi",Hanoi,Hanoi,10000,2,3000,0,active,2024-04-11 06:18:30,2025-07-25 22:50:19,false
+3,WH-DN,SmartHome Da Nang Warehouse,Distribution center for Central Vietnam,"789 Hoa Khanh Industrial Zone, Lien Chieu District, Da Nang",Da Nang,Da Nang,55000,3,2000,0,active,2024-01-03 06:10:41,2025-06-13 17:19:52,false

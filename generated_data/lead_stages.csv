@@ -1,7 +1,6 @@
-﻿id,name,display_order,color_code,probability_percent
-1,New,1,#3498db,10
-2,Qualified,2,#9b59b6,25
-3,Proposition,3,#f39c12,50
-4,Negotiation,4,#e67e22,75
-5,Won,5,#27ae60,100
-6,Lost,6,#e74c3c,0
+﻿id,name,display_order,probability_percent,color_code
+1,new,1,10,#3498db
+2,site_survey,2,30,#4A90E2
+3,proposition,3,60,#F5A623
+4,won,4,100,#7ED321
+5,lost,5,0,#D0021B

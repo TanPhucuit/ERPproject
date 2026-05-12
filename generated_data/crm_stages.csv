@@ -1,7 +1,0 @@
-﻿id,name,display_order,probability_percent,color_code
-1,New Lead,1,10,#3498db
-2,Site Survey,2,25,#9b59b6
-3,Proposition,3,50,#f39c12
-4,Negotiation,4,75,#e67e22
-5,Won,5,100,#27ae60
-6,Lost,6,0,#e74c3c

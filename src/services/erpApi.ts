@@ -273,29 +273,38 @@ const resolveSupplierId = async (name?: string | null) => {
 }
 
 const resolveWarehouseId = async (name?: string | null) => {
-  const normalized = normalizeText(name)
-  if (!normalized) {
+  const input = normalizeText(name)
+  if (!input) {
     throw new Error('Warehouse is required and must exist in Master Data.')
   }
-  const idMatch = normalized.match(/\((\d+)\)$/)
-  if (idMatch) {
-    return idMatch[1]
+  // If it looks like a UUID, trust it directly (from dropdown value)
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input)) {
+    return input
   }
-  if (normalized) {
-    const byName = await maybeSingleByName('warehouses', normalized, 'id, name, warehouse_code')
-    if (byName?.id) return byName.id as string
-    throw new Error(`Warehouse "${normalized}" does not exist in Master Data.`)
+  // Extract warehouse_code from label like "Kho Ha Noi (WH-HN)"
+  const codeMatch = input.match(/\(([A-Z0-9-]+)\)\s*$/)
+  if (codeMatch) {
+    const { data, error } = await supabase.from('warehouses').select('id').ilike('warehouse_code', codeMatch[1]).limit(1).maybeSingle()
+    if (error) throw error
+    if (data?.id) return data.id as string
+    throw new Error(`Warehouse code "${codeMatch[1]}" not found.`)
   }
-  throw new Error('Warehouse is required and must exist in Master Data.')
+  // Fallback: lookup by name
+  const byName = await maybeSingleByName('warehouses', input, 'id, name, warehouse_code')
+  if (byName?.id) return byName.id as string
+  throw new Error(`Warehouse "${input}" does not exist in Master Data.`)
 }
 
 const resolveCategoryId = async (name?: string | null) => {
-  const normalized = normalizeText(name)
-  if (!normalized) throw new Error('Product category is required and must exist in Master Data.')
-
-  const existing = await maybeSingleByName('product_categories', normalized)
+  const input = normalizeText(name)
+  if (!input) throw new Error('Product category is required and must exist in Master Data.')
+  // If it looks like a UUID, trust it directly (from dropdown value)
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input)) {
+    return input
+  }
+  const existing = await maybeSingleByName('product_categories', input)
   if (existing?.id) return existing.id as string
-  throw new Error(`Product category "${normalized}" does not exist in Master Data.`)
+  throw new Error(`Product category "${input}" does not exist in Master Data.`)
 }
 
 const resolveDefaultUomId = async () => {
@@ -308,6 +317,31 @@ const resolveDefaultUomId = async () => {
 
   if (error) throw error
   if (!data?.id) throw new Error('No units of measure found in database.')
+  return data.id as string
+}
+
+const resolveUomId = async (nameOrCode: string) => {
+  if (!nameOrCode) return null
+  const { data, error } = await supabase
+    .from('units_of_measure')
+    .select('id')
+    .or(`name.ilike.${nameOrCode},code.ilike.${nameOrCode}`)
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  if (!data?.id) throw new Error(`Unit of measure "${nameOrCode}" not found.`)
+  return data.id as string
+}
+
+const resolveUserIdByName = async (fullName: string) => {
+  if (!fullName) return null
+  const input = normalizeText(fullName)
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input)) {
+    return input
+  }
+  const { data, error } = await supabase.from('users').select('id').ilike('full_name', input).limit(1).maybeSingle()
+  if (error) throw error
+  if (!data?.id) throw new Error(`User "${input}" not found.`)
   return data.id as string
 }
 
@@ -469,13 +503,18 @@ const resolveBillId = async (reference?: string | null, supplierName?: string | 
 const normalizeLeadRow = (lead: any) => ({
   ...lead,
   name: lead.contact_person_name,
-  status: lead.stage?.name || 'new',
-  stage: lead.stage?.name || 'new',
+  stage: lead.stage?.name || lead.stage || 'new',
   email: lead.contact_person_email,
   phone: lead.contact_person_phone,
   company: lead.company_name,
   next_follow_up: lead.expected_close_date,
   internal_notes: lead.notes,
+  owner_name: lead.owner?.full_name || lead.owner_name || '',
+  customer_type: lead.customer_type,
+  billing_address: lead.billing_address,
+  shipping_address: lead.shipping_address,
+  tax_percent: lead.tax_percent || 10,
+  is_auto_request: lead.is_auto_request || false,
 })
 
 const normalizeQuotationRow = (quote: any) => ({
@@ -655,81 +694,104 @@ const getAccountingMetrics = async () => {
   }
 }
 
+// Helper: prefers camelCase (form values) over snake_case (DB response values).
+// On CREATE (no id): picks first non-empty value.
+// On EDIT (has id): picks camelCase first; snake_case only if camelCase is absent/missing.
+const norm = (body: Record<string, any>, camel: string, snake: string): any => {
+  const cv = body[camel]
+  const sv = body[snake]
+  // camelCase takes priority when both exist; snake_case is DB fallback
+  if (cv !== undefined && cv !== null && cv !== '') return cv
+  return sv
+}
+
 const normalizeWriteBody = async (pathname: string, body: Record<string, any>) => {
   const currentUserId = await getCurrentUserId()
   const currentId = typeof body.id === 'string' ? body.id : undefined
 
   if (pathname === '/crm/leads' || pathname.startsWith('/crm/leads/')) {
-    if (!isPositiveNumber(body.estimated_value || body.value || 0)) {
-      throw new Error('Estimated value must be greater than 0.')
+    // Auto-detect customer: check by email first
+    const email = body.contact_person_email || body.email || null
+    let customerId: string | null = null
+    if (email) {
+      const { data: existingCustomer } = await supabase
+        .from('customers')
+        .select('id')
+        .ilike('contact_person_email', email)
+        .limit(1)
+        .maybeSingle()
+      if (existingCustomer?.id) {
+        customerId = existingCustomer.id
+      }
     }
-    const stage = await resolveLeadStage(body.stage || body.status)
-    return {
-      lead_number: body.lead_number,
-      company_name: body.company_name || body.company || body.name,
-      contact_person_name: body.contact_person_name || body.contact_name || body.name,
-      contact_person_phone: body.contact_person_phone || body.phone || null,
-      contact_person_email: body.contact_person_email || body.email || null,
-      source: body.source || body.lead_source || null,
+
+    const stage = await resolveLeadStage(norm(body, 'stage', 'status'))
+    const payload: any = {
+      lead_number: norm(body, 'lead_number', 'leadNumber') || `LEAD-${Date.now().toString().slice(-6)}`,
+      company_name: norm(body, 'company_name', 'company') || norm(body, 'company', 'name'),
+      contact_person_name: norm(body, 'contact_person_name', 'contact_name') || norm(body, 'contact_name', 'name'),
+      contact_person_phone: norm(body, 'contact_person_phone', 'phone') || null,
+      contact_person_email: email,
+      company_address: norm(body, 'company_address', 'address') || null,
+      company_tax_id: norm(body, 'company_tax_id', 'tax_id') || null,
+      source: norm(body, 'source', 'lead_source') || null,
       stage_id: stage.id,
-      estimated_value: Number(body.estimated_value || body.value || 0),
-      probability_percent: body.probability_percent ?? stage.probability_percent ?? 50,
-      expected_close_date: body.expected_close_date || body.next_follow_up || null,
-      notes: body.notes || body.internal_notes || null,
-      owner_id: body.owner_id || currentUserId,
+      estimated_value: Number(norm(body, 'estimated_value', 'total_amount') || norm(body, 'total_amount', 'value') || 0),
+      probability_percent: norm(body, 'probability_percent', 'probabilityPercent') ?? stage.probability_percent ?? 50,
+      expected_close_date: norm(body, 'expected_close_date', 'next_follow_up') || null,
+      notes: norm(body, 'notes', 'internal_notes') || null,
+      owner_id: norm(body, 'owner_id', 'ownerId') || currentUserId,
+      customer_type: norm(body, 'customer_type', 'customerType') || null,
+      billing_address: norm(body, 'billing_address', 'company_address') || null,
+      shipping_address: norm(body, 'shipping_address', 'company_address') || null,
+      tax_percent: Number(norm(body, 'tax_percent', 'taxPercent') || 10),
+      is_auto_request: body.is_auto_request === true || body.owner_id === null || body.owner_id === 'auto_request',
+      customer_id: customerId,
     }
+    return payload
   }
 
   if (pathname === '/sales-orders/quotations' || pathname.startsWith('/sales-orders/quotations/')) {
-    if (!isPositiveNumber(body.total_amount || body.total || 0)) {
-      throw new Error('Quotation amount must be greater than 0.')
-    }
-    ensureDateOrder(
-      body.issued_date || body.quote_date || body.date,
-      body.valid_until_date || body.valid_until || body.expiryDate,
-      'Quotation expiry date must be on or after quote date.'
-    )
-    
-    // Business Rule: High discount (>15%) requires Sales Manager approval notification
-    const discountPercent = body.discount_percent || body.discount || 0
-    if (discountPercent > 15) {
-      console.warn(`[Business Rule] Quotation has high discount (${discountPercent}%). Sales Manager approval required.`)
-    }
-    
-    // Business Rule: SmartHome products should be validated
-    const productCount = body.products?.length || 0
+    // Business Rule: Quotation must have product lines
+    const productCount = body.lines?.length || body.products?.length || 0
     if (productCount === 0) {
       throw new Error('Quotation must have at least one product.')
     }
-    
-    const customerId = body.customer_id || (await resolveCustomerId(body.customerName))
+
+    const leadId = norm(body, 'lead_id', 'leadId') || null
+    const customerId = norm(body, 'customer_id', 'customerId')
+      || (norm(body, 'customerName', 'customer_name') ? await resolveCustomerId(norm(body, 'customerName', 'customer_name')) : null)
+    if (!customerId && !leadId) {
+      throw new Error('Quotation must be linked to a lead or a customer.')
+    }
+
     return {
-      quotation_number: body.quotation_number || body.quoteNumber,
+      quotation_number: norm(body, 'quotation_number', 'quoteNumber'),
       customer_id: customerId,
-      lead_id: body.lead_id || null,
-      issued_date: body.issued_date || body.quote_date || body.date || new Date().toISOString().slice(0, 10),
-      valid_until_date: body.valid_until_date || body.valid_until || body.expiryDate || normalizeDate(undefined, 14),
-      status: quotationStatusToDb[body.status] || body.status || 'draft',
-      total_amount: Number(body.total_amount || body.total || 0),
-      discount_percent: discountPercent,
-      notes: body.notes || body.description || null,
-      internal_notes: body.internal_notes || (discountPercent > 15 ? 'High discount - requires Sales Manager approval' : null),
-      created_by_id: body.created_by_id || currentUserId,
+      lead_id: leadId,
+      issued_date: norm(body, 'issued_date', 'quote_date') || norm(body, 'quote_date', 'date') || new Date().toISOString().slice(0, 10),
+      valid_until_date: norm(body, 'valid_until_date', 'valid_until') || norm(body, 'valid_until', 'expiryDate') || normalizeDate(undefined, 30),
+      status: quotationStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
+      // tax_percent is the only editable financial field; totals are GENERATED ALWAYS AS STORED in DB
+      tax_percent: Number(norm(body, 'tax_percent', 'taxPercent') || 10),
+      notes: norm(body, 'notes', 'description') || null,
+      internal_notes: norm(body, 'internal_notes', 'notes') || null,
+      approved_by_id: null,
+      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
     }
   }
 
   if (pathname === '/sales-orders' || pathname.startsWith('/sales-orders/')) {
-    if (!isPositiveNumber(body.total_amount || body.total || 0)) {
+    if (!isPositiveNumber(norm(body, 'total_amount', 'total') || 0)) {
       throw new Error('Sales order total must be greater than 0.')
     }
     ensureDateOrder(
-      body.order_date || body.date,
-      body.required_delivery_date || body.dueDate || body.deliveryDate,
+      norm(body, 'order_date', 'date'),
+      norm(body, 'required_delivery_date', 'dueDate') || norm(body, 'dueDate', 'deliveryDate'),
       'Delivery date must be on or after order date.'
     )
-    
-    // Business Rule: Check customer outstanding debt for B2B customers
-    const customerId = body.customer_id || (await resolveCustomerId(body.customerName))
+
+    const customerId = norm(body, 'customer_id', 'customerId') || (norm(body, 'customerName', 'customer_name') ? await resolveCustomerId(norm(body, 'customerName', 'customer_name')) : null)
     const { data: customerData } = await supabase.from('customers').select('customer_type, credit_used, credit_limit').eq('id', customerId).single()
     if (customerData && customerData.customer_type === 'B2B') {
       const outstandingDebt = customerData.credit_used || 0
@@ -758,7 +820,7 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       }
       
       // Check if ordered products have stock
-      const orderProducts = body.products || []
+      const orderProducts = body.lines || body.products || []
       for (const product of orderProducts) {
         const availableStock = stockByProduct[product.product_id] || 0
         if (availableStock < (product.quantity_ordered || product.quantity || 0)) {
@@ -768,402 +830,388 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
     }
     
     return {
-      sales_order_number: body.sales_order_number || body.orderNumber,
-      quotation_id: body.quotation_id || null,
+      sales_order_number: norm(body, 'sales_order_number', 'orderNumber'),
+      quotation_id: norm(body, 'quotation_id', 'quotationId') || null,
       customer_id: customerId,
-      order_date: body.order_date || body.date || new Date().toISOString().slice(0, 10),
+      order_date: norm(body, 'order_date', 'date') || new Date().toISOString().slice(0, 10),
       required_delivery_date:
-        body.required_delivery_date || body.dueDate || body.deliveryDate || normalizeDate(undefined, 7),
-      status: salesStatusToDb[body.status] || body.status || 'draft',
-      total_amount: Number(body.total_amount || body.total || 0),
-      notes: body.notes || null,
-      internal_notes: body.internal_notes || null,
-      sales_person_id: body.sales_person_id || currentUserId,
+        norm(body, 'required_delivery_date', 'dueDate') || norm(body, 'dueDate', 'deliveryDate') || normalizeDate(undefined, 7),
+      status: salesStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
+      // Financial totals (subtotal, total, profit) are GENERATED ALWAYS AS STORED in DB
+      // Only tax_percent is editable
+      tax_percent: Number(norm(body, 'tax_percent', 'taxPercent') || 10),
+      payment_terms: norm(body, 'payment_terms', 'paymentTerms') || 'NET30',
+      notes: norm(body, 'notes', 'description') || null,
+      internal_notes: norm(body, 'internal_notes', 'notes') || null,
+      sales_person_id: norm(body, 'sales_person_id', 'salesPersonId') || currentUserId,
     }
   }
 
   if (pathname === '/purchase/rfqs' || pathname.startsWith('/purchase/rfqs/')) {
-    if (!normalizeText(body.description || body.productName)) {
-      throw new Error('RFQ product or requirement is required.')
+    const rfqLineCount = body.lines?.length || body.products?.length || 0
+    if (rfqLineCount === 0 && !normalizeText(norm(body, 'notes', 'description') || norm(body, 'productName', 'product_name'))) {
+      throw new Error('RFQ must have at least one line or a clear requirement description.')
     }
-    if (!normalizeText(body.supplierName)) {
-      throw new Error('Supplier is required and must exist in Master Data.')
+    if (normalizeText(norm(body, 'supplierName', 'supplier_name'))) {
+      await resolveSupplierId(norm(body, 'supplierName', 'supplier_name'))
     }
-    await resolveSupplierId(body.supplierName)
     ensureDateOrder(
-      body.issued_date || body.date,
-      body.closing_date || body.due_date || body.dueDate,
+      norm(body, 'issued_date', 'date'),
+      norm(body, 'closing_date', 'due_date') || norm(body, 'due_date', 'dueDate'),
       'RFQ deadline must be on or after issued date.'
     )
-    
-    // Business Rule: RFQ must be sent to at least 3 suppliers for comparison (SmartHome procurement)
-    const supplierCount = body.supplier_ids?.length || 1
-    if (supplierCount < 3 && !body.supplierName.includes('Multiple')) {
+
+    // Business Rule: RFQ should be sent to at least 3 suppliers for comparison
+    const supplierCount = norm(body, 'supplier_ids', 'supplierIds')?.length || 1
+    const supplierName = norm(body, 'supplierName', 'supplier_name')
+    if (supplierCount < 3 && supplierName && !String(supplierName).includes('Multiple')) {
       console.warn(`[Business Rule] SmartHome best practice: Send RFQ to at least 3 suppliers for competitive pricing.`)
     }
-    
+
     return {
-      rfq_number: body.rfq_number || body.rfqNumber,
-      issued_date: body.issued_date || body.date || new Date().toISOString().slice(0, 10),
-      closing_date: body.closing_date || body.due_date || body.dueDate || normalizeDate(undefined, 7),
-      status: rfqStatusToDb[body.status] || body.status || 'draft',
-      total_estimated_cost: Number(body.total_estimated_cost || body.estimated_total || body.targetPrice || 0),
-      notes: body.notes || body.description || body.productName || null,
-      created_by_id: body.created_by_id || currentUserId,
+      rfq_number: norm(body, 'rfq_number', 'rfqNumber'),
+      issued_date: norm(body, 'issued_date', 'date') || new Date().toISOString().slice(0, 10),
+      closing_date: norm(body, 'closing_date', 'due_date') || norm(body, 'due_date', 'dueDate') || normalizeDate(undefined, 7),
+      status: rfqStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
+      total_estimated_cost: Number(norm(body, 'total_estimated_cost', 'estimated_total') || norm(body, 'estimated_total', 'targetPrice') || 0),
+      notes: norm(body, 'notes', 'description') || norm(body, 'productName', 'product_name') || null,
+      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
     }
   }
 
   if (pathname === '/purchase/purchase-orders' || pathname.startsWith('/purchase/purchase-orders/')) {
-    if (!isPositiveNumber(body.total_amount || body.total || 0)) {
+    if (!isPositiveNumber(norm(body, 'total_amount', 'total') || 0)) {
       throw new Error('Purchase order total must be greater than 0.')
     }
     ensureDateOrder(
-      body.order_date || body.date,
-      body.required_delivery_date || body.expected_delivery_date || body.dueDate,
+      norm(body, 'order_date', 'date'),
+      norm(body, 'required_delivery_date', 'expected_delivery_date') || norm(body, 'expected_delivery_date', 'dueDate'),
       'Expected delivery date must be on or after PO date.'
     )
-    
+
     // Business Rule: PO should be linked to an RFQ for traceability
-    if (!body.rfq_id && !body.rfq_number) {
+    if (!norm(body, 'rfq_id', 'rfqId') && !norm(body, 'rfq_number', 'rfqNumber')) {
       console.warn(`[Business Rule] Purchase Order is not linked to an RFQ. Consider creating RFQ first for better procurement tracking.`)
     }
-    
-    // Business Rule: Check supplier lead time against product reorder levels
-    const supplierId = body.supplier_id || (await resolveSupplierId(body.supplierName))
+
+    const supplierId = norm(body, 'supplier_id', 'supplierId') || (norm(body, 'supplierName', 'supplier_name') ? await resolveSupplierId(norm(body, 'supplierName', 'supplier_name')) : null)
     const { data: supplierData } = await supabase.from('suppliers').select('average_lead_time_days, quality_rating').eq('id', supplierId).single()
     if (supplierData) {
       const avgLeadTime = supplierData.average_lead_time_days || 7
       if (avgLeadTime > 14) {
         console.warn(`[Business Rule] Supplier has long average lead time (${avgLeadTime} days). Plan inventory accordingly.`)
       }
-      if (supplierData.quality_rating && supplierData.quality_rating < 3) {
-        throw new Error(`[Business Rule] Supplier quality rating is low (${supplierData.quality_rating}/5). Consider alternative suppliers.`)
-      }
     }
-    
+
     return {
-      purchase_order_number: body.purchase_order_number || body.poNumber,
+      purchase_order_number: norm(body, 'purchase_order_number', 'poNumber'),
       supplier_id: supplierId,
-      rfq_id: body.rfq_id || null,
-      order_date: body.order_date || body.date || new Date().toISOString().slice(0, 10),
+      rfq_id: norm(body, 'rfq_id', 'rfqId') || null,
+      order_date: norm(body, 'order_date', 'date') || new Date().toISOString().slice(0, 10),
       required_delivery_date:
-        body.required_delivery_date || body.expected_delivery_date || body.dueDate || normalizeDate(undefined, 7),
-      status: purchaseStatusToDb[body.status] || body.status || 'draft',
-      total_amount: Number(body.total_amount || body.total || 0),
-      notes: body.notes || null,
-      internal_notes: body.internal_notes || null,
-      created_by_id: body.created_by_id || currentUserId,
+        norm(body, 'required_delivery_date', 'expected_delivery_date') || norm(body, 'expected_delivery_date', 'dueDate') || normalizeDate(undefined, 7),
+      status: purchaseStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
+      total_amount: Number(norm(body, 'total_amount', 'total') || 0),
+      notes: norm(body, 'notes', 'description') || null,
+      internal_notes: norm(body, 'internal_notes', 'notes') || null,
+      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
     }
   }
 
   if (pathname === '/inventory/delivery-orders' || pathname.startsWith('/inventory/delivery-orders/')) {
-    const warehouseId = body.warehouse_id || (await resolveWarehouseId(body.warehouseName))
-    await resolveCustomerId(body.partnerName)
+    const warehouseId = norm(body, 'warehouse_id', 'warehouseId') || (norm(body, 'warehouseName', 'warehouse_name') ? await resolveWarehouseId(norm(body, 'warehouseName', 'warehouse_name')) : null)
+    await resolveCustomerId(norm(body, 'partnerName', 'partner_name'))
     return {
-      delivery_order_number: body.delivery_order_number || body.reference,
-      sales_order_id: body.sales_order_id || (await resolveSalesOrderId(body.reference, body.partnerName)),
+      delivery_order_number: norm(body, 'delivery_order_number', 'reference'),
+      sales_order_id: norm(body, 'sales_order_id', 'salesOrderId') || (norm(body, 'reference', 'reference') ? await resolveSalesOrderId(norm(body, 'reference', 'reference'), norm(body, 'partnerName', 'partner_name')) : null),
       warehouse_id: warehouseId,
-      status: deliveryStatusToDb[body.status] || body.status || 'draft',
-      scheduled_delivery_date: body.scheduled_delivery_date || body.scheduledDate || null,
-      notes: body.notes || null,
+      status: deliveryStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
+      scheduled_delivery_date: norm(body, 'scheduled_delivery_date', 'scheduledDate') || null,
+      notes: norm(body, 'notes', 'description') || null,
     }
   }
 
   if (pathname === '/inventory/goods-receipts' || pathname.startsWith('/inventory/goods-receipts/')) {
-    // Business Rule: SmartHome IoT devices require Serial/MAC address scanning
-    const purchaseOrderId = body.purchase_order_id || (await resolvePurchaseOrderId(body.reference, body.partnerName))
+    const purchaseOrderId = norm(body, 'purchase_order_id', 'purchaseOrderId') || (norm(body, 'reference', 'reference') ? await resolvePurchaseOrderId(norm(body, 'reference', 'reference'), norm(body, 'partnerName', 'partner_name')) : null)
     console.info(`[Business Rule] Goods Receipt for PO. All IoT devices (Camera, Robot, Smart Lock) must have Serial/MAC scanned for warranty tracking.`)
-    
-    const warehouseId = body.warehouse_id || (await resolveWarehouseId(body.warehouseName))
-    await resolveSupplierId(body.partnerName)
+
+    const warehouseId = norm(body, 'warehouse_id', 'warehouseId') || (norm(body, 'warehouseName', 'warehouse_name') ? await resolveWarehouseId(norm(body, 'warehouseName', 'warehouse_name')) : null)
+    await resolveSupplierId(norm(body, 'partnerName', 'partner_name'))
     return {
-      goods_receipt_number: body.goods_receipt_number || body.reference,
+      goods_receipt_number: norm(body, 'goods_receipt_number', 'reference'),
       purchase_order_id: purchaseOrderId,
       warehouse_id: warehouseId,
-      status: receiptStatusToDb[body.status] || body.status || 'draft',
-      received_date: body.received_date || body.scheduledDate || new Date().toISOString().slice(0, 10),
-      notes: body.notes || null,
+      status: receiptStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
+      received_date: norm(body, 'received_date', 'scheduledDate') || new Date().toISOString().slice(0, 10),
+      notes: norm(body, 'notes', 'description') || null,
     }
   }
 
   if (pathname === '/inventory/adjustments' || pathname.startsWith('/inventory/adjustments/')) {
-    const warehouseId = body.warehouse_id || (await resolveWarehouseId(body.warehouseName))
-    await ensureBinExists(warehouseId, body.binCode || body.reason)
-    
-    // Business Rule: Stock count must cover all 30 bin locations (SmartHome warehouse)
+    const warehouseId = norm(body, 'warehouse_id', 'warehouseId') || (norm(body, 'warehouseName', 'warehouse_name') ? await resolveWarehouseId(norm(body, 'warehouseName', 'warehouse_name')) : null)
+    await ensureBinExists(warehouseId, norm(body, 'binCode', 'bin_code') || norm(body, 'reason', 'reason'))
+
+    // Business Rule: Stock count must cover all bin locations
     const { count: binCount } = await supabase.from('bin_locations').select('*', { count: 'exact', head: true }).eq('warehouse_id', warehouseId)
     if (binCount) {
       console.info(`[Business Rule] Warehouse has ${binCount} bin locations. Ensure all bins are counted for accurate inventory.`)
     }
-    
+
     return {
-      adjustment_number: body.adjustment_number || body.reference,
+      adjustment_number: norm(body, 'adjustment_number', 'reference'),
       warehouse_id: warehouseId,
-      adjustment_type: body.adjustment_type || 'stock_count',
-      count_date: body.count_date || body.countDate || new Date().toISOString().slice(0, 10),
-      status: adjustmentStatusToDb[body.status] || body.status || 'draft',
-      reason: body.reason || body.binCode || null,
-      notes: body.notes || null,
-      created_by_id: body.created_by_id || currentUserId,
+      adjustment_type: norm(body, 'adjustment_type', 'adjustmentType') || 'stock_count',
+      count_date: norm(body, 'count_date', 'countDate') || new Date().toISOString().slice(0, 10),
+      status: adjustmentStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
+      reason: norm(body, 'reason', 'binCode') || null,
+      notes: norm(body, 'notes', 'description') || null,
+      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
     }
   }
 
   if (pathname === '/accounting/invoices' || pathname.startsWith('/accounting/invoices/')) {
-    if (!isPositiveNumber(body.total_amount || 0)) {
+    if (!isPositiveNumber(norm(body, 'total_amount', 'total') || 0)) {
       throw new Error('Invoice total must be greater than 0.')
     }
-    ensureDateOrder(body.invoice_date, body.due_date || body.dueDate, 'Invoice due date must be on or after invoice date.')
-    
-    // Business Rule: Invoice created only when Sales Order is delivered successfully
-    const salesOrderId = body.sales_order_id || (await resolveSalesOrderId(body.sales_order_number, body.customerName))
+    ensureDateOrder(norm(body, 'invoice_date', 'invoiceDate'), norm(body, 'due_date', 'dueDate'), 'Invoice due date must be on or after invoice date.')
+
+    const salesOrderId = norm(body, 'sales_order_id', 'salesOrderId') || (norm(body, 'sales_order_number', 'salesOrderNumber') ? await resolveSalesOrderId(norm(body, 'sales_order_number', 'salesOrderNumber'), norm(body, 'customerName', 'customer_name')) : null)
     if (salesOrderId) {
       const { data: soData } = await supabase.from('sales_orders').select('status').eq('id', salesOrderId).single()
       if (soData && !['delivered', 'completed', 'shipped'].includes(soData.status)) {
         throw new Error(`[Business Rule] Cannot create invoice. Sales Order must be delivered first. Current status: ${soData.status}`)
       }
     }
-    
-    const customerId = body.customer_id || (await resolveCustomerId(body.customerName))
+
+    const customerId = norm(body, 'customer_id', 'customerId') || (norm(body, 'customerName', 'customer_name') ? await resolveCustomerId(norm(body, 'customerName', 'customer_name')) : null)
     return {
-      invoice_number: body.invoice_number,
+      invoice_number: norm(body, 'invoice_number', 'invoiceNumber'),
       sales_order_id: salesOrderId,
       customer_id: customerId,
-      invoice_date: body.invoice_date || new Date().toISOString().slice(0, 10),
-      due_date: body.due_date || body.dueDate || normalizeDate(undefined, 30),
-      status: invoiceStatusToDb[body.status] || body.status || 'draft',
-      total_amount: Number(body.total_amount || 0),
-      payment_terms: body.payment_terms || null,
-      description: body.description || null,
-      notes: body.notes || null,
-      created_by_id: body.created_by_id || currentUserId,
-      issued_by_id: body.issued_by_id || currentUserId,
+      invoice_date: norm(body, 'invoice_date', 'invoiceDate') || new Date().toISOString().slice(0, 10),
+      due_date: norm(body, 'due_date', 'dueDate') || normalizeDate(undefined, 30),
+      status: invoiceStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
+      total_amount: Number(norm(body, 'total_amount', 'total') || 0),
+      payment_terms: norm(body, 'payment_terms', 'paymentTerms') || null,
+      description: norm(body, 'description', 'notes') || null,
+      notes: norm(body, 'notes', 'description') || null,
+      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
+      issued_by_id: norm(body, 'issued_by_id', 'issuedById') || currentUserId,
     }
   }
 
   if (pathname === '/accounting/bills' || pathname.startsWith('/accounting/bills/')) {
-    if (!isPositiveNumber(body.total_amount || body.total || 0)) {
+    if (!isPositiveNumber(norm(body, 'total_amount', 'total') || 0)) {
       throw new Error('Vendor bill total must be greater than 0.')
     }
     ensureDateOrder(
-      body.bill_date || body.billDate,
-      body.due_date || body.dueDate,
+      norm(body, 'bill_date', 'billDate'),
+      norm(body, 'due_date', 'dueDate'),
       'Bill due date must be on or after bill date.'
     )
-    
-    // Business Rule: Vendor Bill created only when Goods Receipt is completed
-    const purchaseOrderId = body.purchase_order_id || (await resolvePurchaseOrderId(body.purchase_order_number, body.supplierName))
-    if (purchaseOrderId) {
+
+    const poId = norm(body, 'purchase_order_id', 'purchaseOrderId') || (norm(body, 'purchase_order_number', 'purchaseOrderNumber') ? await resolvePurchaseOrderId(norm(body, 'purchase_order_number', 'purchaseOrderNumber'), norm(body, 'supplierName', 'supplier_name')) : null)
+    if (poId) {
       const { data: grData } = await supabase.from('goods_receipts')
         .select('status')
-        .eq('purchase_order_id', purchaseOrderId)
+        .eq('purchase_order_id', poId)
         .in('status', ['received', 'verified', 'completed'])
         .limit(1)
       if (!grData || grData.length === 0) {
         throw new Error(`[Business Rule] Cannot create Vendor Bill. Must have at least one completed Goods Receipt for this PO.`)
       }
     }
-    
-    const supplierId = body.supplier_id || (await resolveSupplierId(body.supplierName))
+
+    const supplierId = norm(body, 'supplier_id', 'supplierId') || (norm(body, 'supplierName', 'supplier_name') ? await resolveSupplierId(norm(body, 'supplierName', 'supplier_name')) : null)
     return {
-      bill_number: body.bill_number || body.billNumber,
-      purchase_order_id: body.purchase_order_id || (await resolvePurchaseOrderId(body.purchase_order_number, body.supplierName)),
+      bill_number: norm(body, 'bill_number', 'billNumber'),
+      purchase_order_id: poId,
       supplier_id: supplierId,
-      bill_date: body.bill_date || body.billDate || new Date().toISOString().slice(0, 10),
-      due_date: body.due_date || body.dueDate || normalizeDate(undefined, 30),
-      status: billStatusToDb[body.status] || body.status || 'draft',
-      total_amount: Number(body.total_amount || body.total || 0),
-      payment_terms: body.payment_terms || null,
-      notes: body.notes || null,
-      created_by_id: body.created_by_id || currentUserId,
-      received_by_id: body.received_by_id || currentUserId,
+      bill_date: norm(body, 'bill_date', 'billDate') || new Date().toISOString().slice(0, 10),
+      due_date: norm(body, 'due_date', 'dueDate') || normalizeDate(undefined, 30),
+      status: billStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
+      total_amount: Number(norm(body, 'total_amount', 'total') || 0),
+      payment_terms: norm(body, 'payment_terms', 'paymentTerms') || null,
+      notes: norm(body, 'notes', 'description') || null,
+      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
+      received_by_id: norm(body, 'received_by_id', 'receivedById') || currentUserId,
     }
   }
 
   if (pathname === '/accounting/credit-notes' || pathname.startsWith('/accounting/credit-notes/')) {
-    if (!isPositiveNumber(body.total_amount || body.total || 0)) {
+    if (!isPositiveNumber(norm(body, 'total_amount', 'total') || 0)) {
       throw new Error('Credit note amount must be greater than 0.')
     }
-    const customerId = body.customer_id || (await resolveCustomerId(body.partnerName))
+    const customerId = norm(body, 'customer_id', 'customerId') || (norm(body, 'partnerName', 'partner_name') ? await resolveCustomerId(norm(body, 'partnerName', 'partner_name')) : null)
     return {
-      credit_note_number: body.credit_note_number || body.noteNumber,
-      invoice_id: body.invoice_id || (await resolveInvoiceId(body.invoice_number, body.partnerName)),
+      credit_note_number: norm(body, 'credit_note_number', 'noteNumber'),
+      invoice_id: norm(body, 'invoice_id', 'invoiceId') || (norm(body, 'invoice_number', 'invoiceNumber') ? await resolveInvoiceId(norm(body, 'invoice_number', 'invoiceNumber'), norm(body, 'partnerName', 'partner_name')) : null),
       customer_id: customerId,
-      reason: body.reason || null,
-      credit_date: body.credit_date || body.noteDate || new Date().toISOString().slice(0, 10),
-      status: noteStatusToDb[body.status] || body.status || 'draft',
-      total_amount: Number(body.total_amount || body.total || 0),
-      description: body.description || null,
-      notes: body.notes || null,
-      created_by_id: body.created_by_id || currentUserId,
+      reason: norm(body, 'reason', 'reason') || null,
+      credit_date: norm(body, 'credit_date', 'noteDate') || new Date().toISOString().slice(0, 10),
+      status: noteStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
+      total_amount: Number(norm(body, 'total_amount', 'total') || 0),
+      description: norm(body, 'description', 'notes') || null,
+      notes: norm(body, 'notes', 'description') || null,
+      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
     }
   }
 
   if (pathname === '/accounting/debit-notes' || pathname.startsWith('/accounting/debit-notes/')) {
-    if (!isPositiveNumber(body.total_amount || body.total || 0)) {
+    if (!isPositiveNumber(norm(body, 'total_amount', 'total') || 0)) {
       throw new Error('Debit note amount must be greater than 0.')
     }
-    const supplierId = body.supplier_id || (await resolveSupplierId(body.partnerName))
+    const supplierId = norm(body, 'supplier_id', 'supplierId') || (norm(body, 'partnerName', 'partner_name') ? await resolveSupplierId(norm(body, 'partnerName', 'partner_name')) : null)
     return {
-      debit_note_number: body.debit_note_number || body.noteNumber,
-      bill_id: body.bill_id || (await resolveBillId(body.bill_number, body.partnerName)),
+      debit_note_number: norm(body, 'debit_note_number', 'noteNumber'),
+      bill_id: norm(body, 'bill_id', 'billId') || (norm(body, 'bill_number', 'billNumber') ? await resolveBillId(norm(body, 'bill_number', 'billNumber'), norm(body, 'partnerName', 'partner_name')) : null),
       supplier_id: supplierId,
-      reason: body.reason || null,
-      debit_date: body.debit_date || body.noteDate || new Date().toISOString().slice(0, 10),
-      status: noteStatusToDb[body.status] || body.status || 'draft',
-      total_amount: Number(body.total_amount || body.total || 0),
-      description: body.description || null,
-      notes: body.notes || null,
-      created_by_id: body.created_by_id || currentUserId,
+      reason: norm(body, 'reason', 'reason') || null,
+      debit_date: norm(body, 'debit_date', 'noteDate') || new Date().toISOString().slice(0, 10),
+      status: noteStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
+      total_amount: Number(norm(body, 'total_amount', 'total') || 0),
+      description: norm(body, 'description', 'notes') || null,
+      notes: norm(body, 'notes', 'description') || null,
+      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
     }
   }
 
   if (pathname === '/users' || pathname.startsWith('/users/')) {
-    await ensureUniqueValue('users', 'email', body.email, currentId)
-    if (!normalizeText(body.fullName ?? body.full_name)) throw new Error('Full name is required.')
+    await ensureUniqueValue('users', 'email', norm(body, 'email', 'email'), currentId)
+    if (!normalizeText(norm(body, 'fullName', 'full_name'))) throw new Error('Full name is required.')
     const result: any = {
-      email: body.email,
-      full_name: body.fullName ?? body.full_name,
-      phone: body.phone ?? null,
-      role: body.role ?? 'user',
-      status: body.status ?? 'active',
+      email: norm(body, 'email', 'email'),
+      full_name: norm(body, 'fullName', 'full_name'),
+      phone: norm(body, 'phone', 'phone') ?? null,
+      role: norm(body, 'role', 'role') ?? 'user',
+      status: norm(body, 'status', 'status') ?? 'active',
     }
-    // Only include password if provided and not empty
-    if (body.password || !currentId) {
-      result.password_hash = body.password || body.password_hash || '123456'
+    if (norm(body, 'password', 'password') || !currentId) {
+      result.password_hash = norm(body, 'password', 'password') || norm(body, 'password_hash', 'passwordHash') || '123456'
     }
     return result
   }
 
   if (pathname === '/product-categories' || pathname.startsWith('/product-categories/')) {
-    await ensureUniqueValue('product_categories', 'name', body.name, currentId)
+    await ensureUniqueValue('product_categories', 'name', norm(body, 'name', 'name'), currentId)
     return {
-      name: body.name,
-      description: body.description || null,
-      display_order: Number(body.display_order ?? body.displayOrder ?? 0),
+      name: norm(body, 'name', 'name'),
+      description: norm(body, 'description', 'description') || null,
+      display_order: Number(norm(body, 'display_order', 'displayOrder') ?? 0),
     }
   }
 
   if (pathname === '/products' || pathname.startsWith('/products/')) {
-    await ensureUniqueValue('products', 'sku', body.sku, currentId)
-    if (!isPositiveNumber(body.list_price ?? body.listPrice ?? 0)) {
+    await ensureUniqueValue('products', 'sku', norm(body, 'sku', 'sku'), currentId)
+    if (!isPositiveNumber(norm(body, 'list_price', 'listPrice') ?? 0)) {
       throw new Error('List price must be greater than 0.')
     }
-    if (!isNonNegativeNumber(body.cost_price ?? body.costPrice ?? 0)) {
+    const listPrice = Number(norm(body, 'list_price', 'listPrice') ?? 0)
+    const costPrice = Number(norm(body, 'cost_price', 'costPrice') ?? 0)
+    if (costPrice < 0) {
       throw new Error('Cost price cannot be negative.')
     }
-    if (Number(body.cost_price ?? body.costPrice ?? 0) > Number(body.list_price ?? body.listPrice ?? 0)) {
+    if (costPrice > listPrice) {
       throw new Error('Cost price cannot be greater than list price.')
     }
-    const categoryId = body.category_id || (await resolveCategoryId(body.categoryName || body.category_name))
-    const uomId = body.uom_id || (await resolveDefaultUomId())
+    const categoryId = norm(body, 'category_id', 'categoryId') || (norm(body, 'categoryName', 'category_name') ? await resolveCategoryId(norm(body, 'categoryName', 'category_name')) : null)
+    const uomId = norm(body, 'uom_id', 'uomId') || (norm(body, 'uomName', 'uom_name') ? await resolveUomId(norm(body, 'uomName', 'uom_name')) : null) || (await resolveDefaultUomId())
     return {
-      sku: body.sku,
-      name: body.name,
-      description: body.description || null,
+      sku: norm(body, 'sku', 'sku'),
+      name: norm(body, 'name', 'name'),
+      description: norm(body, 'description', 'description') || null,
       category_id: categoryId,
       uom_id: uomId,
-      list_price: Number(body.list_price ?? body.listPrice ?? 0),
-      cost_price: Number(body.cost_price ?? body.costPrice ?? 0),
-      reorder_level: Number(body.reorder_level ?? body.reorderLevel ?? 10),
-      reorder_quantity: Number(body.reorder_quantity ?? body.reorderQuantity ?? 50),
-      supplier_lead_time_days: Number(body.supplier_lead_time_days ?? body.supplierLeadTimeDays ?? 7),
-      status: body.status || 'active',
-      barcode: body.barcode || null,
-      image_url: body.image_url || null,
+      list_price: listPrice,
+      cost_price: costPrice,
+      physical_size_sqm: Number(norm(body, 'physical_size_sqm', 'physicalSizeSqm') ?? 1.0),
+      is_iot_device: norm(body, 'is_iot_device', 'isIotDevice') === true || String(norm(body, 'is_iot_device', 'isIotDevice') ?? '') === 'true',
+      requires_serial_scan: norm(body, 'requires_serial_scan', 'requiresSerialScan') === true || String(norm(body, 'requires_serial_scan', 'requiresSerialScan') ?? '') === 'true',
+      reorder_level: Number(norm(body, 'reorder_level', 'reorderLevel') ?? 10),
+      reorder_quantity: Number(norm(body, 'reorder_quantity', 'reorderQuantity') ?? 50),
+      supplier_lead_time_days: Number(norm(body, 'supplier_lead_time_days', 'supplierLeadTimeDays') ?? 7),
+      status: norm(body, 'status', 'status') || 'active',
+      barcode: norm(body, 'barcode', 'barcode') || null,
+      image_url: norm(body, 'image_url', 'imageUrl') || null,
     }
   }
 
   if (pathname === '/customers' || pathname.startsWith('/customers/')) {
-    if (!normalizeText(body.name)) throw new Error('Customer name is required.')
+    if (!normalizeText(norm(body, 'name', 'name'))) throw new Error('Customer name is required.')
     return {
-      name: body.name,
-      customer_type: body.customerType ?? body.customer_type ?? 'B2C',
-      contact_person_name: body.contactName ?? body.contact_person_name ?? body.name,
-      contact_person_email: body.contactEmail ?? body.contact_person_email ?? null,
-      contact_person_phone: body.contactPhone ?? body.contact_person_phone ?? null,
-      billing_address: body.billingAddress ?? body.billing_address ?? null,
-      shipping_address: body.shippingAddress ?? body.shipping_address ?? body.billingAddress ?? body.billing_address ?? null,
-      payment_terms: body.paymentTerms ?? body.payment_terms ?? 'NET30',
-      status: body.status ?? 'active',
-      created_by_id: body.created_by_id || currentUserId,
+      name: norm(body, 'name', 'name'),
+      company_tax_id: norm(body, 'company_tax_id', 'companyTaxId') ?? null,
+      customer_type: norm(body, 'customer_type', 'customerType') ?? 'B2C',
+      contact_person_name: norm(body, 'contact_person_name', 'contactName') || norm(body, 'contactName', 'name'),
+      contact_person_email: norm(body, 'contact_person_email', 'contactEmail') ?? null,
+      contact_person_phone: norm(body, 'contact_person_phone', 'contactPhone') ?? null,
+      billing_address: norm(body, 'billing_address', 'billingAddress') || null,
+      shipping_address: norm(body, 'shipping_address', 'shippingAddress') || norm(body, 'billingAddress', 'billing_address') || null,
+      lead_id: norm(body, 'lead_id', 'leadId') ?? null,
+      payment_terms: norm(body, 'payment_terms', 'paymentTerms') ?? 'NET30',
+      status: norm(body, 'status', 'status') ?? 'active',
+      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
     }
   }
 
   if (pathname === '/suppliers' || pathname.startsWith('/suppliers/')) {
-    if (!normalizeText(body.name)) throw new Error('Supplier name is required.')
+    if (!normalizeText(norm(body, 'name', 'name'))) throw new Error('Supplier name is required.')
     return {
-      name: body.name,
-      supplier_type_id: body.supplierTypeId ?? body.supplier_type_id ?? null,
-      contact_person_name: body.contactName ?? body.contact_person_name ?? body.name,
-      contact_person_email: body.contactEmail ?? body.contact_person_email ?? null,
-      contact_person_phone: body.contactPhone ?? body.contact_person_phone ?? null,
-      company_address: body.companyAddress ?? body.company_address ?? null,
-      payment_terms: body.paymentTerms ?? body.payment_terms ?? 'NET30',
-      average_lead_time_days: Number(body.averageLeadTimeDays ?? body.average_lead_time_days ?? 7),
-      status: body.status ?? 'active',
+      name: norm(body, 'name', 'name'),
+      supplier_type_id: norm(body, 'supplier_type_id', 'supplierTypeId') ?? null,
+      contact_person_name: norm(body, 'contact_person_name', 'contactName') || norm(body, 'contactName', 'name'),
+      contact_person_email: norm(body, 'contact_person_email', 'contactEmail') ?? null,
+      contact_person_phone: norm(body, 'contact_person_phone', 'contactPhone') ?? null,
+      company_address: norm(body, 'company_address', 'companyAddress') || null,
+      payment_terms: norm(body, 'payment_terms', 'paymentTerms') ?? 'NET30',
+      average_lead_time_days: Number(norm(body, 'average_lead_time_days', 'averageLeadTimeDays') ?? 7),
+      is_preferred: norm(body, 'is_preferred', 'isPreferred') === true || String(norm(body, 'is_preferred', 'isPreferred') ?? '') === 'true',
+      status: norm(body, 'status', 'status') ?? 'active',
     }
   }
 
   if (pathname === '/warehouse/warehouses' || pathname.startsWith('/warehouse/warehouses/')) {
-    const warehouseCode = body.warehouseCode ?? body.warehouse_code
+    const warehouseCode = norm(body, 'warehouse_code', 'warehouseCode')
     await ensureUniqueValue('warehouses', 'warehouse_code', warehouseCode, currentId)
-    if (!normalizeText(body.name)) throw new Error('Warehouse name is required.')
-    if (!isNonNegativeNumber(body.capacitySqm ?? body.capacity_sqm ?? 0)) {
-      throw new Error('Warehouse capacity cannot be negative.')
-    }
-    if (
-      isNonNegativeNumber(body.currentOccupancySqm ?? body.current_occupancy_sqm ?? 0) &&
-      Number(body.currentOccupancySqm ?? body.current_occupancy_sqm ?? 0) > Number(body.capacitySqm ?? body.capacity_sqm ?? 0)
-    ) {
-      throw new Error('Current occupancy cannot exceed warehouse capacity.')
-    }
+    if (!normalizeText(norm(body, 'name', 'name'))) throw new Error('Warehouse name is required.')
     return {
       warehouse_code: warehouseCode,
-      name: body.name,
-      description: body.description || null,
-      location_address: body.locationAddress ?? body.location_address ?? null,
-      city: body.city || null,
-      province: body.province || null,
-      postal_code: body.postalCode ?? body.postal_code ?? null,
-      capacity_sqm: Number(body.capacitySqm ?? body.capacity_sqm ?? 0),
-      current_occupancy_sqm: Number(body.currentOccupancySqm ?? body.current_occupancy_sqm ?? 0),
-      status: body.status || 'active',
+      name: norm(body, 'name', 'name'),
+      description: norm(body, 'description', 'description') || null,
+      location_address: norm(body, 'location_address', 'locationAddress') || null,
+      city: norm(body, 'city', 'city') || null,
+      province: norm(body, 'province', 'province') || null,
+      postal_code: norm(body, 'postal_code', 'postalCode') ?? null,
+      manager_id: norm(body, 'manager_id', 'managerId') || (norm(body, 'managerName', 'manager_name') ? await resolveUserIdByName(norm(body, 'managerName', 'manager_name')) : null),
+      capacity_sqm: Number(norm(body, 'capacity_sqm', 'capacitySqm') ?? 0),
+      status: norm(body, 'status', 'status') || 'active',
     }
   }
 
   if (pathname === '/warehouse/bin-locations' || pathname.startsWith('/warehouse/bin-locations/')) {
-    let warehouseId = body.warehouse_id
+    let warehouseId = norm(body, 'warehouse_id', 'warehouseId')
     if (!warehouseId) {
-      warehouseId = await resolveWarehouseId(body.warehouseName)
+      warehouseId = await resolveWarehouseId(norm(body, 'warehouseName', 'warehouse_name'))
     }
-    if (!normalizeText(body.binCode ?? body.bin_code)) throw new Error('Bin code is required.')
-    if (!isNonNegativeNumber(body.capacityUnits ?? body.capacity_units ?? 0)) {
-      throw new Error('Bin capacity cannot be negative.')
-    }
-    if (!isNonNegativeNumber(body.currentOccupancyUnits ?? body.current_occupancy_units ?? 0)) {
-      throw new Error('Current occupancy cannot be negative.')
-    }
-    if (Number(body.currentOccupancyUnits ?? body.current_occupancy_units ?? 0) > Number(body.capacityUnits ?? body.capacity_units ?? 0)) {
-      throw new Error('Current occupancy cannot exceed bin capacity.')
-    }
+    const binCode = norm(body, 'bin_code', 'binCode')
+    if (!normalizeText(binCode)) throw new Error('Bin code is required.')
     const { data: existingBin, error: binError } = await supabase
       .from('bin_locations')
       .select('id')
       .eq('warehouse_id', warehouseId)
-      .ilike('bin_code', body.binCode ?? body.bin_code)
+      .ilike('bin_code', binCode)
       .limit(1)
       .maybeSingle()
     if (binError) throw binError
     if (existingBin?.id && existingBin.id !== currentId) {
-      throw new Error(`Bin code "${body.binCode ?? body.bin_code}" already exists in the selected warehouse.`)
+      throw new Error(`Bin code "${binCode}" already exists in the selected warehouse.`)
     }
     return {
       warehouse_id: warehouseId,
-      bin_code: body.binCode ?? body.bin_code,
-      description: body.description || null,
-      capacity_units: Number(body.capacityUnits ?? body.capacity_units ?? 0),
-      current_occupancy_units: Number(body.currentOccupancyUnits ?? body.current_occupancy_units ?? 0),
-      status: body.status ?? 'active',
+      bin_code: binCode,
+      description: norm(body, 'description', 'description') || null,
+      capacity_units: Number(norm(body, 'capacity_units', 'capacityUnits') ?? 0),
+      status: norm(body, 'status', 'status') ?? 'active',
     }
   }
 
@@ -1203,7 +1251,7 @@ const getResource = async <T>(path: string): Promise<T> => {
     const stage = searchParams.get('stage')
     let query = supabase
       .from('leads')
-      .select('*, stage:lead_stages(name, probability_percent)')
+      .select('*, stage:lead_stages(name, probability_percent), owner:users(full_name), products:lead_products(product_id, product_name, quantity, unit_price, discount_percent, line_total)')
       .order('created_at', { ascending: false })
     if (stage) {
       const stageName = leadStageAliases[stage] || stage
@@ -1219,11 +1267,39 @@ const getResource = async <T>(path: string): Promise<T> => {
     const id = pathname.split('/').pop()
     const { data, error } = await supabase
       .from('leads')
-      .select('*, stage:lead_stages(name, probability_percent)')
+      .select('*, stage:lead_stages(name, probability_percent), owner:users(full_name), products:lead_products(product_id, product_name, quantity, unit_price, discount_percent, line_total)')
       .eq('id', id)
       .single()
     if (error) throw error
     return normalizeLeadRow(data) as T
+  }
+
+  if (pathname === '/crm/activities') {
+    const { data, error } = await supabase
+      .from('activities')
+      .select('*, activity_type:activity_types(name, icon, color), performed_by:users(full_name), lead:leads(company_name, lead_number)')
+      .order('activity_date', { ascending: false })
+      .limit(100)
+    if (error) throw error
+    return (data || []) as T
+  }
+
+  if (pathname === '/lead-stages') {
+    const { data, error } = await supabase
+      .from('lead_stages')
+      .select('*')
+      .order('sequence', { ascending: true })
+    if (error) throw error
+    return (data || []) as T
+  }
+
+  if (pathname === '/activity-types') {
+    const { data, error } = await supabase
+      .from('activity_types')
+      .select('*')
+      .order('name', { ascending: true })
+    if (error) throw error
+    return (data || []) as T
   }
 
   if (pathname === '/sales-orders') {
@@ -1604,12 +1680,188 @@ const getResource = async <T>(path: string): Promise<T> => {
     return normalizeBinLocationRow(data) as T
   }
 
+  // ========== STOCK TRANSFERS ==========
+  if (pathname === '/inventory/stock-transfers') {
+    const { data, error } = await applyLimit(
+      supabase
+        .from('stock_transfers')
+        .select('*, source_warehouse:warehouses!source_warehouse_id(name), dest_warehouse:warehouses!dest_warehouse_id(name)')
+        .order('transfer_date', { ascending: false }),
+      searchParams
+    )
+    if (error) throw error
+    return ((data || []).map((r: any) => ({
+      ...r,
+      status: r.status,
+      sourceWarehouseName: r.source_warehouse?.name || '',
+      destWarehouseName: r.dest_warehouse?.name || '',
+    }))) as T
+  }
+
+  if (pathname.startsWith('/inventory/stock-transfers/')) {
+    const id = pathname.split('/').pop()
+    const { data, error } = await supabase
+      .from('stock_transfers')
+      .select('*, source_warehouse:warehouses!source_warehouse_id(name), dest_warehouse:warehouses!dest_warehouse_id(name), lines:stock_transfer_lines(*)')
+      .eq('id', id)
+      .single()
+    if (error) throw error
+    return { ...data, status: data.status } as T
+  }
+
+  // ========== CUSTOMER PAYMENTS ==========
+  if (pathname === '/accounting/customer-payments') {
+    const { data, error } = await applyLimit(
+      supabase
+        .from('customer_payments')
+        .select('*, customer:customers(name), invoice:customer_invoices(invoice_number)')
+        .order('payment_date', { ascending: false }),
+      searchParams
+    )
+    if (error) throw error
+    return ((data || []).map((r: any) => ({
+      ...r,
+      customerName: r.customer?.name || '',
+      invoiceNumber: r.invoice?.invoice_number || '',
+    }))) as T
+  }
+
+  // ========== SUPPLIER PAYMENTS ==========
+  if (pathname === '/accounting/supplier-payments') {
+    const { data, error } = await applyLimit(
+      supabase
+        .from('supplier_payments')
+        .select('*, supplier:suppliers(name), bill:vendor_bills(bill_number)')
+        .order('payment_date', { ascending: false }),
+      searchParams
+    )
+    if (error) throw error
+    return ((data || []).map((r: any) => ({
+      ...r,
+      supplierName: r.supplier?.name || '',
+      billNumber: r.bill?.bill_number || '',
+    }))) as T
+  }
+
+  // ========== IoT DEVICES ==========
+  if (pathname === '/iot/devices') {
+    const { data, error } = await applyLimit(
+      supabase
+        .from('mac_serial_mapping')
+        .select('*, product:products(name, sku, list_price), customer:customers(name)')
+        .order('created_at', { ascending: false }),
+      searchParams
+    )
+    if (error) throw error
+    return (data || []) as T
+  }
+
+  if (pathname.startsWith('/iot/devices/')) {
+    const id = pathname.split('/').pop()
+    const { data, error } = await supabase
+      .from('mac_serial_mapping')
+      .select('*, product:products(name, sku), customer:customers(name)')
+      .eq('id', id)
+      .single()
+    if (error) throw error
+    return data as T
+  }
+
+  // ========== IoT WARRANTY ALERTS ==========
+  if (pathname === '/iot/warranty-alerts') {
+    const { data, error } = await applyLimit(
+      supabase
+        .from('device_warranty_alerts')
+        .select('*, device:mac_serial_mapping(serial_number, mac_address, product:products(name))')
+        .order('created_at', { ascending: false }),
+      searchParams
+    )
+    if (error) throw error
+    return (data || []) as T
+  }
+
+  if (pathname.startsWith('/iot/warranty-alerts/')) {
+    const id = pathname.split('/').pop()
+    const { data, error } = await supabase
+      .from('device_warranty_alerts')
+      .select('*')
+      .eq('id', id)
+      .single()
+    if (error) throw error
+    return data as T
+  }
+
+  // ========== IoT WARRANTY TRACKING ==========
+  if (pathname === '/iot/warranty-tracking') {
+    const { data, error } = await applyLimit(
+      supabase
+        .from('warranty_tracking')
+        .select('*, device:mac_serial_mapping(serial_number, product:products(name))')
+        .order('warranty_end_date', { ascending: true }),
+      searchParams
+    )
+    if (error) throw error
+    return (data || []) as T
+  }
+
+  // ========== BOM PACKAGES ==========
+  if (pathname === '/bom/packages') {
+    const { data, error } = await applyLimit(
+      supabase
+        .from('bom_packages')
+        .select('*, components:bom_components(product_name, quantity, unit_price, line_total, is_optional)')
+        .eq('is_active', true)
+        .order('name', { ascending: true }),
+      searchParams
+    )
+    if (error) throw error
+    return (data || []) as T
+  }
+
+  if (pathname.startsWith('/bom/packages/')) {
+    const id = pathname.split('/').pop()
+    const { data, error } = await supabase
+      .from('bom_packages')
+      .select('*, components:bom_components(product_id, product_name, quantity, unit_price, line_total, is_optional)')
+      .eq('id', id)
+      .single()
+    if (error) throw error
+    return data as T
+  }
+
+  // ========== IoT DEVICE REGISTRATIONS ==========
+  if (pathname === '/iot/registrations') {
+    const { data, error } = await applyLimit(
+      supabase
+        .from('device_registrations')
+        .select('*, device:mac_serial_mapping(serial_number, product:products(name)), customer:customers(name)')
+        .order('created_at', { ascending: false }),
+      searchParams
+    )
+    if (error) throw error
+    return (data || []) as T
+  }
+
   throw new Error(`Unsupported query path: ${pathname}`)
 }
 
 const writeResource = async <T>(path: string, body: Record<string, any>, method: 'POST' | 'PUT') => {
   const { pathname } = parsePath(path)
   const normalizedBody = await normalizeWriteBody(pathname, body)
+  const rawLines = Array.isArray(body.lines) ? body.lines : (Array.isArray(body.products) ? body.products : null)
+
+  const toNumber = (value: any, fallback = 0) => {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : fallback
+  }
+
+  const persistLines = async (table: string, foreignKey: string, parentId: string, lines: any[]) => {
+    const { error: deleteError } = await supabase.from(table).delete().eq(foreignKey, parentId)
+    if (deleteError) throw deleteError
+    if (!lines.length) return
+    const { error: insertError } = await supabase.from(table).insert(lines)
+    if (insertError) throw insertError
+  }
 
   const upsert = async (table: string, id?: string) => {
     const query =
@@ -1622,16 +1874,189 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     return data as T
   }
 
-  if (pathname === '/crm/leads') return upsert('leads')
-  if (pathname.startsWith('/crm/leads/')) return upsert('leads', pathname.split('/').pop())
-  if (pathname === '/sales-orders') return upsert('sales_orders')
-  if (pathname.startsWith('/sales-orders/quotations/')) return upsert('quotations', pathname.split('/').pop())
-  if (pathname === '/sales-orders/quotations') return upsert('quotations')
-  if (pathname.startsWith('/sales-orders/')) return upsert('sales_orders', pathname.split('/').pop())
-  if (pathname === '/purchase/rfqs') return upsert('rfqs')
-  if (pathname.startsWith('/purchase/rfqs/')) return upsert('rfqs', pathname.split('/').pop())
-  if (pathname === '/purchase/purchase-orders') return upsert('purchase_orders')
-  if (pathname.startsWith('/purchase/purchase-orders/')) return upsert('purchase_orders', pathname.split('/').pop())
+  if (pathname === '/crm/leads') {
+    const lead = await upsert<any>('leads')
+    const lines = (rawLines || body.products || []).map((line: any) => ({
+      lead_id: lead.id,
+      product_id: line.product_id || null,
+      product_name: line.product_name || line.productName || null,
+      product_sku: line.product_sku || line.productSku || null,
+      quantity: toNumber(line.quantity ?? 1),
+      unit_price: toNumber(line.unit_price ?? line.price ?? 0),
+      discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
+    })).filter((line: any) => line.product_id || line.product_name)
+    if (lines.length > 0) {
+      await persistLines('lead_products', 'lead_id', lead.id, lines)
+    }
+    return lead
+  }
+  if (pathname.startsWith('/crm/leads/')) {
+    const id = pathname.split('/').pop()
+    const lead = await upsert<any>('leads', id)
+    const lines = (rawLines || body.products || []).map((line: any) => ({
+      lead_id: id,
+      product_id: line.product_id || null,
+      product_name: line.product_name || line.productName || null,
+      product_sku: line.product_sku || line.productSku || null,
+      quantity: toNumber(line.quantity ?? 1),
+      unit_price: toNumber(line.unit_price ?? line.price ?? 0),
+      discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
+    })).filter((line: any) => line.product_id || line.product_name)
+    if (lines.length > 0) {
+      await persistLines('lead_products', 'lead_id', id, lines)
+    }
+    return lead
+  }
+  if (pathname === '/crm/activities') {
+    const payload = {
+      lead_id: body.lead_id || null,
+      activity_type_id: body.activity_type_id || null,
+      description: body.description || body.activity_type || '',
+      outcome: body.outcome || null,
+      activity_date: body.activity_date || new Date().toISOString(),
+      performed_by_id: body.performed_by_id || currentUserId,
+    }
+    const { data, error } = await supabase.from('activities').insert(payload).select().single()
+    if (error) throw error
+    return data as T
+  }
+  if (pathname === '/sales-orders') {
+    const order = await upsert<any>('sales_orders')
+    if (rawLines) {
+      const lines = rawLines.map((line: any, index: number) => ({
+        sales_order_id: order.id,
+        product_id: line.product_id || line.productId,
+        sequence: index + 1,
+        quantity_ordered: toNumber(line.quantity ?? line.quantity_ordered ?? 1),
+        quantity_delivered: 0,
+        unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
+        cost_price: toNumber(line.cost_price ?? line.costPrice ?? line.cost ?? 0),
+        discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
+        notes: line.notes || null,
+      })).filter((line: any) => line.product_id)
+      await persistLines('sales_order_lines', 'sales_order_id', order.id, lines)
+    }
+    return order
+  }
+  if (pathname.startsWith('/sales-orders/quotations/')) {
+    const quotation = await upsert<any>('quotations', pathname.split('/').pop())
+    if (rawLines) {
+      const lines = rawLines.map((line: any, index: number) => ({
+        quotation_id: quotation.id,
+        product_id: line.product_id || line.productId || null,
+        product_name: line.product_name || line.productName || null,
+        sequence: index + 1,
+        quantity: toNumber(line.quantity ?? line.quantity_ordered ?? 1),
+        unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
+        discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
+      })).filter((line: any) => line.product_id || line.product_name)
+      await persistLines('quotation_lines', 'quotation_id', quotation.id, lines)
+    }
+    return quotation
+  }
+        notes: line.notes || null,
+      })).filter((line: any) => line.product_id)
+      await persistLines('quotation_lines', 'quotation_id', quotation.id, lines)
+    }
+    return quotation
+  }
+  if (pathname === '/sales-orders/quotations') {
+    const quotation = await upsert<any>('quotations')
+    if (rawLines) {
+      const lines = rawLines.map((line: any, index: number) => ({
+        quotation_id: quotation.id,
+        product_id: line.product_id || line.productId,
+        sequence_number: index + 1,
+        quantity_quoted: toNumber(line.quantity_quoted ?? line.quantity ?? 0),
+        unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
+        discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
+        tax_percent: toNumber(line.tax_percent ?? line.tax ?? 10),
+        notes: line.notes || null,
+      })).filter((line: any) => line.product_id)
+      await persistLines('quotation_lines', 'quotation_id', quotation.id, lines)
+    }
+    return quotation
+  }
+  if (pathname.startsWith('/sales-orders/')) {
+    const order = await upsert<any>('sales_orders', pathname.split('/').pop())
+    if (rawLines) {
+      const lines = rawLines.map((line: any, index: number) => ({
+        sales_order_id: order.id,
+        product_id: line.product_id || line.productId,
+        sequence_number: index + 1,
+        quantity_ordered: toNumber(line.quantity_ordered ?? line.quantity ?? 0),
+        unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
+        cost_price: toNumber(line.cost_price ?? line.costPrice ?? line.cost ?? 0),
+        discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
+        tax_percent: toNumber(line.tax_percent ?? line.tax ?? 10),
+        notes: line.notes || null,
+      })).filter((line: any) => line.product_id)
+      await persistLines('sales_order_lines', 'sales_order_id', order.id, lines)
+    }
+    return order
+  }
+  if (pathname === '/purchase/rfqs') {
+    const rfq = await upsert<any>('rfqs')
+    if (rawLines) {
+      const lines = rawLines.map((line: any, index: number) => ({
+        rfq_id: rfq.id,
+        product_id: line.product_id || line.productId,
+        sequence_number: index + 1,
+        quantity_required: toNumber(line.quantity_required ?? line.quantity ?? 0),
+        required_delivery_date: line.required_delivery_date ?? line.requiredDeliveryDate ?? line.deliveryDate ?? null,
+        notes: line.notes || null,
+      })).filter((line: any) => line.product_id)
+      await persistLines('rfq_lines', 'rfq_id', rfq.id, lines)
+    }
+    return rfq
+  }
+  if (pathname.startsWith('/purchase/rfqs/')) {
+    const rfq = await upsert<any>('rfqs', pathname.split('/').pop())
+    if (rawLines) {
+      const lines = rawLines.map((line: any, index: number) => ({
+        rfq_id: rfq.id,
+        product_id: line.product_id || line.productId,
+        sequence_number: index + 1,
+        quantity_required: toNumber(line.quantity_required ?? line.quantity ?? 0),
+        required_delivery_date: line.required_delivery_date ?? line.requiredDeliveryDate ?? line.deliveryDate ?? null,
+        notes: line.notes || null,
+      })).filter((line: any) => line.product_id)
+      await persistLines('rfq_lines', 'rfq_id', rfq.id, lines)
+    }
+    return rfq
+  }
+  if (pathname === '/purchase/purchase-orders') {
+    const po = await upsert<any>('purchase_orders')
+    if (rawLines) {
+      const lines = rawLines.map((line: any, index: number) => ({
+        purchase_order_id: po.id,
+        product_id: line.product_id || line.productId,
+        sequence_number: index + 1,
+        quantity_ordered: toNumber(line.quantity_ordered ?? line.quantity ?? 0),
+        unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
+        tax_percent: toNumber(line.tax_percent ?? line.tax ?? 10),
+        notes: line.notes || null,
+      })).filter((line: any) => line.product_id)
+      await persistLines('purchase_order_lines', 'purchase_order_id', po.id, lines)
+    }
+    return po
+  }
+  if (pathname.startsWith('/purchase/purchase-orders/')) {
+    const po = await upsert<any>('purchase_orders', pathname.split('/').pop())
+    if (rawLines) {
+      const lines = rawLines.map((line: any, index: number) => ({
+        purchase_order_id: po.id,
+        product_id: line.product_id || line.productId,
+        sequence_number: index + 1,
+        quantity_ordered: toNumber(line.quantity_ordered ?? line.quantity ?? 0),
+        unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
+        tax_percent: toNumber(line.tax_percent ?? line.tax ?? 10),
+        notes: line.notes || null,
+      })).filter((line: any) => line.product_id)
+      await persistLines('purchase_order_lines', 'purchase_order_id', po.id, lines)
+    }
+    return po
+  }
   if (pathname === '/inventory/delivery-orders') return upsert('delivery_orders')
   if (pathname.startsWith('/inventory/delivery-orders/')) return upsert('delivery_orders', pathname.split('/').pop())
   if (pathname === '/inventory/goods-receipts') return upsert('goods_receipts')
@@ -1650,16 +2075,138 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
   if (pathname.startsWith('/users/')) return upsert('users', pathname.split('/').pop())
   if (pathname === '/product-categories') return upsert('product_categories')
   if (pathname.startsWith('/product-categories/')) return upsert('product_categories', pathname.split('/').pop())
-  if (pathname === '/products') return upsert('products')
+  if (pathname === '/products') {
+    const product = await upsert<any>('products')
+    if (product && method === 'POST') {
+      const { data: warehouses } = await supabase.from('warehouses').select('id')
+      if (warehouses && warehouses.length > 0) {
+        const stockRows = warehouses.map((w: any) => ({
+          product_id: product.id,
+          warehouse_id: w.id,
+          bin_location_id: null,
+          quantity_on_hand: 0,
+          quantity_reserved: 0,
+        }))
+        await supabase.from('stock_levels').upsert(stockRows, {
+          onConflict: 'product_id,warehouse_id,bin_location_id',
+          ignoreDuplicates: true,
+        })
+      }
+    }
+    return product
+  }
   if (pathname.startsWith('/products/')) return upsert('products', pathname.split('/').pop())
   if (pathname === '/customers') return upsert('customers')
   if (pathname.startsWith('/customers/')) return upsert('customers', pathname.split('/').pop())
   if (pathname === '/suppliers') return upsert('suppliers')
   if (pathname.startsWith('/suppliers/')) return upsert('suppliers', pathname.split('/').pop())
-  if (pathname === '/warehouse/warehouses') return upsert('warehouses')
+  if (pathname === '/warehouse/warehouses') {
+    const warehouse = await upsert<any>('warehouses')
+    if (warehouse && method === 'POST') {
+      const { data: products } = await supabase.from('products').select('id')
+      if (products && products.length > 0) {
+        const stockRows = products.map((p: any) => ({
+          product_id: p.id,
+          warehouse_id: warehouse.id,
+          bin_location_id: null,
+          quantity_on_hand: 0,
+          quantity_reserved: 0,
+        }))
+        await supabase.from('stock_levels').upsert(stockRows, {
+          onConflict: 'product_id,warehouse_id,bin_location_id',
+          ignoreDuplicates: true,
+        })
+      }
+    }
+    return warehouse
+  }
   if (pathname.startsWith('/warehouse/warehouses/')) return upsert('warehouses', pathname.split('/').pop())
   if (pathname === '/warehouse/bin-locations') return upsert('bin_locations')
   if (pathname.startsWith('/warehouse/bin-locations/')) return upsert('bin_locations', pathname.split('/').pop())
+
+  // ========== STOCK TRANSFERS ==========
+  if (pathname === '/inventory/stock-transfers') return upsert('stock_transfers')
+  if (pathname.startsWith('/inventory/stock-transfers/')) {
+    const transfer = await upsert<any>('stock_transfers', pathname.split('/').pop())
+    if (rawLines) {
+      await persistLines('stock_transfer_lines', 'transfer_id', transfer.id, rawLines.map((line: any, index: number) => ({
+        transfer_id: transfer.id,
+        product_id: line.product_id,
+        product_name: line.product_name || null,
+        from_bin_location_id: line.from_bin_location_id || null,
+        to_bin_location_id: line.to_bin_location_id || null,
+        quantity: toNumber(line.quantity, 1),
+        sequence: index + 1,
+      })).filter((line: any) => line.product_id))
+    }
+    return transfer
+  }
+
+  // ========== CUSTOMER PAYMENTS ==========
+  if (pathname === '/accounting/customer-payments') {
+    if (!isPositiveNumber(body.amount ?? 0)) {
+      throw new Error('Payment amount must be greater than 0.')
+    }
+    const customerId = body.customer_id || (await resolveCustomerId(body.customerName))
+    const invoiceId = body.invoice_id || (body.invoiceNumber ? await resolveInvoiceId(body.invoiceNumber, body.customerName) : null)
+
+    const payment = await upsert<any>('customer_payments')
+
+    // Auto-update invoice paid_amount
+    if (invoiceId && payment?.id) {
+      const { data: invoice } = await supabase.from('customer_invoices').select('total_amount, paid_amount').eq('id', invoiceId).single()
+      if (invoice) {
+        const totalPaid = invoice.paid_amount + (body.amount || 0)
+        const newStatus = totalPaid >= invoice.total_amount ? 'paid' : totalPaid > 0 ? 'partial_paid' : 'issued'
+        await supabase.from('customer_invoices').update({ paid_amount: totalPaid, status: newStatus }).eq('id', invoiceId)
+      }
+    }
+
+    return payment
+  }
+
+  // ========== SUPPLIER PAYMENTS ==========
+  if (pathname === '/accounting/supplier-payments') {
+    if (!isPositiveNumber(body.amount ?? 0)) {
+      throw new Error('Payment amount must be greater than 0.')
+    }
+    const supplierId = body.supplier_id || (await resolveSupplierId(body.supplierName))
+    const billId = body.bill_id || (body.billNumber ? await resolveBillId(body.billNumber, body.supplierName) : null)
+
+    const payment = await upsert<any>('supplier_payments')
+
+    // Auto-update vendor bill paid_amount
+    if (billId && payment?.id) {
+      const { data: bill } = await supabase.from('vendor_bills').select('total_amount, paid_amount').eq('id', billId).single()
+      if (bill) {
+        const totalPaid = bill.paid_amount + (body.amount || 0)
+        const newStatus = totalPaid >= bill.total_amount ? 'paid' : totalPaid > 0 ? 'partial_paid' : 'received'
+        await supabase.from('vendor_bills').update({ paid_amount: totalPaid, status: newStatus }).eq('id', billId)
+      }
+    }
+
+    return payment
+  }
+
+  // ========== IoT DEVICES ==========
+  if (pathname === '/iot/devices') return upsert('mac_serial_mapping')
+  if (pathname.startsWith('/iot/devices/')) return upsert('mac_serial_mapping', pathname.split('/').pop())
+
+  // ========== IoT WARRANTY ALERTS ==========
+  if (pathname === '/iot/warranty-alerts') return upsert('device_warranty_alerts')
+  if (pathname.startsWith('/iot/warranty-alerts/')) return upsert('device_warranty_alerts', pathname.split('/').pop())
+
+  // ========== IoT REGISTRATIONS ==========
+  if (pathname === '/iot/registrations') return upsert('device_registrations')
+  if (pathname.startsWith('/iot/registrations/')) return upsert('device_registrations', pathname.split('/').pop())
+
+  // ========== IoT WARRANTY TRACKING ==========
+  if (pathname === '/iot/warranty-tracking') return upsert('warranty_tracking')
+  if (pathname.startsWith('/iot/warranty-tracking/')) return upsert('warranty_tracking', pathname.split('/').pop())
+
+  // ========== BOM PACKAGES ==========
+  if (pathname === '/bom/packages') return upsert('bom_packages')
+  if (pathname.startsWith('/bom/packages/')) return upsert('bom_packages', pathname.split('/').pop())
 
   throw new Error(`Unsupported write path: ${pathname}`)
 }

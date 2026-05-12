@@ -18,7 +18,7 @@ import { useUIStore } from '../stores/uiStore'
 
 const invoiceFieldsBase: FormField[] = [
   { name: 'invoiceNumber', label: 'Invoice #', type: 'text', required: true },
-  { name: 'customerName', label: 'Customer', type: 'select', required: true, options: [] },
+  { name: 'customerId', label: 'Customer', type: 'select', required: true, options: [] },  // FIX #2: Changed from customerName to customerId
   { name: 'salesOrderNumber', label: 'Sales Order', type: 'select', options: [] },
   { name: 'invoiceDate', label: 'Invoice Date', type: 'date', required: true },
   { name: 'dueDate', label: 'Due Date', type: 'date' },
@@ -47,7 +47,7 @@ const invoiceFieldsBase: FormField[] = [
 
 const billFieldsBase: FormField[] = [
   { name: 'billNumber', label: 'Bill #', type: 'text', required: true },
-  { name: 'supplierName', label: 'Supplier', type: 'select', required: true, options: [] },
+  { name: 'supplierId', label: 'Supplier', type: 'select', required: true, options: [] },  // FIX #2: Changed from supplierName to supplierId
   { name: 'purchaseOrderNumber', label: 'Purchase Order', type: 'select', options: [] },
   { name: 'billDate', label: 'Bill Date', type: 'date', required: true },
   { name: 'dueDate', label: 'Due Date', type: 'date' },
@@ -75,7 +75,7 @@ const billFieldsBase: FormField[] = [
 
 const noteFieldsBase: FormField[] = [
   { name: 'noteNumber', label: 'Note #', type: 'text', required: true },
-  { name: 'partnerName', label: 'Customer / Supplier', type: 'select', required: true, options: [] },
+  { name: 'partnerId', label: 'Customer / Supplier', type: 'select', required: true, options: [] },  // FIX #2: Changed from partnerName to partnerId
   { name: 'referenceDocument', label: 'Reference Invoice/Bill', type: 'select', options: [] },
   { name: 'noteDate', label: 'Date', type: 'date', required: true },
   { name: 'reason', label: 'Reason', type: 'text', required: true },
@@ -103,7 +103,8 @@ const flow: Record<string, string> = {
 const normalizeInvoice = (invoice: any) => ({
   ...invoice,
   invoiceNumber: invoice.invoice_number,
-  customerName: invoice.customer?.name || invoice.customer_id,
+  customerId: invoice.customer_id,  // FIX #2: Use customer_id for option selection
+  customerName: invoice.customer?.name || invoice.customer_id,  // Keep for display only
   invoiceDate: invoice.invoice_date,
   dueDate: invoice.due_date,
   totalAmountBeforeTax: invoice.total_amount_before_tax,
@@ -111,6 +112,31 @@ const normalizeInvoice = (invoice: any) => ({
   totalAmount: invoice.total_amount || invoice.total,
   paidAmount: invoice.paid_amount,
   outstandingAmount: invoice.outstanding_amount,
+})
+
+const normalizeBill = (bill: any) => ({
+  ...bill,
+  billNumber: bill.bill_number,
+  supplierId: bill.supplier_id,  // FIX #2: Use supplier_id for option selection
+  supplierName: bill.supplier?.name || bill.supplier_id,  // Keep for display only
+  billDate: bill.bill_date,
+  dueDate: bill.due_date,
+  totalAmountBeforeTax: bill.total_amount_before_tax,
+  totalTax: bill.total_tax,
+  totalAmount: bill.total_amount || bill.total,
+  paidAmount: bill.paid_amount,
+  outstandingAmount: bill.outstanding_amount,
+})
+
+const normalizeNote = (note: any, isCredit: boolean) => ({
+  ...note,
+  noteNumber: isCredit ? note.credit_note_number : note.debit_note_number,
+  partnerId: isCredit ? note.customer_id : note.supplier_id,  // FIX #2: Use IDs for selection
+  partnerName: isCredit ? (note.customer?.name || note.customer_id) : (note.supplier?.name || note.supplier_id),  // Keep for display
+  noteDate: isCredit ? note.credit_date : note.debit_date,
+  reason: note.reason,
+  totalAmount: note.total_amount,
+  status: note.status,
 })
 
 const AccountingModule: React.FC = () => {
@@ -147,18 +173,7 @@ const AccountingModule: React.FC = () => {
       .get<any[]>('/accounting/bills?limit=100')
       .then((records) => {
         setLoadError(null)
-        setVendorBills(records.map((bill) => ({
-          ...bill,
-          billNumber: bill.bill_number,
-          supplierName: bill.supplier?.name || bill.supplier_id,
-          billDate: bill.bill_date,
-          dueDate: bill.due_date,
-          totalAmountBeforeTax: bill.total_amount_before_tax,
-          totalTax: bill.total_tax,
-          totalAmount: bill.total_amount || 0,
-          paidAmount: bill.paid_amount,
-          outstandingAmount: bill.outstanding_amount,
-        })))
+        setVendorBills(records.map(normalizeBill))  // FIX #3: Use normalizeBill function
       })
       .catch((error) => {
         setVendorBills([])
@@ -169,7 +184,7 @@ const AccountingModule: React.FC = () => {
       .get<any[]>('/accounting/credit-notes?limit=100')
       .then((records) => {
         setLoadError(null)
-        setCredits(records.map((note) => ({
+        setCredits(records.map((note) => normalizeNote(note, true)))  // FIX #3: Use normalizeNote
           ...note,
           noteNumber: note.credit_note_number,
           customerName: note.customer?.name || note.customer_id,
@@ -187,14 +202,7 @@ const AccountingModule: React.FC = () => {
       .get<any[]>('/accounting/debit-notes?limit=100')
       .then((records) => {
         setLoadError(null)
-        setDebits(records.map((note) => ({
-          ...note,
-          noteNumber: note.debit_note_number,
-          supplierName: note.supplier?.name || note.supplier_id,
-          noteDate: note.debit_date,
-          totalAmount: note.total_amount || 0,
-          referenceDocument: note.bill_id,
-        })))
+        setDebits(records.map((note) => normalizeNote(note, false)))  // FIX #3: Use normalizeNote
       })
       .catch((error) => {
         setDebits([])
@@ -232,27 +240,27 @@ const AccountingModule: React.FC = () => {
   const activeFields = useMemo(() => {
     if (activeTab === 'invoices') {
       return invoiceFieldsBase.map((field) => {
-        if (field.name === 'customerName') return { ...field, options: customerOptions }
+        if (field.name === 'customerId') return { ...field, options: customerOptions }  // FIX #2: Map customerId to customer options
         if (field.name === 'salesOrderNumber') return { ...field, options: salesOrderOptions }
         return field
       })
     }
     if (activeTab === 'bills') {
       return billFieldsBase.map((field) => {
-        if (field.name === 'supplierName') return { ...field, options: supplierOptions }
+        if (field.name === 'supplierId') return { ...field, options: supplierOptions }  // FIX #2: Map supplierId to supplier options
         if (field.name === 'purchaseOrderNumber') return { ...field, options: purchaseOrderOptions }
         return field
       })
     }
     if (activeTab === 'credit-notes') {
       return noteFieldsBase.map((field) => {
-        if (field.name === 'partnerName') return { ...field, options: customerOptions }
+        if (field.name === 'partnerId') return { ...field, options: customerOptions }  // FIX #2: Map partnerId to customer options
         if (field.name === 'referenceDocument') return { ...field, options: salesOrderOptions }
         return field
       })
     }
     return noteFieldsBase.map((field) => {
-      if (field.name === 'partnerName') return { ...field, options: supplierOptions }
+      if (field.name === 'partnerId') return { ...field, options: supplierOptions }  // FIX #2: Map partnerId to supplier options
       if (field.name === 'referenceDocument') return { ...field, options: purchaseOrderOptions }
       return field
     })
@@ -281,8 +289,9 @@ const AccountingModule: React.FC = () => {
       invoiceNumber: `${prefix}-${Date.now().toString().slice(-5)}`,
       billNumber: `${prefix}-${Date.now().toString().slice(-5)}`,
       noteNumber: `${prefix}-${Date.now().toString().slice(-5)}`,
-      customerName: '',
-      supplierName: '',
+      customerId: '',  // FIX #2: Use customerId instead of customerName
+      supplierId: '',  // FIX #2: Use supplierId instead of supplierName
+      partnerId: '',   // FIX #2: Use partnerId instead of partnerName
       invoiceDate: new Date().toISOString().slice(0, 10),
       billDate: new Date().toISOString().slice(0, 10),
       noteDate: new Date().toISOString().slice(0, 10),
@@ -309,7 +318,7 @@ const AccountingModule: React.FC = () => {
 
     const payload = activeTab === 'invoices' ? {
       invoice_number: record.invoiceNumber,
-      customer_id: customerOptions.find(c => c.label === record.customerName)?.value || record.customerName,
+      customer_id: record.customerId,  // FIX #2: Use customerId directly (no lookup needed)
       sales_order_id: salesOrderOptions.find(s => s.label === record.salesOrderNumber)?.value || record.salesOrderNumber,
       invoice_date: record.invoiceDate,
       due_date: record.dueDate,
@@ -322,7 +331,7 @@ const AccountingModule: React.FC = () => {
       description: record.description,
     } : activeTab === 'bills' ? {
       bill_number: record.billNumber,
-      supplier_id: supplierOptions.find(s => s.label === record.supplierName)?.value || record.supplierName,
+      supplier_id: record.supplierId,  // FIX #2: Use supplierId directly (no lookup needed)
       purchase_order_id: purchaseOrderOptions.find(p => p.label === record.purchaseOrderNumber)?.value || record.purchaseOrderNumber,
       bill_date: record.billDate,
       due_date: record.dueDate,
@@ -334,7 +343,7 @@ const AccountingModule: React.FC = () => {
       notes: record.notes,
     } : activeTab === 'credit-notes' ? {
       credit_note_number: record.noteNumber,
-      customer_id: customerOptions.find(c => c.label === record.partnerName)?.value || record.partnerName,
+      customer_id: record.partnerId,  // FIX #2: Use partnerId directly (no lookup needed)
       invoice_id: record.referenceDocument,
       reason: record.reason,
       credit_date: record.noteDate,
@@ -343,7 +352,7 @@ const AccountingModule: React.FC = () => {
       description: record.description,
     } : {
       debit_note_number: record.noteNumber,
-      supplier_id: supplierOptions.find(s => s.label === record.partnerName)?.value || record.partnerName,
+      supplier_id: record.partnerId,  // FIX #2: Use partnerId directly (no lookup needed)
       bill_id: record.referenceDocument,
       reason: record.reason,
       debit_date: record.noteDate,
@@ -486,11 +495,11 @@ const AccountingModule: React.FC = () => {
             <tbody className="divide-y divide-gray-100">
               {filteredRecords.map((record) => (
                 <tr key={record.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.invoice_number || record.billNumber || record.noteNumber}</td>
+                  <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.invoiceNumber || record.billNumber || record.noteNumber}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{record.customerName || record.supplierName || record.partnerName}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{record.invoice_date || record.billDate || record.noteDate}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{record.invoiceDate || record.billDate || record.noteDate}</td>
                   <td className="px-4 py-3"><StatusBadge status={record.status} /></td>
-                  <td className="px-4 py-3 text-right text-sm font-semibold">{formatCurrency(record.total_amount || record.total)}</td>
+                  <td className="px-4 py-3 text-right text-sm font-semibold">{formatCurrency(record.totalAmount || record.total)}</td>
                   <td className="px-4 py-3">{renderActions(record)}</td>
                 </tr>
               ))}
@@ -503,9 +512,9 @@ const AccountingModule: React.FC = () => {
           groupBy={(record) => record.status}
           renderCard={(record) => (
             <div key={record.id} className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
-              <p className="font-bold text-blue-700">{record.invoice_number || record.billNumber || record.noteNumber}</p>
+              <p className="font-bold text-blue-700">{record.invoiceNumber || record.billNumber || record.noteNumber}</p>
               <p className="mt-1 text-sm text-gray-600">{record.customerName || record.supplierName || record.partnerName}</p>
-              <p className="mt-2 text-sm font-semibold">{formatCurrency(record.total_amount || record.total)}</p>
+              <p className="mt-2 text-sm font-semibold">{formatCurrency(record.totalAmount || record.total)}</p>
               <div className="mt-3">{renderActions(record)}</div>
             </div>
           )}

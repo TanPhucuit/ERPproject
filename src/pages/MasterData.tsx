@@ -62,7 +62,9 @@ const productFields: FormField[] = [
   { name: 'image_url', label: 'Image URL', type: 'text' },
   { name: 'list_price', label: 'List Price', type: 'number', required: true },
   { name: 'cost_price', label: 'Cost Price', type: 'number', required: true },
-  // NOTE: profit_margin_percent is GENERATED ALWAYS in database - do NOT include in form
+  { name: 'physical_size_sqm', label: 'Physical Size (sqm)', type: 'number' },
+  { name: 'is_iot_device', label: 'IoT Device', type: 'select', options: [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }] },
+  { name: 'requires_serial_scan', label: 'Requires Serial Scan', type: 'select', options: [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }] },
   { name: 'reorder_level', label: 'Reorder Level', type: 'number' },
   { name: 'reorder_quantity', label: 'Reorder Qty', type: 'number' },
   { name: 'supplier_lead_time_days', label: 'Supplier Lead Time (days)', type: 'number' },
@@ -172,7 +174,7 @@ const supplierFields: FormField[] = [
     ],
   },
   { name: 'average_lead_time_days', label: 'Lead Time Days', type: 'number' },
-  { name: 'quality_rating', label: 'Quality Rating (0-5)', type: 'number' },
+  // NOTE: quality_rating is AUTO-CALCULATED by trigger from goods_receipt_lines — do NOT include in form
   {
     name: 'is_preferred',
     label: 'Preferred Supplier',
@@ -304,6 +306,9 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
       image_url: '',
       list_price: 0,
       cost_price: 0,
+      physical_size_sqm: 1.0,
+      is_iot_device: 'false',
+      requires_serial_scan: 'false',
       reorder_level: 10,
       reorder_quantity: 50,
       supplier_lead_time_days: 7,
@@ -376,7 +381,6 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
       company_website: '',
       payment_terms: 'NET30',
       average_lead_time_days: 7,
-      quality_rating: 5,
       is_preferred: 'false',
       status: 'active',
     }),
@@ -688,6 +692,8 @@ const MasterDataPage: React.FC = () => {
     if (activeTab === 'products') {
       // uomName contains the name for display, uomCode contains the code
       recordCopy.uomName = record.uomName || record.uom?.name || record.uom?.code || ''
+      recordCopy.is_iot_device = record.is_iot_device === true || record.is_iot_device === 'true'
+      recordCopy.requires_serial_scan = record.requires_serial_scan === true || record.requires_serial_scan === 'true'
     }
     if (activeTab === 'warehouses') {
       recordCopy.managerName = record.manager_id || record.manager?.id || record.manager?.full_name || ''
@@ -721,6 +727,8 @@ const MasterDataPage: React.FC = () => {
         // UOM: record.uomName contains the name (used as value), resolve to UUID
         const uomData = datasets.unitsOfMeasure?.find((u: any) => u.name === record.uomName)
         recordToSave.uom_id = uomData?.id || record.uomName
+        recordToSave.is_iot_device = record.is_iot_device === true || record.is_iot_device === 'true'
+        recordToSave.requires_serial_scan = record.requires_serial_scan === true || record.requires_serial_scan === 'true'
       }
       if (activeTab === 'binLocations') {
         recordToSave.warehouse_id = warehouseOptions.find(w => w.label === record.warehouseName)?.value || record.warehouseName

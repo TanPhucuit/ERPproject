@@ -16,24 +16,16 @@ import { useUIStore } from '../stores/uiStore'
 const stockFieldsBase: FormField[] = [
   { name: 'warehouseName', label: 'Warehouse', type: 'select', required: true, options: [] },
   { name: 'productName', label: 'Product', type: 'select', required: true, options: [] },
-  { name: 'binCode', label: 'Bin Location', type: 'select', options: [] },
-  { name: 'quantityOnHand', label: 'On Hand', type: 'number', required: true },
-  { name: 'quantityReserved', label: 'Reserved', type: 'number' },
-  { name: 'quantityAvailable', label: 'Available', type: 'number' },
-  { name: 'quantityInTransit', label: 'In Transit', type: 'number' },
-  { name: 'reorderLevel', label: 'Reorder Level', type: 'number' },
-  {
-    name: 'reorderStatus',
-    label: 'Reorder Status',
-    type: 'select',
-    options: [
-      { value: 'normal', label: 'Normal' },
-      { value: 'low', label: 'Low Stock' },
-      { value: 'critical', label: 'Critical' },
-      { value: 'out_of_stock', label: 'Out of Stock' },
-    ],
-  },
-  { name: 'lastCountedAt', label: 'Last Counted', type: 'date' },
+  { name: 'binCode', label: 'Bin Location (Optional)', type: 'select', options: [] },
+  // ============= AUTO-CALCULATED FIELDS (READ-ONLY) =============
+  { name: 'quantityOnHand', label: 'On Hand (Auto-Calculated)', type: 'number', required: false, readonly: true, disabled: true },
+  { name: 'quantityReserved', label: 'Reserved (Auto-Calculated)', type: 'number', required: false, readonly: true, disabled: true },
+  { name: 'quantityAvailable', label: 'Available = On Hand - Reserved (Auto-Calculated)', type: 'number', required: false, readonly: true, disabled: true },
+  { name: 'quantityInTransit', label: 'In Transit (Auto-Calculated)', type: 'number', required: false, readonly: true, disabled: true },
+  { name: 'reorderStatus', label: 'Reorder Status (Auto-Calculated)', type: 'text', required: false, readonly: true, disabled: true },
+  // ============= USER INPUT FIELDS =============
+  { name: 'reorderLevel', label: 'Reorder Level (Minimum Stock)', type: 'number', required: false },
+  { name: 'lastCountedAt', label: 'Last Counted', type: 'date', required: false },
 ]
 
 const movementFieldsBase: FormField[] = [
@@ -206,7 +198,11 @@ const InventoryModule: React.FC = () => {
   }
   const activeRecords = activeTab === 'stock' ? stock : activeTab === 'deliveries' ? deliveries : activeTab === 'receipts' ? receipts : counts
   const warehouseOptions = useMemo(
-    () => warehouses.map((warehouse) => ({ value: warehouse.name, label: `${warehouse.name} (${warehouse.warehouseCode || warehouse.warehouse_code})` })),
+    () => warehouses.map((warehouse) => {
+      const occupancyPercent = warehouse.capacity_sqm ? Math.round((warehouse.current_occupancy_sqm / warehouse.capacity_sqm) * 100) : 0
+      const label = `${warehouse.name} (${warehouse.warehouse_code || warehouse.warehouseCode}) - Occupancy: ${occupancyPercent}%`
+      return { value: warehouse.name, label }
+    }),
     [warehouses]
   )
   const productOptions = useMemo(
@@ -222,7 +218,12 @@ const InventoryModule: React.FC = () => {
     const source = selectedWarehouse
       ? binLocations.filter((bin) => bin.warehouseName === selectedWarehouse)
       : binLocations
-    return source.map((bin) => ({ value: bin.binCode, label: `${bin.binCode} - ${bin.warehouseName}` }))
+    // Add occupancy % to display
+    return source.map((bin) => {
+      const occupancyPercent = bin.capacity_units ? Math.round((bin.current_occupancy_units / bin.capacity_units) * 100) : 0
+      const label = `${bin.binCode} - ${bin.warehouseName} (${bin.current_occupancy_units}/${bin.capacity_units} units, ${occupancyPercent}%)`
+      return { value: bin.binCode, label }
+    })
   }, [binLocations, modalRecord?.warehouseName])
   const activeFields = useMemo(() => {
     const source = activeTab === 'stock' ? stockFieldsBase : activeTab === 'counts' ? countFieldsBase : movementFieldsBase
@@ -273,9 +274,7 @@ const InventoryModule: React.FC = () => {
           : '/inventory/stock-levels'
 
     try {
-      if (activeTab !== 'stock') {
-        await erpApi.post(path, record)
-      }
+      await erpApi.post(path, record)
     } catch (error: any) {
       showNotification('error', `Inventory save failed: ${error.message}`)
       return
@@ -397,10 +396,23 @@ const InventoryModule: React.FC = () => {
                     <>
                       <td className="px-4 py-3 text-sm font-semibold text-gray-900">{record.productName}</td>
                       <td className="px-4 py-3 text-sm text-gray-600">{record.warehouseName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{record.binCode || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {record.binCode ? (
+                          <>
+                            {record.binCode}
+                            {record.bin && (
+                              <div className="text-xs text-gray-500">
+                                {record.bin.current_occupancy_units}/{record.bin.capacity_units} ({Math.round((record.bin.current_occupancy_units / record.bin.capacity_units) * 100)}%)
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-right text-sm font-medium">{record.quantityOnHand ?? 0}</td>
                       <td className="px-4 py-3 text-right text-sm font-medium">{record.quantityAvailable ?? 0}</td>
-                      <td className="px-4 py-3"><StatusBadge status={record.reorderStatus || 'normal'} /></td>
+                      <td className="px-4 py-3"><StatusBadge status={record.reorderStatus || 'optimal'} /></td>
                     </>
                   ) : (
                     <>

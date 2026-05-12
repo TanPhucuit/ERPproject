@@ -1,31 +1,31 @@
 ﻿id,warehouse_id,bin_code,description,capacity_units,current_occupancy_units,status,created_at,updated_at
-1,1,WH-HCM-A01-01-L1,Bin A0101L1 in SmartHome Ho Chi Minh City Warehouse,141,131,active,2024-08-19 05:53:55,2025-04-13 12:42:16
-2,1,WH-HCM-A01-02-L1,Bin A0102L1 in SmartHome Ho Chi Minh City Warehouse,333,49,active,2025-11-24 18:42:10,2025-01-21 00:14:56
-3,1,WH-HCM-A01-01-L2,Bin A0101L2 in SmartHome Ho Chi Minh City Warehouse,465,170,active,2024-01-28 12:43:03,2024-03-31 03:31:51
-4,1,WH-HCM-A01-02-L2,Bin A0102L2 in SmartHome Ho Chi Minh City Warehouse,463,171,active,2024-06-12 13:11:23,2025-10-17 00:35:42
-5,1,WH-HCM-A02-01-L1,Bin A0201L1 in SmartHome Ho Chi Minh City Warehouse,224,124,active,2025-04-29 16:10:38,2024-09-03 22:57:23
-6,1,WH-HCM-A02-02-L1,Bin A0202L1 in SmartHome Ho Chi Minh City Warehouse,77,179,active,2025-06-01 01:11:10,2024-09-26 05:48:03
-7,1,WH-HCM-A02-01-L2,Bin A0201L2 in SmartHome Ho Chi Minh City Warehouse,351,4,active,2025-08-07 07:51:17,2025-06-21 05:51:27
-8,1,WH-HCM-A02-02-L2,Bin A0202L2 in SmartHome Ho Chi Minh City Warehouse,79,145,active,2025-09-28 07:36:54,2024-07-24 16:41:51
-9,1,WH-HCM-A03-01-L1,Bin A0301L1 in SmartHome Ho Chi Minh City Warehouse,126,111,active,2024-05-17 06:45:13,2025-11-15 18:42:23
-10,1,WH-HCM-A03-02-L1,Bin A0302L1 in SmartHome Ho Chi Minh City Warehouse,378,132,active,2025-07-08 10:21:26,2025-02-08 23:21:49
-11,2,WH-HN-A01-01-L1,Bin A0101L1 in SmartHome Hanoi Warehouse,500,79,active,2025-06-20 07:03:57,2025-06-01 19:18:25
-12,2,WH-HN-A01-02-L1,Bin A0102L1 in SmartHome Hanoi Warehouse,386,128,active,2025-10-08 07:14:40,2025-12-26 04:51:15
-13,2,WH-HN-A01-01-L2,Bin A0101L2 in SmartHome Hanoi Warehouse,181,137,active,2024-04-29 15:02:04,2024-10-27 20:39:41
-14,2,WH-HN-A01-02-L2,Bin A0102L2 in SmartHome Hanoi Warehouse,273,66,active,2025-06-22 17:41:46,2026-03-09 07:53:06
-15,2,WH-HN-A02-01-L1,Bin A0201L1 in SmartHome Hanoi Warehouse,286,56,active,2024-08-05 03:24:03,2024-05-10 05:35:19
-16,2,WH-HN-A02-02-L1,Bin A0202L1 in SmartHome Hanoi Warehouse,239,72,active,2024-07-23 09:46:20,2025-07-06 07:20:05
-17,2,WH-HN-A02-01-L2,Bin A0201L2 in SmartHome Hanoi Warehouse,243,35,active,2025-07-05 03:10:52,2025-06-03 16:52:09
-18,2,WH-HN-A02-02-L2,Bin A0202L2 in SmartHome Hanoi Warehouse,283,111,active,2025-01-09 17:48:22,2025-03-15 23:52:00
-19,2,WH-HN-A03-01-L1,Bin A0301L1 in SmartHome Hanoi Warehouse,272,16,active,2025-05-06 07:24:09,2024-08-14 21:28:03
-20,2,WH-HN-A03-02-L1,Bin A0302L1 in SmartHome Hanoi Warehouse,424,70,active,2026-03-13 04:28:16,2024-02-06 09:54:07
-21,3,WH-DN-A01-01-L1,Bin A0101L1 in SmartHome Da Nang Warehouse,200,163,active,2024-02-07 22:21:47,2026-03-22 18:00:06
-22,3,WH-DN-A01-02-L1,Bin A0102L1 in SmartHome Da Nang Warehouse,212,29,active,2025-07-29 15:32:26,2025-08-14 06:24:38
-23,3,WH-DN-A01-01-L2,Bin A0101L2 in SmartHome Da Nang Warehouse,202,193,active,2024-09-16 00:14:14,2024-07-01 19:21:59
-24,3,WH-DN-A01-02-L2,Bin A0102L2 in SmartHome Da Nang Warehouse,130,152,active,2025-02-22 11:40:52,2024-10-19 06:25:56
-25,3,WH-DN-A02-01-L1,Bin A0201L1 in SmartHome Da Nang Warehouse,414,6,active,2024-03-08 08:23:09,2024-02-24 08:07:46
-26,3,WH-DN-A02-02-L1,Bin A0202L1 in SmartHome Da Nang Warehouse,471,63,active,2024-04-05 04:25:42,2025-07-23 15:42:22
-27,3,WH-DN-A02-01-L2,Bin A0201L2 in SmartHome Da Nang Warehouse,193,31,active,2025-11-19 11:28:51,2025-11-18 02:02:29
-28,3,WH-DN-A02-02-L2,Bin A0202L2 in SmartHome Da Nang Warehouse,358,147,active,2025-09-12 06:41:26,2026-02-14 00:05:43
-29,3,WH-DN-A03-01-L1,Bin A0301L1 in SmartHome Da Nang Warehouse,272,95,active,2025-09-02 19:31:36,2025-10-08 10:43:03
-30,3,WH-DN-A03-02-L1,Bin A0302L1 in SmartHome Da Nang Warehouse,122,190,active,2025-06-21 12:57:57,2025-10-26 21:57:54
+1,1,WH-HCM-A01-01-L1,Bin A0101L1 in SmartHome Ho Chi Minh City Warehouse,393,0,active,2024-03-15 22:35:27,2025-06-06 11:46:56
+2,1,WH-HCM-A01-02-L1,Bin A0102L1 in SmartHome Ho Chi Minh City Warehouse,346,0,active,2025-03-08 06:11:36,2024-04-01 01:01:08
+3,1,WH-HCM-A01-01-L2,Bin A0101L2 in SmartHome Ho Chi Minh City Warehouse,402,0,active,2025-04-19 04:57:13,2026-01-23 11:57:14
+4,1,WH-HCM-A01-02-L2,Bin A0102L2 in SmartHome Ho Chi Minh City Warehouse,394,0,active,2024-09-25 14:58:42,2024-02-17 18:30:00
+5,1,WH-HCM-A02-01-L1,Bin A0201L1 in SmartHome Ho Chi Minh City Warehouse,266,0,active,2025-04-22 10:32:37,2024-04-25 16:24:25
+6,1,WH-HCM-A02-02-L1,Bin A0202L1 in SmartHome Ho Chi Minh City Warehouse,384,0,active,2025-11-28 15:43:03,2025-11-25 00:06:44
+7,1,WH-HCM-A02-01-L2,Bin A0201L2 in SmartHome Ho Chi Minh City Warehouse,291,0,active,2024-12-21 05:29:20,2026-02-28 23:17:50
+8,1,WH-HCM-A02-02-L2,Bin A0202L2 in SmartHome Ho Chi Minh City Warehouse,178,0,active,2024-10-13 14:59:35,2025-11-16 04:05:22
+9,1,WH-HCM-A03-01-L1,Bin A0301L1 in SmartHome Ho Chi Minh City Warehouse,270,0,active,2024-02-02 12:21:35,2025-03-04 08:48:05
+10,1,WH-HCM-A03-02-L1,Bin A0302L1 in SmartHome Ho Chi Minh City Warehouse,152,0,active,2025-05-10 23:30:35,2025-03-07 02:45:07
+11,2,WH-HN-A01-01-L1,Bin A0101L1 in SmartHome Hanoi Warehouse,259,0,active,2025-01-05 01:30:58,2025-01-22 20:11:36
+12,2,WH-HN-A01-02-L1,Bin A0102L1 in SmartHome Hanoi Warehouse,201,0,active,2024-07-02 05:12:22,2025-11-23 17:10:40
+13,2,WH-HN-A01-01-L2,Bin A0101L2 in SmartHome Hanoi Warehouse,58,0,active,2024-06-25 12:45:42,2025-07-06 19:18:22
+14,2,WH-HN-A01-02-L2,Bin A0102L2 in SmartHome Hanoi Warehouse,423,0,active,2024-08-04 03:38:01,2025-01-29 23:47:47
+15,2,WH-HN-A02-01-L1,Bin A0201L1 in SmartHome Hanoi Warehouse,273,0,active,2026-01-15 15:07:37,2024-09-04 12:11:44
+16,2,WH-HN-A02-02-L1,Bin A0202L1 in SmartHome Hanoi Warehouse,280,0,active,2025-06-04 21:46:54,2025-09-26 15:48:40
+17,2,WH-HN-A02-01-L2,Bin A0201L2 in SmartHome Hanoi Warehouse,83,0,active,2024-05-13 12:35:29,2025-06-29 20:39:21
+18,2,WH-HN-A02-02-L2,Bin A0202L2 in SmartHome Hanoi Warehouse,361,0,active,2026-01-10 12:53:51,2026-05-01 18:58:13
+19,2,WH-HN-A03-01-L1,Bin A0301L1 in SmartHome Hanoi Warehouse,348,0,active,2024-09-21 07:59:43,2025-05-26 08:41:07
+20,2,WH-HN-A03-02-L1,Bin A0302L1 in SmartHome Hanoi Warehouse,241,0,active,2025-02-22 22:47:53,2025-08-04 08:37:44
+21,3,WH-DN-A01-01-L1,Bin A0101L1 in SmartHome Da Nang Warehouse,381,0,active,2026-04-03 09:53:17,2024-12-12 12:50:41
+22,3,WH-DN-A01-02-L1,Bin A0102L1 in SmartHome Da Nang Warehouse,72,0,active,2024-03-05 22:33:44,2026-04-08 19:31:10
+23,3,WH-DN-A01-01-L2,Bin A0101L2 in SmartHome Da Nang Warehouse,298,0,active,2024-02-20 02:04:56,2024-03-12 05:16:43
+24,3,WH-DN-A01-02-L2,Bin A0102L2 in SmartHome Da Nang Warehouse,286,0,active,2025-10-06 21:32:51,2024-06-13 23:00:20
+25,3,WH-DN-A02-01-L1,Bin A0201L1 in SmartHome Da Nang Warehouse,291,0,active,2024-01-04 04:07:05,2026-01-10 12:05:19
+26,3,WH-DN-A02-02-L1,Bin A0202L1 in SmartHome Da Nang Warehouse,404,0,active,2024-03-02 04:10:57,2025-06-02 22:18:42
+27,3,WH-DN-A02-01-L2,Bin A0201L2 in SmartHome Da Nang Warehouse,344,0,active,2024-09-26 16:40:46,2025-02-20 14:51:17
+28,3,WH-DN-A02-02-L2,Bin A0202L2 in SmartHome Da Nang Warehouse,116,0,active,2024-09-22 18:05:31,2024-01-09 16:11:20
+29,3,WH-DN-A03-01-L1,Bin A0301L1 in SmartHome Da Nang Warehouse,139,0,active,2025-12-04 02:59:37,2025-03-12 05:33:35
+30,3,WH-DN-A03-02-L1,Bin A0302L1 in SmartHome Da Nang Warehouse,187,0,active,2024-09-08 15:35:53,2025-05-08 06:57:27

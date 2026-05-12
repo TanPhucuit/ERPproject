@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { Search, Plus, Trash2, X } from 'lucide-react'
 import { erpApi } from '../services/erpApi'
 import {
   ActionToolbar,
@@ -14,9 +15,353 @@ import {
 } from '../components/OdooLite'
 import { useUIStore } from '../stores/uiStore'
 
+// ========== RFQ LINE TYPE ==========
+interface RFQLine {
+  id: string
+  product_id: string
+  product_name: string
+  product_sku: string
+  quantity_required: number
+  required_delivery_date?: string
+  notes?: string
+}
+
+interface RFQSupplierQuotation {
+  supplier_id: string
+  supplier_name: string
+  quoted_price: number
+  quoted_lead_time_days?: number
+  minimum_order_quantity?: number
+  is_selected: boolean
+}
+
+// ========== PO LINE TYPE ==========
+interface POLine {
+  id: string
+  product_id: string
+  product_name: string
+  product_sku: string
+  product_cost_price?: number
+  quantity_ordered: number
+  unit_price: number
+  line_total?: number
+  required_delivery_date?: string
+  notes?: string
+}
+
+// ========== CALCULATION HELPERS ==========
+const calcRFQSubtotal = (lines: RFQLine[], quotations: Record<string, RFQSupplierQuotation[]>) => {
+  return lines.reduce((sum, line) => {
+    const selectedQuote = quotations[line.id]?.find(q => q.is_selected)
+    return sum + ((selectedQuote?.quoted_price || 0) * line.quantity_required)
+  }, 0)
+}
+
+const calcPOTotal = (lines: POLine[]) => {
+  return lines.reduce((sum, line) => sum + (line.line_total || (line.unit_price * line.quantity_ordered)), 0)
+}
+
+// ========== RFQ LINES EDITOR ==========
+const RFQLinesEditor: React.FC<{
+  lines: RFQLine[]
+  quotations: Record<string, RFQSupplierQuotation[]>
+  onLinesChange: (lines: RFQLine[]) => void
+  onQuotationsChange: (quotations: Record<string, RFQSupplierQuotation[]>) => void
+  products: any[]
+  suppliers: any[]
+}> = ({ lines, quotations, onLinesChange, onQuotationsChange, products, suppliers }) => {
+  const [search, setSearch] = useState('')
+  const [showDropdown, setShowDropdown] = useState(false)
+
+  const filteredProducts = products.filter(p =>
+    !lines.some(l => l.product_id === p.id) &&
+    ((p.name || '').toLowerCase().includes(search.toLowerCase()) ||
+     (p.sku || '').toLowerCase().includes(search.toLowerCase()))
+  )
+
+  const addProduct = (product: any) => {
+    const newLine: RFQLine = {
+      id: `rfq-${Date.now()}-${Math.random()}`,
+      product_id: product.id,
+      product_name: product.name,
+      product_sku: product.sku,
+      quantity_required: 1,
+      required_delivery_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    }
+    onLinesChange([...lines, newLine])
+    setSearch('')
+    setShowDropdown(false)
+  }
+
+  const updateLine = (id: string, key: keyof RFQLine, value: any) => {
+    onLinesChange(lines.map(l => l.id === id ? { ...l, [key]: value } : l))
+  }
+
+  const removeLine = (id: string) => {
+    onLinesChange(lines.filter(l => l.id !== id))
+    const newQuotations = { ...quotations }
+    delete newQuotations[id]
+    onQuotationsChange(newQuotations)
+  }
+
+  const toggleSupplierSelection = (lineId: string, supplierId: string) => {
+    const lineQuotes = quotations[lineId] || []
+    onQuotationsChange({
+      ...quotations,
+      [lineId]: lineQuotes.map(q => ({
+        ...q,
+        is_selected: q.supplier_id === supplierId ? !q.is_selected : false,
+      })),
+    })
+  }
+
+  const updateQuotation = (lineId: string, supplierId: string, key: string, value: any) => {
+    const lineQuotes = quotations[lineId] || []
+    onQuotationsChange({
+      ...quotations,
+      [lineId]: lineQuotes.map(q =>
+        q.supplier_id === supplierId ? { ...q, [key]: value } : q
+      ),
+    })
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 space-y-4">
+      {/* Search & Add Product */}
+      <div className="p-3 border-b border-gray-200">
+        <div className="relative">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => { setSearch(e.target.value); setShowDropdown(true) }}
+            onFocus={() => setShowDropdown(true)}
+            placeholder="Search products to add to RFQ..."
+            className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+        {showDropdown && filteredProducts.length > 0 && (
+          <div className="absolute z-20 mt-1 w-full max-w-lg rounded-md border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
+            {filteredProducts.slice(0, 10).map(p => (
+              <button key={p.id} onClick={() => addProduct(p)}
+                className="w-full px-4 py-2 text-left text-sm hover:bg-blue-50 flex justify-between items-center">
+                <span className="font-medium text-gray-900">{p.name}</span>
+                <span className="text-xs text-gray-500">{p.sku}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* RFQ Lines */}
+      {lines.length > 0 ? (
+        <div className="p-3 space-y-4">
+          {lines.map(line => (
+            <div key={line.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+              {/* Line Header */}
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <p className="font-bold text-gray-900">{line.product_name}</p>
+                  <p className="text-xs text-gray-500">{line.product_sku}</p>
+                </div>
+                <button onClick={() => removeLine(line.id)} className="text-red-500 hover:bg-red-50 p-1 rounded">
+                  <Trash2 size={16} />
+                </button>
+              </div>
+
+              {/* Line Details */}
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Qty Required</label>
+                  <input type="number" min={1} value={line.quantity_required}
+                    onChange={e => updateLine(line.id, 'quantity_required', Number(e.target.value))}
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Delivery Date</label>
+                  <input type="date" value={line.required_delivery_date || ''}
+                    onChange={e => updateLine(line.id, 'required_delivery_date', e.target.value)}
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Notes</label>
+                  <input type="text" value={line.notes || ''}
+                    onChange={e => updateLine(line.id, 'notes', e.target.value)}
+                    placeholder="Optional notes"
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+                </div>
+              </div>
+
+              {/* Supplier Quotations */}
+              <div className="bg-white rounded border border-gray-200 p-3">
+                <p className="text-xs font-semibold text-gray-700 mb-2">Supplier Quotations:</p>
+                {quotations[line.id]?.length > 0 ? (
+                  <div className="space-y-2">
+                    {quotations[line.id]!.map((quote, idx) => (
+                      <div key={idx} className="flex items-center gap-2 p-2 border border-gray-100 rounded">
+                        <input type="checkbox" checked={quote.is_selected}
+                          onChange={() => toggleSupplierSelection(line.id, quote.supplier_id)}
+                          className="w-4 h-4" />
+                        <span className="text-sm font-medium flex-1">{quote.supplier_name}</span>
+                        <input type="number" min={0} value={quote.quoted_price}
+                          onChange={e => updateQuotation(line.id, quote.supplier_id, 'quoted_price', Number(e.target.value))}
+                          placeholder="Price"
+                          className="w-24 rounded border border-gray-300 px-2 py-1 text-sm" />
+                        <span className="text-sm text-gray-600">{formatCurrency(quote.quoted_price * line.quantity_required)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500">Add suppliers by editing RFQ after creation.</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="p-6 text-center text-sm text-gray-500">
+          No products added. Use search above to add products to RFQ.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ========== PO LINES EDITOR ==========
+const POLinesEditor: React.FC<{
+  lines: POLine[]
+  onLinesChange: (lines: POLine[]) => void
+  products: any[]
+}> = ({ lines, onLinesChange, products }) => {
+  const [search, setSearch] = useState('')
+  const [showDropdown, setShowDropdown] = useState(false)
+
+  const filteredProducts = products.filter(p =>
+    !lines.some(l => l.product_id === p.id) &&
+    ((p.name || '').toLowerCase().includes(search.toLowerCase()) ||
+     (p.sku || '').toLowerCase().includes(search.toLowerCase()))
+  )
+
+  const addProduct = (product: any) => {
+    const newLine: POLine = {
+      id: `po-${Date.now()}-${Math.random()}`,
+      product_id: product.id,
+      product_name: product.name,
+      product_sku: product.sku,
+      product_cost_price: product.cost_price || 0,
+      quantity_ordered: 1,
+      unit_price: product.cost_price || 0,
+      line_total: product.cost_price || 0,
+      required_delivery_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    }
+    onLinesChange([...lines, newLine])
+    setSearch('')
+    setShowDropdown(false)
+  }
+
+  const updateLine = (id: string, key: keyof POLine, value: any) => {
+    onLinesChange(lines.map(l => {
+      if (l.id === id) {
+        const updated = { ...l, [key]: value }
+        // Auto-calculate line_total when quantity or unit_price changes
+        if (key === 'quantity_ordered' || key === 'unit_price') {
+          updated.line_total = updated.unit_price * updated.quantity_ordered
+        }
+        return updated
+      }
+      return l
+    }))
+  }
+
+  const removeLine = (id: string) => {
+    onLinesChange(lines.filter(l => l.id !== id))
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 space-y-4">
+      {/* Search & Add Product */}
+      <div className="p-3 border-b border-gray-200">
+        <div className="relative">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => { setSearch(e.target.value); setShowDropdown(true) }}
+            onFocus={() => setShowDropdown(true)}
+            placeholder="Search products to add to PO..."
+            className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+        {showDropdown && filteredProducts.length > 0 && (
+          <div className="absolute z-20 mt-1 w-full max-w-lg rounded-md border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
+            {filteredProducts.slice(0, 10).map(p => (
+              <button key={p.id} onClick={() => addProduct(p)}
+                className="w-full px-4 py-2 text-left text-sm hover:bg-blue-50 flex justify-between items-center">
+                <span className="font-medium text-gray-900">{p.name}</span>
+                <span className="text-xs text-gray-500">{p.sku}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* PO Lines */}
+      {lines.length > 0 ? (
+        <div className="p-3 space-y-4">
+          {lines.map(line => (
+            <div key={line.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+              {/* Line Header */}
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <p className="font-bold text-gray-900">{line.product_name}</p>
+                  <p className="text-xs text-gray-500">{line.product_sku}</p>
+                </div>
+                <button onClick={() => removeLine(line.id)} className="text-red-500 hover:bg-red-50 p-1 rounded">
+                  <Trash2 size={16} />
+                </button>
+              </div>
+
+              {/* Line Details */}
+              <div className="grid grid-cols-4 gap-3 mb-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Qty Ordered</label>
+                  <input type="number" min={1} value={line.quantity_ordered}
+                    onChange={e => updateLine(line.id, 'quantity_ordered', Number(e.target.value))}
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Unit Price</label>
+                  <input type="number" min={0} step={0.01} value={line.unit_price}
+                    onChange={e => updateLine(line.id, 'unit_price', Number(e.target.value))}
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Line Total</label>
+                  <input type="number" value={line.line_total || 0} readOnly
+                    className="w-full rounded border border-gray-300 bg-gray-100 px-2 py-1 text-sm font-semibold" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Delivery Date</label>
+                  <input type="date" value={line.required_delivery_date || ''}
+                    onChange={e => updateLine(line.id, 'required_delivery_date', e.target.value)}
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="p-6 text-center text-sm text-gray-500">
+          No products added. Use search above to add products to PO.
+        </div>
+      )}
+    </div>
+  )
+}
+
 const poFieldsBase: FormField[] = [
   { name: 'poNumber', label: 'PO #', type: 'text', required: true },
-  { name: 'supplierName', label: 'Supplier', type: 'select', required: true, options: [] },
+  { name: 'supplierId', label: 'Supplier', type: 'select', required: true, options: [] },
   { name: 'rfqNumber', label: 'RFQ', type: 'select', options: [] },
   { name: 'orderDate', label: 'PO Date', type: 'date', required: true },
   { name: 'requiredDeliveryDate', label: 'Required Delivery Date', type: 'date' },
@@ -44,7 +389,7 @@ const rfqFieldsBase: FormField[] = [
   { name: 'rfqNumber', label: 'RFQ #', type: 'text', required: true },
   { name: 'issuedDate', label: 'Issued Date', type: 'date', required: true },
   { name: 'closingDate', label: 'Closing Date', type: 'date' },
-  { name: 'totalEstimatedCost', label: 'Total Estimated Cost', type: 'number' },
+  { name: 'totalEstimatedCost', label: 'Total Estimated Cost (Auto-Calculated)', type: 'number', readonly: true },
   {
     name: 'status',
     label: 'Status',
@@ -66,12 +411,318 @@ const flow: Record<string, string> = {
   received: 'received',
 }
 
+// ========== RFQ CUSTOM MODAL ==========
+const RFQModal: React.FC<{
+  isOpen: boolean
+  record: any
+  suppliers: any[]
+  products: any[]
+  onClose: () => void
+  onSave: (data: any) => void
+}> = ({ isOpen, record, suppliers, products, onClose, onSave }) => {
+  const [form, setForm] = useState<any>({
+    rfqNumber: '',
+    issuedDate: new Date().toISOString().slice(0, 10),
+    closingDate: '',
+    totalEstimatedCost: 0,
+    status: 'draft',
+    notes: '',
+    lines: [],
+    quotations: {},
+  })
+
+  useEffect(() => {
+    if (record) {
+      setForm(record)
+    } else {
+      setForm({
+        rfqNumber: `RFQ-${Date.now().toString().slice(-5)}`,
+        issuedDate: new Date().toISOString().slice(0, 10),
+        closingDate: '',
+        totalEstimatedCost: 0,
+        status: 'draft',
+        notes: '',
+        lines: [],
+        quotations: {},
+      })
+    }
+  }, [record, isOpen])
+
+  const handleSave = () => {
+    if (form.lines.length === 0) {
+      alert('RFQ must have at least 1 product line')
+      return
+    }
+    const totalEstimatedCost = calcRFQSubtotal(form.lines, form.quotations)
+    onSave({ ...form, totalEstimatedCost })
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto">
+      <div className="w-full max-w-5xl bg-white shadow-xl rounded-lg mt-4 mb-8">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <h2 className="text-xl font-bold text-gray-900">
+            {record?.id ? 'Edit RFQ' : 'Create new RFQ'}
+          </h2>
+          <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100"><X size={20} /></button>
+        </div>
+
+        <div className="max-h-[75vh] overflow-y-auto p-6 space-y-6">
+          {/* Header Fields */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">RFQ #</label>
+              <input type="text" value={form.rfqNumber} readOnly
+                className="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Issued Date</label>
+              <input type="date" value={form.issuedDate}
+                onChange={e => setForm({ ...form, issuedDate: e.target.value })}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Closing Date</label>
+              <input type="date" value={form.closingDate}
+                onChange={e => setForm({ ...form, closingDate: e.target.value })}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          {/* Product Lines */}
+          <div>
+            <h3 className="mb-2 text-sm font-bold text-gray-800 uppercase tracking-wide">📦 Products ({form.lines.length})</h3>
+            <RFQLinesEditor
+              lines={form.lines}
+              quotations={form.quotations}
+              onLinesChange={lines => setForm({ ...form, lines })}
+              onQuotationsChange={quotations => setForm({ ...form, quotations })}
+              products={products}
+              suppliers={suppliers}
+            />
+          </div>
+
+          {/* Summary */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-gray-900">Total Estimated Cost:</span>
+              <span className="font-bold text-blue-700 text-lg">{formatCurrency(calcRFQSubtotal(form.lines, form.quotations))}</span>
+            </div>
+          </div>
+
+          {/* Status & Notes */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Status</label>
+              <select value={form.status}
+                onChange={e => setForm({ ...form, status: e.target.value })}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                <option value="draft">Draft</option>
+                <option value="sent">Sent</option>
+                <option value="closed">Closed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
+              <textarea value={form.notes}
+                onChange={e => setForm({ ...form, notes: e.target.value })}
+                rows={2}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                placeholder="RFQ notes..." />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
+          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">
+            Cancel
+          </button>
+          <button onClick={handleSave} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+            {record?.id ? 'Update' : 'Create'} RFQ
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ========== PO CUSTOM MODAL ==========
+const POModal: React.FC<{
+  isOpen: boolean
+  record: any
+  suppliers: any[]
+  products: any[]
+  onClose: () => void
+  onSave: (data: any) => void
+}> = ({ isOpen, record, suppliers, products, onClose, onSave }) => {
+  const [form, setForm] = useState<any>({
+    poNumber: '',
+    supplierId: '',
+    orderDate: new Date().toISOString().slice(0, 10),
+    requiredDeliveryDate: '',
+    actualDeliveryDate: '',
+    totalAmountBeforeTax: 0,
+    totalTax: 0,
+    totalAmount: 0,
+    receivedAmount: 0,
+    status: 'draft',
+    notes: '',
+    lines: [],
+  })
+
+  useEffect(() => {
+    if (record) {
+      setForm(record)
+    } else {
+      setForm({
+        poNumber: `PO-${Date.now().toString().slice(-5)}`,
+        supplierId: '',
+        orderDate: new Date().toISOString().slice(0, 10),
+        requiredDeliveryDate: '',
+        actualDeliveryDate: '',
+        totalAmountBeforeTax: 0,
+        totalTax: 0,
+        totalAmount: 0,
+        receivedAmount: 0,
+        status: 'draft',
+        notes: '',
+        lines: [],
+      })
+    }
+  }, [record, isOpen])
+
+  const handleSave = () => {
+    if (form.lines.length === 0) {
+      alert('PO must have at least 1 product line')
+      return
+    }
+    const subtotal = calcPOTotal(form.lines)
+    const totalWithTax = subtotal + (form.totalTax || 0)
+    onSave({ ...form, totalAmountBeforeTax: subtotal, totalAmount: totalWithTax })
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto">
+      <div className="w-full max-w-5xl bg-white shadow-xl rounded-lg mt-4 mb-8">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <h2 className="text-xl font-bold text-gray-900">
+            {record?.id ? 'Edit Purchase Order' : 'Create new Purchase Order'}
+          </h2>
+          <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100"><X size={20} /></button>
+        </div>
+
+        <div className="max-h-[75vh] overflow-y-auto p-6 space-y-6">
+          {/* Header Fields */}
+          <div className="grid grid-cols-4 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">PO #</label>
+              <input type="text" value={form.poNumber} readOnly
+                className="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Supplier</label>
+              <select value={form.supplierId}
+                onChange={e => setForm({ ...form, supplierId: e.target.value })}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                <option value="">Select supplier...</option>
+                {suppliers.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">PO Date</label>
+              <input type="date" value={form.orderDate}
+                onChange={e => setForm({ ...form, orderDate: e.target.value })}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Required Delivery</label>
+              <input type="date" value={form.requiredDeliveryDate}
+                onChange={e => setForm({ ...form, requiredDeliveryDate: e.target.value })}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          {/* Product Lines */}
+          <div>
+            <h3 className="mb-2 text-sm font-bold text-gray-800 uppercase tracking-wide">📦 Products ({form.lines.length})</h3>
+            <POLinesEditor
+              lines={form.lines}
+              onLinesChange={lines => setForm({ ...form, lines })}
+              products={products}
+            />
+          </div>
+
+          {/* Summary */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-gray-900">Subtotal:</span>
+              <span className="font-semibold text-gray-900">{formatCurrency(calcPOTotal(form.lines))}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-gray-900">Tax:</span>
+              <input type="number" min={0} step={0.01} value={form.totalTax}
+                onChange={e => setForm({ ...form, totalTax: Number(e.target.value) })}
+                className="w-32 rounded border border-gray-300 px-2 py-1 text-sm text-right" />
+            </div>
+            <div className="border-t border-gray-300 pt-2 flex items-center justify-between">
+              <span className="font-bold text-gray-900">Total:</span>
+              <span className="font-bold text-blue-700 text-lg">{formatCurrency(calcPOTotal(form.lines) + (form.totalTax || 0))}</span>
+            </div>
+          </div>
+
+          {/* Status & Notes */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Status</label>
+              <select value={form.status}
+                onChange={e => setForm({ ...form, status: e.target.value })}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                <option value="draft">Draft</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="partial_received">Partial Received</option>
+                <option value="received">Received</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
+              <textarea value={form.notes}
+                onChange={e => setForm({ ...form, notes: e.target.value })}
+                rows={2}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                placeholder="PO notes..." />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
+          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">
+            Cancel
+          </button>
+          <button onClick={handleSave} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+            {record?.id ? 'Update' : 'Create'} PO
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const PurchaseModule: React.FC = () => {
   const showNotification = useUIStore((state) => state.showNotification)
   const [activeTab, setActiveTab] = useState('purchase-orders')
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
   const [rfqs, setRfqs] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
+  const [products, setProducts] = useState<any[]>([])  // FIX #6: Add products state
   const [rfqList, setRfqList] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -89,6 +740,7 @@ const PurchaseModule: React.FC = () => {
           records.map((po) => ({
             ...po,
             poNumber: po.purchase_order_number,
+            supplierId: po.supplier_id,
             supplierName: po.supplier?.name || po.supplier_id,
             orderDate: po.order_date,
             requiredDeliveryDate: po.required_delivery_date,
@@ -134,6 +786,11 @@ const PurchaseModule: React.FC = () => {
       .get<any[]>('/suppliers?limit=1000')
       .then(setSuppliers)
       .catch(() => setSuppliers([]))
+
+    erpApi
+      .get<any[]>('/products?limit=1000')  // FIX #6: Load products for both RFQ and PO editors
+      .then(setProducts)
+      .catch(() => setProducts([]))
   }, [])
 
   const activeRecords = activeTab === 'purchase-orders' ? purchaseOrders : rfqs
@@ -148,7 +805,7 @@ const PurchaseModule: React.FC = () => {
   const fields = useMemo(() => {
     const source = activeTab === 'purchase-orders' ? poFieldsBase : rfqFieldsBase
     return source.map((field) => {
-      if (field.name === 'supplierName') return { ...field, options: supplierOptions }
+      if (field.name === 'supplierId') return { ...field, options: supplierOptions }
       if (field.name === 'rfqNumber') return { ...field, options: rfqOptions }
       return field
     })
@@ -167,6 +824,7 @@ const PurchaseModule: React.FC = () => {
     setModalRecord({
       id: `${activeTab}-${Date.now()}`,
       [isPO ? 'poNumber' : 'rfqNumber']: `${isPO ? 'PO' : 'RFQ'}-${Date.now().toString().slice(-5)}`,
+      supplierId: '',
       orderDate: new Date().toISOString().slice(0, 10),
       issuedDate: new Date().toISOString().slice(0, 10),
       requiredDeliveryDate: '',
@@ -189,7 +847,7 @@ const PurchaseModule: React.FC = () => {
     const payload = isPO
       ? {
           purchase_order_number: record.poNumber,
-          supplier_id: supplierOptions.find(s => s.label === record.supplierName)?.value || record.supplierName,
+          supplier_id: record.supplierId,
           rfq_id: rfqOptions.find(r => r.label === record.rfqNumber)?.value || record.rfqNumber,
           order_date: record.orderDate,
           required_delivery_date: record.requiredDeliveryDate,
@@ -200,13 +858,17 @@ const PurchaseModule: React.FC = () => {
           received_amount: record.receivedAmount,
           status: record.status,
           notes: record.notes,
+          lines: record.lines || [],  // FIX #5: Include PO lines if present
         }
       : {
           rfq_number: record.rfqNumber,
           issued_date: record.issuedDate,
           closing_date: record.closingDate,
+          total_estimated_cost: record.totalEstimatedCost,
           status: record.status,
           notes: record.notes,
+          lines: record.lines || [],  // FIX #5: Include RFQ lines
+          quotations: record.quotations || {},  // FIX #5: Include supplier quotations
         }
     try {
       if (activeRecords.some((item) => item.id === record.id) && !record.id.startsWith(activeTab)) {
@@ -326,8 +988,8 @@ const PurchaseModule: React.FC = () => {
                 <tr key={record.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.poNumber || record.rfqNumber}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{record.supplierName}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{record.productName || 'Device replenishment'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{record.date}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{record.notes || 'Device replenishment'}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{record.orderDate || record.issuedDate || record.closingDate}</td>
                   <td className="px-4 py-3"><StatusBadge status={record.status} /></td>
                   <td className="px-4 py-3 text-right text-sm font-semibold">{formatCurrency(record.total || record.targetPrice)}</td>
                   <td className="px-4 py-3">{renderActions(record)}</td>
@@ -351,11 +1013,22 @@ const PurchaseModule: React.FC = () => {
         />
       )}
 
-      <RecordModal
-        isOpen={modalOpen}
-        title={`${modalRecord && activeRecords.some((item) => item.id === modalRecord.id) ? 'Edit' : 'Create'} ${title}`}
+      {/* PO Custom Modal */}
+      <POModal
+        isOpen={modalOpen && activeTab === 'purchase-orders'}
         record={modalRecord}
-        fields={fields}
+        suppliers={suppliers}
+        products={products}
+        onClose={() => setModalOpen(false)}
+        onSave={saveRecord}
+      />
+
+      {/* RFQ Custom Modal */}
+      <RFQModal
+        isOpen={modalOpen && activeTab === 'rfqs'}
+        record={modalRecord}
+        suppliers={suppliers}
+        products={products}
         onClose={() => setModalOpen(false)}
         onSave={saveRecord}
       />
