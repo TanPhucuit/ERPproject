@@ -184,14 +184,7 @@ const AccountingModule: React.FC = () => {
       .get<any[]>('/accounting/credit-notes?limit=100')
       .then((records) => {
         setLoadError(null)
-        setCredits(records.map((note) => normalizeNote(note, true)))  // FIX #3: Use normalizeNote
-          ...note,
-          noteNumber: note.credit_note_number,
-          customerName: note.customer?.name || note.customer_id,
-          noteDate: note.credit_date,
-          totalAmount: note.total_amount || 0,
-          referenceDocument: note.invoice_id,
-        })))
+        setCredits(records.map((note) => normalizeNote(note, true)))
       })
       .catch((error) => {
         setCredits([])
