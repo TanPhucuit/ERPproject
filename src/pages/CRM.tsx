@@ -1,16 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
-  Calendar,
-  ChevronRight,
   FileText,
-  Plus,
   PhoneCall,
   PlusCircle,
   Search,
   Trash2,
   User,
-  UserCheck,
   X,
 } from 'lucide-react'
 import { erpApi } from '../services/erpApi'
@@ -322,7 +318,7 @@ const LeadModal: React.FC<{
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Loại khách hàng</p>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Loại khách hàng</label>
                 <div className="flex gap-3 mt-1">
                   {(['B2C', 'B2B'] as const).map(t => (
                     <label key={t} className={`flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer text-sm ${customerType === t ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}`}>
@@ -745,8 +741,6 @@ const CRMModule: React.FC = () => {
   const [activities, setActivities] = useState<any[]>([])
   const [users, setUsers] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
-  const [leadStagesData, setLeadStagesData] = useState<any[]>([])
-  const [activityTypes, setActivityTypes] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('all')
@@ -763,7 +757,7 @@ const CRMModule: React.FC = () => {
 
   const loadAll = async () => {
     try {
-      const [leadData, userData, productData, stageData, actTypeData, actData] = await Promise.all([
+      const [leadData, userData, productData, _stageData, _actTypeData, actData] = await Promise.all([
         erpApi.get<any[]>('/crm/leads?limit=100'),
         erpApi.get<any[]>('/users?limit=100'),
         erpApi.get<any[]>('/products?limit=1000'),
@@ -774,8 +768,6 @@ const CRMModule: React.FC = () => {
       setLeads(leadData)
       setUsers(userData)
       setProducts(productData)
-      setLeadStagesData(stageData)
-      setActivityTypes(actTypeData)
       setActivities(actData)
       setLoadError(null)
     } catch (e: any) {
@@ -850,7 +842,7 @@ const CRMModule: React.FC = () => {
         expected_close_date: formData.expected_close_date || null,
       }
 
-      let savedLead
+      let savedLead: any
       if (leadModalRecord?.id) {
         savedLead = await erpApi.put(`/crm/leads/${leadModalRecord.id}`, payload)
       } else {
@@ -1007,6 +999,12 @@ const CRMModule: React.FC = () => {
         </div>
       )}
 
+      {saving && (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
+          Đang xử lý dữ liệu...
+        </div>
+      )}
+
       <ModuleTabs
         activeTab={activeTab}
         onChange={setActiveTab}
@@ -1144,14 +1142,21 @@ const CRMModule: React.FC = () => {
       )}
 
       <LeadModal
-        isOpen={modalOpen}
-        record={modalRecord}
+        isOpen={leadModalOpen}
+        record={leadModalRecord}
         users={users}
-        products={products}
         existingCustomer={existingCustomer}
-        onClose={() => { setModalOpen(false); setModalRecord(null); setExistingCustomer(null) }}
-        onSave={handleSave}
+        onClose={() => { setLeadModalOpen(false); setLeadModalRecord(null); setExistingCustomer(null) }}
+        onSave={handleSaveLead}
         errorMessage={modalError}
+      />
+
+      <QuotationModal
+        isOpen={quotationModalOpen}
+        lead={quotationLead}
+        products={products}
+        onClose={() => { setQuotationModalOpen(false); setQuotationLead(null) }}
+        onSave={handleSaveQuotation}
       />
 
       <ActivityModal
