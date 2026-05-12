@@ -344,6 +344,7 @@ const SalesModal: React.FC<{
               <input type="text" value={form.quotation_number || form.order_number || '(tự động)'} readOnly
                 className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500" />
             </div>
+            {isOrder && (
             <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">
                 Khách hàng {isOrder && <span className="text-red-500">*</span>}
@@ -360,6 +361,7 @@ const SalesModal: React.FC<{
               </select>
               {errors.customer_id && <p className="mt-1 text-xs text-red-600">{errors.customer_id}</p>}
             </div>
+            )}
 
             {!isOrder && (
               <div>
@@ -617,7 +619,7 @@ const SalesModule: React.FC = () => {
     const path = isOrder ? '/sales-orders' : '/sales-orders/quotations'
     // Send ONLY what the user can edit + the line data
     const payload: any = {
-      customer_id: formData.customer_id,
+      customer_id: isOrder ? formData.customer_id : null,
       lead_id: formData.lead_id || null,
       quotation_id: isOrder ? (formData.quotation_id || null) : null,
       issued_date: formData.issued_date,

@@ -146,15 +146,20 @@ CREATE TABLE IF NOT EXISTS leads (
   stage_id UUID NOT NULL REFERENCES lead_stages(id) ON DELETE RESTRICT,
   source VARCHAR(100),  -- Direct, Website, Referral, Event, Cold Call, Email, etc.
   owner_id UUID REFERENCES users(id) ON DELETE SET NULL,  -- Sales Manager
+  customer_id UUID REFERENCES customers(id),
   estimated_value DECIMAL(15, 2),  -- Expected contract value (VNĐ)
   probability_percent INT DEFAULT 50,  -- Win probability (%)
   expected_close_date DATE,
   closed_date DATE,
   lead_rating VARCHAR(10),  -- Hot, Warm, Cold
   notes TEXT,
+  customer_type VARCHAR(10),
+  billing_address TEXT,
+  shipping_address TEXT,
+  tax_id VARCHAR(50),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  is_deleted BOOLEAN DEFAULT FALSE
+  is_auto_request BOOLEAN DEFAULT FALSE
 );
 
 CREATE INDEX idx_leads_company_name ON leads(company_name);
@@ -185,24 +190,18 @@ INSERT INTO activity_types (name, description) VALUES
 ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS activities (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  lead_id UUID REFERENCES leads(id) ON DELETE CASCADE,
-  activity_type_id UUID REFERENCES activity_types(id) ON DELETE RESTRICT,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  lead_id UUID REFERENCES leads(id),
+  activity_type_id UUID REFERENCES activity_types(id),
   description TEXT NOT NULL,
-  scheduled_date TIMESTAMP WITH TIME ZONE,
-  actual_date TIMESTAMP WITH TIME ZONE,
-  assigned_to_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  status VARCHAR(50) DEFAULT 'planned',  -- planned, in_progress, done, cancelled
-  outcome TEXT,  -- Result/notes after activity is done
-  attachments JSONB,  -- Array of {filename, url} for documents
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  activity_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  performed_by_id UUID REFERENCES users(id),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX idx_activities_lead_id ON activities(lead_id);
-CREATE INDEX idx_activities_assigned_to_id ON activities(assigned_to_id);
-CREATE INDEX idx_activities_status ON activities(status);
-CREATE INDEX idx_activities_scheduled_date ON activities(scheduled_date);
+CREATE INDEX idx_activities_performed_by_id ON activities(performed_by_id);
+CREATE INDEX idx_activities_activity_date ON activities(activity_date);
 
 -- ============================================================================
 -- 5. CUSTOMERS & ACCOUNTS
@@ -226,7 +225,6 @@ CREATE TABLE IF NOT EXISTS customers (
   credit_limit DECIMAL(15, 2) DEFAULT 0,
   credit_used DECIMAL(15, 2) DEFAULT 0,  -- Current outstanding balance
   payment_terms VARCHAR(50) DEFAULT 'NET30',  -- NET30, NET60, COD, Prepaid
-  lead_id UUID REFERENCES leads(id) ON DELETE SET NULL,  -- Link back to original lead
   status VARCHAR(50) DEFAULT 'active',  -- active, inactive, blocked
   created_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -238,7 +236,6 @@ CREATE INDEX idx_customers_name ON customers(name);
 CREATE INDEX idx_customers_customer_type ON customers(customer_type);
 CREATE INDEX idx_customers_status ON customers(status);
 CREATE INDEX idx_customers_is_deleted ON customers(is_deleted);
-CREATE INDEX idx_customers_lead_id ON customers(lead_id);
 
 -- ============================================================================
 -- 6. SUPPLIERS
@@ -303,8 +300,8 @@ CREATE TABLE IF NOT EXISTS quotations (
   issued_date DATE NOT NULL DEFAULT CURRENT_DATE,
   valid_until_date DATE NOT NULL,
   status VARCHAR(50) DEFAULT 'draft',  -- draft, sent, accepted, rejected, expired
-  total_amount_before_tax DECIMAL(15, 2) DEFAULT 0,
-  total_discount DECIMAL(15, 2) DEFAULT 0,
+  subtotal DECIMAL(15, 2) DEFAULT 0,
+  discount_amount DECIMAL(15, 2) DEFAULT 0,
   tax_amount DECIMAL(15, 2) DEFAULT 0,
   total_amount DECIMAL(15, 2) DEFAULT 0,
   estimated_profit DECIMAL(15, 2) DEFAULT 0,  -- Calculated: total revenue - total cost
@@ -353,8 +350,8 @@ CREATE TABLE IF NOT EXISTS sales_orders (
   required_delivery_date DATE NOT NULL,
   actual_delivery_date DATE,
   status VARCHAR(50) DEFAULT 'draft',  -- draft, confirmed, partially_shipped, shipped, delivered, cancelled
-  total_amount_before_tax DECIMAL(15, 2) DEFAULT 0,
-  total_discount DECIMAL(15, 2) DEFAULT 0,
+  subtotal DECIMAL(15, 2) DEFAULT 0,
+  discount_amount DECIMAL(15, 2) DEFAULT 0,
   tax_amount DECIMAL(15, 2) DEFAULT 0,
   total_amount DECIMAL(15, 2) DEFAULT 0,
   total_cost DECIMAL(15, 2) DEFAULT 0,  -- Sum of (quantity * cost_price) for all items
@@ -469,8 +466,8 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
   required_delivery_date DATE NOT NULL,
   actual_delivery_date DATE,
   status VARCHAR(50) DEFAULT 'draft',  -- draft, confirmed, partial_received, received, cancelled
-  total_amount_before_tax DECIMAL(15, 2) DEFAULT 0,
-  total_tax DECIMAL(15, 2) DEFAULT 0,
+  subtotal DECIMAL(15, 2) DEFAULT 0,
+  tax_amount DECIMAL(15, 2) DEFAULT 0,
   total_amount DECIMAL(15, 2) DEFAULT 0,
   received_amount DECIMAL(15, 2) DEFAULT 0,  -- Amount of items actually received
   created_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -961,8 +958,8 @@ CREATE TABLE IF NOT EXISTS customer_invoices (
   invoice_date DATE NOT NULL DEFAULT CURRENT_DATE,
   due_date DATE NOT NULL,
   status VARCHAR(50) DEFAULT 'draft',  -- draft, issued, sent, partial_paid, paid, overdue, cancelled
-  total_amount_before_tax DECIMAL(15, 2) DEFAULT 0,
-  total_tax DECIMAL(15, 2) DEFAULT 0,
+  subtotal DECIMAL(15, 2) DEFAULT 0,
+  tax_amount DECIMAL(15, 2) DEFAULT 0,
   total_amount DECIMAL(15, 2) DEFAULT 0,
   paid_amount DECIMAL(15, 2) DEFAULT 0,  -- Amount already received
   outstanding_amount DECIMAL(15, 2) GENERATED ALWAYS AS (
@@ -1012,8 +1009,8 @@ CREATE TABLE IF NOT EXISTS vendor_bills (
   bill_date DATE NOT NULL DEFAULT CURRENT_DATE,
   due_date DATE NOT NULL,
   status VARCHAR(50) DEFAULT 'draft',  -- draft, received, verified, partial_paid, paid, overdue, cancelled
-  total_amount_before_tax DECIMAL(15, 2) DEFAULT 0,
-  total_tax DECIMAL(15, 2) DEFAULT 0,
+  subtotal DECIMAL(15, 2) DEFAULT 0,
+  tax_amount DECIMAL(15, 2) DEFAULT 0,
   total_amount DECIMAL(15, 2) DEFAULT 0,
   paid_amount DECIMAL(15, 2) DEFAULT 0,
   outstanding_amount DECIMAL(15, 2) GENERATED ALWAYS AS (
@@ -1161,12 +1158,11 @@ CREATE TABLE IF NOT EXISTS customer_payments (
   invoice_id UUID NOT NULL REFERENCES customer_invoices(id) ON DELETE RESTRICT,
   customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
   payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  payment_method_id UUID NOT NULL REFERENCES payment_methods(id) ON DELETE RESTRICT,
+  payment_method VARCHAR(100),
   amount DECIMAL(15, 2) NOT NULL,
-  reference_number VARCHAR(100),  -- Check number, Bank ref, etc.
-  status VARCHAR(50) DEFAULT 'pending',  -- pending, confirmed, cleared, failed, reversed
+  reference VARCHAR(100),  -- Check number, Bank ref, etc.
   notes TEXT,
-  received_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -1174,7 +1170,6 @@ CREATE TABLE IF NOT EXISTS customer_payments (
 CREATE INDEX idx_customer_payments_invoice_id ON customer_payments(invoice_id);
 CREATE INDEX idx_customer_payments_customer_id ON customer_payments(customer_id);
 CREATE INDEX idx_customer_payments_payment_date ON customer_payments(payment_date);
-CREATE INDEX idx_customer_payments_status ON customer_payments(status);
 
 CREATE TABLE IF NOT EXISTS supplier_payments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -1182,12 +1177,11 @@ CREATE TABLE IF NOT EXISTS supplier_payments (
   bill_id UUID NOT NULL REFERENCES vendor_bills(id) ON DELETE RESTRICT,
   supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
   payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  payment_method_id UUID NOT NULL REFERENCES payment_methods(id) ON DELETE RESTRICT,
+  payment_method VARCHAR(100),
   amount DECIMAL(15, 2) NOT NULL,
-  reference_number VARCHAR(100),
-  status VARCHAR(50) DEFAULT 'pending',  -- pending, confirmed, cleared, failed, reversed
+  reference VARCHAR(100),
   notes TEXT,
-  approved_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

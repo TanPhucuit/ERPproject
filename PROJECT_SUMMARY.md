@@ -226,6 +226,44 @@ Stock Count → Inventory Adjustment
     → Approved → Stock Corrected
 ```
 
+### 4.5 End-to-End Operational Flow (Updated 2026-05-12)
+
+The current operating rule is "enter data once at the source, then let downstream documents inherit it."
+
+```text
+CRM Lead
+  -> Quotation
+  -> Sales Order
+  -> Customer Invoice
+  -> Customer Payment when required
+  -> Delivery Order
+  -> Stock deduction
+```
+
+Key implementation notes:
+- Lead is the starting point for prospect/customer intent. It stores contact, source, owner, stage, rating, estimated value, expected close date, notes, and optional customer link fields.
+- Lead does not store order financial fields. `tax_percent` belongs to quotations, sales orders, purchase orders, invoices/bills, and line-level financial records where applicable.
+- Lead product requirements are persisted in `lead_products`; they can be copied into a quotation.
+- Quotation must have at least one product line and must be linked to either a Lead or a Customer.
+- When a quotation reaches `accepted`/`won`, `acceptQuotationWorkflow()` ensures the Customer, creates a confirmed Sales Order, copies quotation lines, creates a Customer Invoice, and creates a Delivery Order when payment terms allow it.
+- For B2B customers, credit usage is checked before confirming a new order. If credit usage is above 80% of credit limit, the order is blocked until collection/review.
+- For `COD` and `Prepaid`, Delivery Order creation waits until the invoice is paid. For `NET30`, `NET45`, and `NET60`, delivery can be opened immediately and AR remains outstanding.
+- Delivery creation selects a warehouse with available stock, creates delivery lines, and reserves stock by increasing `quantity_reserved`.
+- When Delivery Order transitions to `shipped` or `delivered`, stock is deducted and reserved quantity is reduced.
+- Customer payments update invoice `paid_amount` and status (`partial_paid`/`paid`); paying an immediate-payment invoice opens delivery automatically.
+- Manual Sales Order, Invoice, or Delivery creation should be used only for exceptions or historical data when a prior source document does not exist.
+
+### 4.6 Data Entry Ownership
+
+| Department | Primary Entry | Should Not Manually Re-enter |
+|------------|---------------|------------------------------|
+| Sales | Lead, Activity, Quotation | Sales Order/Invoice/Delivery that can be generated from accepted quotation |
+| Sales Manager | Pipeline review, quotation acceptance/follow-up | Stock quantity, accounting settlement |
+| Warehouse | Goods Receipt, Delivery status, Adjustment, Stock Transfer | Prices, quotes, customer invoices |
+| Purchasing | RFQ, Purchase Order, supplier comparison | Customer sales delivery/invoice |
+| Accounting | Payment, exception invoice/bill, credit/debit notes | Delivery lines, stock movement quantity |
+| Admin/Master Data | Product, Customer, Supplier, Warehouse, Bin setup | Day-to-day transaction documents |
+
 ---
 
 ## 5. STATUS FLOWS
@@ -329,6 +367,7 @@ d:/project/ERP/
 ├── tailwind.config.js              # Tailwind theme
 ├── database_schema.sql             # Full schema (~1300 lines)
 ├── seed_data.sql                  # Sample data
+├── ERP_QUY_TRINH_NHAP_LIEU_CHI_TIET.md  # Consolidated data-entry and business workflow guide
 ├── src/
 │   ├── main.tsx                   # React entry
 │   ├── App.tsx                    # Main app component
@@ -404,7 +443,12 @@ d:/project/ERP/
 | Delivery Orders | `delivery_orders` | CRUD, stock reduction |
 | Invoices | `customer_invoices` | CRUD, payment tracking |
 | Vendor Bills | `vendor_bills` | CRUD, payment tracking |
+| Customer Payments | `customer_payments` | Create payment, update invoice paid amount/status, open delivery when paid |
+| Supplier Payments | `supplier_payments` | Create payment, update vendor bill paid amount/status |
 | Stock | `stock_levels` | Query, update |
+| Stock Transfers | `stock_transfers`, `stock_transfer_lines` | Internal movement workflow with line persistence |
+| Product BOM | `product_bom` | Package/BOM editor and Auto-BOM suggestions |
+| Warranty Scan | `warranties`, `serial_numbers`, `activities` | Preview or generate warranty expiry CRM alerts |
 | Metrics | `daily_metrics` | Query aggregations |
 
 ---
@@ -499,6 +543,8 @@ WHERE sl.quantity_on_hand < p.reorder_level;
 10. **Status Flow**: Multiple tabs share same `flow` object but have different status progressions
 
 ### Business Logic Issues (Fix in Phase 3)
+> Historical backlog list retained for context. Several items below are now resolved in the 2026-05-12 fixed list.
+
 11. **No Stock Reservation**: SO confirmation doesn't auto-reserve stock
 12. **No Stock Auto-Update**: DO shipped doesn't auto-deduct stock_levels
 13. **No Payment Entry UI**: Customer/Supplier payments cannot be entered (only manually in Invoice/Bill)
@@ -538,9 +584,25 @@ WHERE sl.quantity_on_hand < p.reorder_level;
 13. **Auto-BOM**: Full module at `/app/auto-bom` — BOM table + product packages panel, size-based suggestions, CRUD editor (src/pages/AutoBom.tsx). API: GET/POST `/product-bom` in erpApi.ts. Migration: `product_bom` table + `is_auto_bom`, `min_sqm`, `max_sqm` columns in products table.
 14. **Proactive Warranty**: Warranty scan endpoint POST `/iot/warranty-scan` in erpApi.ts auto-generates warranty_expiring / warranty_expired alerts. "Quét BH chủ động" button in IoT Lifecycle page triggers scan. GET `/iot/warranty-scan` returns preview of expiring/expired devices.
 15. **Auto-quotation Trigger 15**: Fixed bug (RETURNING id INTO NEW.id invalid), enabled CREATE TRIGGER statement, added lead_products → quotation_lines copy.
+16. **Accepted quotation workflow**: `acceptQuotationWorkflow()` now converts accepted/won quotation into Customer (if needed), confirmed Sales Order, Sales Order Lines, Customer Invoice, and Delivery Order when allowed by payment terms.
+17. **Payment-gated delivery**: `COD`/`Prepaid` orders wait for paid invoice before delivery; `NET30`/`NET45`/`NET60` can create delivery immediately while AR remains outstanding.
+18. **Customer payments**: POST `/accounting/customer-payments` records payment, updates invoice paid amount/status, and opens delivery when an immediate-payment invoice becomes paid.
+19. **Supplier payments**: POST `/accounting/supplier-payments` records supplier payment and updates vendor bill paid amount/status.
+20. **Stock reservation**: Delivery creation reserves stock through `quantity_reserved` after choosing a warehouse with enough available stock.
+21. **Stock deduction**: Delivery status transition to `shipped`/`delivered` deducts `quantity_on_hand` and reduces `quantity_reserved`.
+22. **Line persistence**: Sales Orders, Quotations, RFQs, Purchase Orders, Delivery Orders, Lead Products, and Stock Transfers persist child lines instead of saving headers only.
+23. **RFQ lines**: RFQ save now supports product lines with quantity and required delivery date.
+24. **Sales stock check**: Stock validation now reads line data consistently from `lines`/`products` payloads.
+25. **Stock transfers**: `/inventory/stock-transfers` and related line persistence exist for internal stock movement workflows.
+26. **Lead tax field bug**: Lead write/read normalization no longer injects `tax_percent`; tax is kept on quotation/order financial documents only.
+27. **Documentation consolidation**: Detailed data-entry/business workflow guidance is consolidated into `ERP_QUY_TRINH_NHAP_LIEU_CHI_TIET.md`; older scattered operational/deployment docs were removed from the active worktree.
+28. **Activities schema alignment**: CRM activity save uses `activity_type_id`, `description`, `activity_date`, and `performed_by_id`; no `outcome` column is written because the current Supabase `activities` table does not have that column.
+29. **Lead-first quotation rule**: Sales Quotation form no longer allows choosing Customer. Quotation must be linked to a Lead; Customer is created/linked only when quotation is accepted/won, and the Lead stage is moved to `won`.
+30. **Supabase schema alignment pass**: Removed global `is_deleted` injection and old-schema line fields. Sales/quotation/RFQ/PO lines now write current columns (`quantity`, `sequence`, `description` where applicable); payments no longer write non-existent performer columns.
+31. **Header totals from lines**: API calculates quotation, sales order, purchase order, and invoice header amounts from submitted lines before insert/update because the current schema does not aggregate child lines into headers automatically.
 
 **PENDING:**
-_(All major features implemented. Remaining tasks are minor UI polish.)_
+_(All major workflow blockers are addressed. Remaining tasks are minor UI polish, documentation encoding cleanup, and final user-acceptance testing.)_
 
 ---
 
@@ -561,6 +623,10 @@ _(All major features implemented. Remaining tasks are minor UI polish.)_
 - Status fields use snake_case: `partially_shipped`, `partial_paid`
 - Soft delete via `is_deleted` boolean flag
 - Audit logging via `audit_logs` table
+- Financial totals are generally database-generated; UI/API should send editable inputs like line quantity, unit price, discount, and document-level `tax_percent`.
+- `tax_percent` is not a Lead field. Do not include it in `/crm/leads` payloads.
+- `outcome` is not an Activity field in the current Supabase schema. Store activity notes/results inside `description`.
+- Quotation creation is Lead-first. Do not pass `customer_id` for quotation create/edit; acceptance creates/links Customer from Lead data.
 
 ### Testing Order:
 1. Master Data (products, customers, suppliers, warehouses)
@@ -569,8 +635,16 @@ _(All major features implemented. Remaining tasks are minor UI polish.)_
 4. Purchase (RFQ → PO → goods receipt → bill)
 5. Accounting (payments, credit/debit notes)
 
+### Updated Testing Order (2026-05-12):
+1. Master Data (products, customers, suppliers, warehouses)
+2. CRM (leads -> activities -> quotation)
+3. Sales (accepted quotation -> SO -> invoice -> delivery gate)
+4. Accounting (customer payment for COD/Prepaid, credit/debit notes)
+5. Inventory (delivery reserve -> shipped/delivered stock deduction, stock transfer)
+6. Purchase (RFQ -> PO -> goods receipt -> bill -> supplier payment)
+
 ---
 
 **Document Version**: 1.0
-**Last Updated**: 2026-05-11
+**Last Updated**: 2026-05-12
 **Purpose**: Agent onboarding and quick reference

@@ -693,6 +693,34 @@ const isImmediatePaymentTerm = (term?: string | null) => ['COD', 'Prepaid'].incl
 
 const nextDocumentNumber = (prefix: string) => `${prefix}-${Date.now().toString().slice(-8)}`
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+const resolveActivityTypeId = async (nameOrId?: string | null) => {
+  if (!nameOrId) return null
+  if (uuidPattern.test(nameOrId)) return nameOrId
+  const aliases: Record<string, string> = {
+    'site visit': 'site_survey',
+    'quote sent': 'quotation',
+  }
+  const normalized = aliases[String(nameOrId).trim().toLowerCase()] || String(nameOrId).trim()
+  const { data, error } = await supabase
+    .from('activity_types')
+    .select('id')
+    .ilike('name', normalized)
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  if (data?.id) return data.id
+  const { data: fallback, error: fallbackError } = await supabase
+    .from('activity_types')
+    .select('id')
+    .ilike('name', String(nameOrId).trim())
+    .limit(1)
+    .maybeSingle()
+  if (fallbackError) throw fallbackError
+  return fallback?.id || null
+}
+
 const insertRowsWithFallback = async (table: string, variants: any[][]) => {
   let lastError: any = null
   for (const rows of variants) {
@@ -727,49 +755,29 @@ const ensureCustomerForLead = async (leadId: string, fallbackUserId?: string | n
     return existingCustomer
   }
 
-  let customer: any | null = null
-  if (lead.contact_person_email) {
-    const { data, error } = await supabase
-      .from('customers')
-      .select('*')
-      .ilike('contact_person_email', lead.contact_person_email)
-      .limit(1)
-      .maybeSingle()
-    if (error) throw error
-    customer = data
+  const payload = {
+    customer_number: nextDocumentNumber('CUST'),
+    name: lead.company_name,
+    customer_type: lead.customer_type || 'B2C',
+    company_tax_id: lead.company_tax_id || lead.tax_id || null,
+    contact_person_name: lead.contact_person_name || lead.company_name,
+    contact_person_email: lead.contact_person_email || null,
+    contact_person_phone: lead.contact_person_phone || null,
+    billing_address: lead.billing_address || lead.company_address || null,
+    shipping_address: lead.shipping_address || lead.company_address || null,
+    payment_terms: 'NET30',
+    status: 'active',
+    created_by_id: fallbackUserId || lead.owner_id || null,
   }
-  if (!customer) {
-    const payload = {
-      customer_number: nextDocumentNumber('CUST'),
-      name: lead.company_name,
-      customer_type: lead.customer_type || 'B2C',
-      company_tax_id: lead.company_tax_id || lead.tax_id || null,
-      contact_person_name: lead.contact_person_name || lead.company_name,
-      contact_person_email: lead.contact_person_email || null,
-      contact_person_phone: lead.contact_person_phone || null,
-      billing_address: lead.billing_address || lead.company_address || null,
-      shipping_address: lead.shipping_address || lead.company_address || null,
-      payment_terms: lead.payment_terms || 'NET30',
-      lead_id: lead.id,
-      status: 'active',
-      created_by_id: fallbackUserId || lead.owner_id || null,
-    }
-    const { data, error } = await supabase.from('customers').insert(payload).select().single()
-    if (error) throw error
-    customer = data
-  }
+  const { data: customer, error } = await supabase.from('customers').insert(payload).select().single()
+  if (error) throw error
 
   await supabase.from('leads').update({ customer_id: customer.id }).eq('id', lead.id)
   return customer
 }
 
 const ensureCustomerForQuotation = async (quotation: any, fallbackUserId?: string | null) => {
-  if (quotation.customer_id) {
-    const { data, error } = await supabase.from('customers').select('*').eq('id', quotation.customer_id).single()
-    if (error) throw error
-    return data
-  }
-  if (!quotation.lead_id) throw new Error('Quotation must be linked to a lead or customer before acceptance.')
+  if (!quotation.lead_id) throw new Error('Quotation must be linked to a lead before acceptance.')
   const customer = await ensureCustomerForLead(quotation.lead_id, fallbackUserId)
   await supabase.from('quotations').update({ customer_id: customer.id }).eq('id', quotation.id)
   return customer
@@ -868,36 +876,26 @@ const createDeliveryForOrder = async (salesOrder: any, status: 'draft' | 'ready'
 
   const lines = await fetchSalesOrderLines(salesOrder.id)
   const warehouseId = await chooseWarehouseForLines(lines)
-  const { data: customer } = await supabase.from('customers').select('shipping_address, billing_address').eq('id', salesOrder.customer_id).single()
   const deliveryPayload = {
     delivery_order_number: nextDocumentNumber('DO'),
     sales_order_id: salesOrder.id,
-    lead_id: salesOrder.lead_id || null,
-    customer_id: salesOrder.customer_id,
     warehouse_id: warehouseId,
     scheduled_delivery_date: salesOrder.required_delivery_date || new Date().toISOString().slice(0, 10),
-    shipping_address: customer?.shipping_address || customer?.billing_address || null,
     status,
     notes: 'Auto-created from confirmed Sales Order.',
     created_by_id: salesOrder.created_by_id || salesOrder.sales_person_id || null,
   }
-  const delivery = await insertOneWithFallback('delivery_orders', [
-    deliveryPayload,
-    (({ lead_id, customer_id, shipping_address, created_by_id, ...payload }) => payload)(deliveryPayload),
-  ])
+  const delivery = await insertOneWithFallback('delivery_orders', [deliveryPayload])
 
   const completeRows = lines.map((line: any) => ({
     delivery_order_id: delivery.id,
     sales_order_line_id: line.id,
     product_id: line.product_id,
     product_name: line.product_name || null,
-    quantity_ordered: toFiniteNumber(line.quantity_ordered ?? line.quantity, 0),
+    quantity_ordered: toFiniteNumber(line.quantity ?? line.quantity_ordered, 0),
     quantity_delivered: 0,
   })).filter((line: any) => line.product_id && line.quantity_ordered > 0)
-  await insertRowsWithFallback('delivery_order_lines', [
-    completeRows,
-    completeRows.map(({ quantity_ordered, ...line }: any) => ({ ...line, quantity: quantity_ordered })),
-  ])
+  await insertRowsWithFallback('delivery_order_lines', [completeRows])
   await reserveStockForOrder(salesOrder.id, warehouseId)
   return delivery
 }
@@ -943,31 +941,32 @@ const createInvoiceForOrder = async (salesOrder: any, status = 'sent') => {
   if (existingError) throw existingError
   if (existingInvoice) return existingInvoice
 
+  const { data: customer } = await supabase
+    .from('customers')
+    .select('payment_terms')
+    .eq('id', salesOrder.customer_id)
+    .maybeSingle()
   const dueDate = new Date()
-  const paymentTerms = salesOrder.payment_terms || 'NET30'
+  const paymentTerms = salesOrder.payment_terms || customer?.payment_terms || 'NET30'
   const days = paymentTerms === 'NET45' ? 45 : paymentTerms === 'NET60' ? 60 : paymentTerms === 'COD' || paymentTerms === 'Prepaid' ? 0 : 30
   dueDate.setDate(dueDate.getDate() + days)
   const invoicePayload = {
     invoice_number: nextDocumentNumber('INV'),
     sales_order_id: salesOrder.id,
-    lead_id: salesOrder.lead_id || null,
     customer_id: salesOrder.customer_id,
     invoice_date: new Date().toISOString().slice(0, 10),
     due_date: dueDate.toISOString().slice(0, 10),
     status,
-    subtotal: toFiniteNumber(salesOrder.subtotal || salesOrder.total_amount_before_tax || 0),
+    subtotal: toFiniteNumber(salesOrder.subtotal || 0),
+    tax_percent: toFiniteNumber(salesOrder.tax_percent, 0),
     tax_amount: toFiniteNumber(salesOrder.tax_amount || 0),
     total_amount: toFiniteNumber(salesOrder.total_amount || 0),
     paid_amount: 0,
     payment_terms: paymentTerms,
     description: `Invoice for Sales Order ${salesOrder.sales_order_number}`,
-    created_by_id: salesOrder.created_by_id || salesOrder.sales_person_id || null,
     issued_by_id: salesOrder.created_by_id || salesOrder.sales_person_id || null,
   }
-  const invoice = await insertOneWithFallback('customer_invoices', [
-    invoicePayload,
-    (({ lead_id, subtotal, issued_by_id, ...payload }) => ({ ...payload, total_amount_before_tax: subtotal }))(invoicePayload),
-  ])
+  const invoice = await insertOneWithFallback('customer_invoices', [invoicePayload])
   return invoice
 }
 
@@ -986,6 +985,17 @@ const acceptQuotationWorkflow = async (quotationId: string, fallbackUserId?: str
   if (!['accepted', 'won'].includes(quotation.status)) return null
 
   const customer = await ensureCustomerForQuotation(quotation, fallbackUserId)
+  if (quotation.lead_id) {
+    const wonStage = await resolveLeadStage('won')
+    await supabase
+      .from('leads')
+      .update({
+        stage_id: wonStage.id,
+        probability_percent: wonStage.probability_percent ?? 100,
+        customer_id: customer.id,
+      })
+      .eq('id', quotation.lead_id)
+  }
   if (customer.customer_type === 'B2B') {
     const creditUsed = toFiniteNumber(customer.credit_used)
     const creditLimit = toFiniteNumber(customer.credit_limit)
@@ -1006,42 +1016,48 @@ const acceptQuotationWorkflow = async (quotationId: string, fallbackUserId?: str
   const quoteLines = await fetchQuotationLines(quotation.id)
   await chooseWarehouseForLines(quoteLines)
   const paymentTerms = customer.payment_terms || 'NET30'
+  const subtotal = quoteLines.reduce((sum: number, line: any) => {
+    const qty = toFiniteNumber(line.quantity ?? line.quantity_quoted, 0)
+    const price = toFiniteNumber(line.unit_price, 0)
+    const discount = toFiniteNumber(line.discount_percent, 0)
+    return sum + qty * price * (1 - discount / 100)
+  }, 0)
+  const taxPercent = toFiniteNumber(quotation.tax_percent, 10)
+  const taxAmount = subtotal * taxPercent / 100
+  const totalCost = quoteLines.reduce((sum: number, line: any) => {
+    const qty = toFiniteNumber(line.quantity ?? line.quantity_quoted, 0)
+    return sum + qty * toFiniteNumber(line.product?.cost_price, 0)
+  }, 0)
   const orderPayload = {
     sales_order_number: nextDocumentNumber('SO'),
     quotation_id: quotation.id,
-    lead_id: quotation.lead_id || null,
     customer_id: customer.id,
     order_date: new Date().toISOString().slice(0, 10),
     required_delivery_date: quotation.valid_until_date || normalizeDate(undefined, 7),
     status: 'confirmed',
-    tax_percent: toFiniteNumber(quotation.tax_percent, 10),
-    payment_terms: paymentTerms,
+    subtotal,
+    tax_percent: taxPercent,
+    tax_amount: taxAmount,
+    total_amount: subtotal + taxAmount,
+    total_cost: totalCost,
     notes: `Auto-created from accepted quotation ${quotation.quotation_number}`,
     sales_person_id: quotation.created_by_id || fallbackUserId || null,
     created_by_id: quotation.created_by_id || fallbackUserId || null,
   }
-  const salesOrder = await insertOneWithFallback('sales_orders', [
-    orderPayload,
-    (({ lead_id, payment_terms, tax_percent, ...payload }) => payload)(orderPayload),
-  ])
+  const salesOrder = await insertOneWithFallback('sales_orders', [orderPayload])
 
   const completeRows = quoteLines.map((line: any, index: number) => ({
     sales_order_id: salesOrder.id,
     product_id: line.product_id,
     product_name: line.product_name || line.product?.name || null,
     sequence: index + 1,
-    quantity_ordered: toFiniteNumber(line.quantity ?? line.quantity_quoted, 1),
-    quantity_delivered: 0,
+    quantity: toFiniteNumber(line.quantity ?? line.quantity_quoted, 1),
     unit_price: toFiniteNumber(line.unit_price, 0),
     cost_price: toFiniteNumber(line.product?.cost_price, 0),
     discount_percent: toFiniteNumber(line.discount_percent, 0),
-    notes: line.notes || null,
+    description: line.notes || null,
   })).filter((line: any) => line.product_id)
-  await insertRowsWithFallback('sales_order_lines', [
-    completeRows,
-    completeRows.map(({ quantity_ordered, ...line }: any) => ({ ...line, quantity: quantity_ordered })),
-    completeRows.map(({ sequence, ...line }: any) => ({ ...line, sequence_number: sequence, tax_percent: toFiniteNumber(quotation.tax_percent, 10) })),
-  ])
+  await insertRowsWithFallback('sales_order_lines', [completeRows])
 
   const { data: refreshedOrder, error: refreshedError } = await supabase.from('sales_orders').select('*').eq('id', salesOrder.id).single()
   if (refreshedError) throw refreshedError
@@ -1079,25 +1095,34 @@ const norm = (body: Record<string, any>, camel: string, snake: string): any => {
   return sv
 }
 
+const getWriteLines = (body: Record<string, any>) =>
+  Array.isArray(body.lines) ? body.lines : (Array.isArray(body.products) ? body.products : [])
+
+const calcWriteAmounts = (body: Record<string, any>) => {
+  const lines = getWriteLines(body)
+  const subtotal = lines.reduce((sum: number, line: any) => {
+    const qty = toFiniteNumber(line.quantity ?? line.quantity_ordered ?? line.quantity_quoted ?? line.quantity_required, 0)
+    const unitPrice = toFiniteNumber(line.unit_price ?? line.unitPrice ?? line.price, 0)
+    const discount = toFiniteNumber(line.discount_percent ?? line.discount, 0)
+    return sum + qty * unitPrice * (1 - discount / 100)
+  }, 0)
+  const taxPercent = toFiniteNumber(body.tax_percent ?? body.taxPercent, 0)
+  const taxAmount = subtotal * taxPercent / 100
+  const totalAmount = subtotal + taxAmount
+  const totalCost = lines.reduce((sum: number, line: any) => {
+    const qty = toFiniteNumber(line.quantity ?? line.quantity_ordered ?? line.quantity_quoted, 0)
+    const cost = toFiniteNumber(line.cost_price ?? line.costPrice ?? line.cost, 0)
+    return sum + qty * cost
+  }, 0)
+  return { subtotal, taxPercent, taxAmount, totalAmount, totalCost }
+}
+
 const normalizeWriteBody = async (pathname: string, body: Record<string, any>) => {
   const currentUserId = await getCurrentUserId()
   const currentId = typeof body.id === 'string' ? body.id : undefined
 
   if (pathname === '/crm/leads' || pathname.startsWith('/crm/leads/')) {
-    // Auto-detect customer: check by email first
     const email = body.contact_person_email || body.email || null
-    let customerId: string | null = null
-    if (email) {
-      const { data: existingCustomer } = await supabase
-        .from('customers')
-        .select('id')
-        .ilike('contact_person_email', email)
-        .limit(1)
-        .maybeSingle()
-      if (existingCustomer?.id) {
-        customerId = existingCustomer.id
-      }
-    }
 
     const stage = await resolveLeadStage(norm(body, 'stage', 'status'))
     const payload: any = {
@@ -1118,7 +1143,6 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       customer_type: norm(body, 'customer_type', 'customerType') || null,
       billing_address: norm(body, 'billing_address', 'company_address') || null,
       shipping_address: norm(body, 'shipping_address', 'company_address') || null,
-      customer_id: customerId,
     }
     return payload
   }
@@ -1131,21 +1155,23 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
     }
 
     const leadId = norm(body, 'lead_id', 'leadId') || null
-    const customerId = norm(body, 'customer_id', 'customerId')
-      || (norm(body, 'customerName', 'customer_name') ? await resolveCustomerId(norm(body, 'customerName', 'customer_name')) : null)
-    if (!customerId && !leadId) {
-      throw new Error('Quotation must be linked to a lead or a customer.')
+    if (!leadId) {
+      throw new Error('Quotation must be linked to a lead. Customer is created automatically only after the quotation is accepted.')
     }
+    const amounts = calcWriteAmounts(body)
 
     return {
       quotation_number: norm(body, 'quotation_number', 'quoteNumber'),
-      customer_id: customerId,
+      customer_id: null,
       lead_id: leadId,
       issued_date: norm(body, 'issued_date', 'quote_date') || norm(body, 'quote_date', 'date') || new Date().toISOString().slice(0, 10),
       valid_until_date: norm(body, 'valid_until_date', 'valid_until') || norm(body, 'valid_until', 'expiryDate') || normalizeDate(undefined, 30),
       status: quotationStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
       // tax_percent is the only editable financial field; totals are GENERATED ALWAYS AS STORED in DB
-      tax_percent: Number(norm(body, 'tax_percent', 'taxPercent') || 10),
+      subtotal: amounts.subtotal,
+      tax_percent: amounts.taxPercent || 10,
+      tax_amount: amounts.taxAmount,
+      total_amount: amounts.totalAmount,
       notes: norm(body, 'notes', 'description') || null,
       internal_notes: norm(body, 'internal_notes', 'notes') || null,
       approved_by_id: null,
@@ -1180,7 +1206,7 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       const warehouseIds = warehouses.map((w: any) => w.id)
       const { data: stockLevels } = await supabase
         .from('stock_levels')
-        .select('product_id, quantity_on_hand, warehouse_id')
+        .select('product_id, quantity_on_hand, quantity_reserved, warehouse_id')
         .in('warehouse_id', warehouseIds)
         .gt('quantity_on_hand', 0)
       
@@ -1188,7 +1214,7 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       const stockByProduct: Record<string, number> = {}
       if (stockLevels) {
         stockLevels.forEach((stock: any) => {
-          stockByProduct[stock.product_id] = (stockByProduct[stock.product_id] || 0) + stock.quantity_on_hand
+          stockByProduct[stock.product_id] = (stockByProduct[stock.product_id] || 0) + toFiniteNumber(stock.quantity_on_hand) - toFiniteNumber(stock.quantity_reserved)
         })
       }
       
@@ -1201,7 +1227,7 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
         }
       }
     }
-    
+    const amounts = calcWriteAmounts(body)
     return {
       sales_order_number: norm(body, 'sales_order_number', 'orderNumber'),
       quotation_id: norm(body, 'quotation_id', 'quotationId') || null,
@@ -1212,11 +1238,14 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       status: salesStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
       // Financial totals (subtotal, total, profit) are GENERATED ALWAYS AS STORED in DB
       // Only tax_percent is editable
-      tax_percent: Number(norm(body, 'tax_percent', 'taxPercent') || 10),
-      payment_terms: norm(body, 'payment_terms', 'paymentTerms') || 'NET30',
+      subtotal: amounts.subtotal,
+      tax_percent: amounts.taxPercent || 10,
+      tax_amount: amounts.taxAmount,
+      total_amount: amounts.totalAmount,
+      total_cost: amounts.totalCost,
       notes: norm(body, 'notes', 'description') || null,
-      internal_notes: norm(body, 'internal_notes', 'notes') || null,
       sales_person_id: norm(body, 'sales_person_id', 'salesPersonId') || currentUserId,
+      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
     }
   }
 
@@ -1253,7 +1282,8 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/purchase/purchase-orders' || pathname.startsWith('/purchase/purchase-orders/')) {
-    if (!isPositiveNumber(norm(body, 'total_amount', 'total') || 0)) {
+    const amounts = calcWriteAmounts(body)
+    if (!isPositiveNumber(norm(body, 'total_amount', 'total') || amounts.totalAmount || 0)) {
       throw new Error('Purchase order total must be greater than 0.')
     }
     ensureDateOrder(
@@ -1284,16 +1314,17 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       required_delivery_date:
         norm(body, 'required_delivery_date', 'expected_delivery_date') || norm(body, 'expected_delivery_date', 'dueDate') || normalizeDate(undefined, 7),
       status: purchaseStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
-      total_amount: Number(norm(body, 'total_amount', 'total') || 0),
+      subtotal: amounts.subtotal,
+      tax_percent: amounts.taxPercent || 0,
+      tax_amount: amounts.taxAmount,
+      total_amount: Number(norm(body, 'total_amount', 'total') || amounts.totalAmount || 0),
       notes: norm(body, 'notes', 'description') || null,
-      internal_notes: norm(body, 'internal_notes', 'notes') || null,
       created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
     }
   }
 
   if (pathname === '/inventory/delivery-orders' || pathname.startsWith('/inventory/delivery-orders/')) {
     const warehouseId = norm(body, 'warehouse_id', 'warehouseId') || (norm(body, 'warehouseName', 'warehouse_name') ? await resolveWarehouseId(norm(body, 'warehouseName', 'warehouse_name')) : null)
-    await resolveCustomerId(norm(body, 'partnerName', 'partner_name'))
     return {
       delivery_order_number: norm(body, 'delivery_order_number', 'reference'),
       sales_order_id: norm(body, 'sales_order_id', 'salesOrderId') || (norm(body, 'reference', 'reference') ? await resolveSalesOrderId(norm(body, 'reference', 'reference'), norm(body, 'partnerName', 'partner_name')) : null),
@@ -1368,7 +1399,6 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       payment_terms: norm(body, 'payment_terms', 'paymentTerms') || null,
       description: norm(body, 'description', 'notes') || null,
       notes: norm(body, 'notes', 'description') || null,
-      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
       issued_by_id: norm(body, 'issued_by_id', 'issuedById') || currentUserId,
     }
   }
@@ -1406,7 +1436,6 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       total_amount: Number(norm(body, 'total_amount', 'total') || 0),
       payment_terms: norm(body, 'payment_terms', 'paymentTerms') || null,
       notes: norm(body, 'notes', 'description') || null,
-      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
       received_by_id: norm(body, 'received_by_id', 'receivedById') || currentUserId,
     }
   }
@@ -2294,16 +2323,11 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     if (insertError) throw insertError
   }
 
-  const tablesWithoutSoftDelete = new Set(['leads'])
-
   const upsert = async (table: string, id?: string): Promise<any> => {
-    const bodyWithDelete = method === 'POST' && !tablesWithoutSoftDelete.has(table)
-      ? { ...normalizedBody, is_deleted: false }
-      : normalizedBody
     const query =
       method === 'POST'
-        ? supabase.from(table).insert(bodyWithDelete).select().single()
-        : supabase.from(table).update(bodyWithDelete).eq('id', id).select().single()
+        ? supabase.from(table).insert(normalizedBody).select().single()
+        : supabase.from(table).update(normalizedBody).eq('id', id).select().single()
 
     const { data, error } = await query
     if (error) throw error
@@ -2351,11 +2375,14 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     return lead
   }
   if (pathname === '/crm/activities') {
+    const activityTypeId = await resolveActivityTypeId(body.activity_type_id || body.activity_type)
+    const description = [body.description || body.activity_type || '', body.outcome ? `Ket qua: ${body.outcome}` : '']
+      .filter(Boolean)
+      .join('\n')
     const payload = {
       lead_id: body.lead_id || null,
-      activity_type_id: body.activity_type_id || null,
-      description: body.description || body.activity_type || '',
-      outcome: body.outcome || null,
+      activity_type_id: activityTypeId,
+      description,
       activity_date: body.activity_date || new Date().toISOString(),
       performed_by_id: body.performed_by_id || currentUserId,
     }
@@ -2370,19 +2397,14 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
         sales_order_id: order.id,
         product_id: line.product_id || line.productId,
         sequence: index + 1,
-        quantity_ordered: toNumber(line.quantity ?? line.quantity_ordered ?? 1),
-        quantity_delivered: 0,
+        quantity: toNumber(line.quantity ?? line.quantity_ordered ?? 1),
         unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
         cost_price: toNumber(line.cost_price ?? line.costPrice ?? line.cost ?? 0),
         discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
-        notes: line.notes || null,
+        description: line.notes || null,
       })).filter((line: any) => line.product_id)
       await supabase.from('sales_order_lines').delete().eq('sales_order_id', order.id)
-      await insertRowsWithFallback('sales_order_lines', [
-        lines,
-        lines.map(({ quantity_ordered, ...line }: any) => ({ ...line, quantity: quantity_ordered })),
-        lines.map(({ sequence, ...line }: any) => ({ ...line, sequence_number: sequence, tax_percent: toNumber(body.tax_percent ?? 10) })),
-      ])
+      await insertRowsWithFallback('sales_order_lines', [lines])
     }
     return order
   }
@@ -2399,15 +2421,7 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
         discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
       })).filter((line: any) => line.product_id || line.product_name)
       await supabase.from('quotation_lines').delete().eq('quotation_id', quotation.id)
-      await insertRowsWithFallback('quotation_lines', [
-        lines,
-        lines.map(({ quantity, sequence, ...line }: any) => ({
-          ...line,
-          sequence_number: sequence,
-          quantity_quoted: quantity,
-          tax_percent: toNumber(body.tax_percent ?? 10),
-        })),
-      ])
+      await insertRowsWithFallback('quotation_lines', [lines])
     }
     if (['accepted', 'won'].includes(quotation.status)) {
       await acceptQuotationWorkflow(quotation.id, currentUserId)
@@ -2428,15 +2442,7 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
         notes: line.notes || null,
       })).filter((line: any) => line.product_id)
       await supabase.from('quotation_lines').delete().eq('quotation_id', quotation.id)
-      await insertRowsWithFallback('quotation_lines', [
-        lines,
-        lines.map(({ quantity, sequence, ...line }: any) => ({
-          ...line,
-          sequence_number: sequence,
-          quantity_quoted: quantity,
-          tax_percent: toNumber(body.tax_percent ?? 10),
-        })),
-      ])
+      await insertRowsWithFallback('quotation_lines', [lines])
     }
     if (['accepted', 'won'].includes(quotation.status)) {
       await acceptQuotationWorkflow(quotation.id, currentUserId)
@@ -2449,26 +2455,21 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
       const lines = rawLines.map((line: any, index: number) => ({
         sales_order_id: order.id,
         product_id: line.product_id || line.productId,
-        sequence_number: index + 1,
-        quantity_ordered: toNumber(line.quantity_ordered ?? line.quantity ?? 0),
+        sequence: index + 1,
+        quantity: toNumber(line.quantity_ordered ?? line.quantity ?? 0),
         unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
         cost_price: toNumber(line.cost_price ?? line.costPrice ?? line.cost ?? 0),
         discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
-        tax_percent: toNumber(line.tax_percent ?? line.tax ?? 10),
-        notes: line.notes || null,
+        description: line.notes || null,
       })).filter((line: any) => line.product_id)
       await supabase.from('sales_order_lines').delete().eq('sales_order_id', order.id)
-      await insertRowsWithFallback('sales_order_lines', [
-        lines,
-        lines.map(({ quantity_ordered, ...line }: any) => ({ ...line, quantity: quantity_ordered })),
-        lines.map(({ sequence_number, ...line }: any) => ({ ...line, sequence: sequence_number })),
-      ])
+      await insertRowsWithFallback('sales_order_lines', [lines])
     }
     if (['confirmed', 'delivered'].includes(order.status)) {
       const { data: refreshedOrder, error: refreshError } = await supabase.from('sales_orders').select('*').eq('id', order.id).single()
       if (refreshError) throw refreshError
       const invoice = await createInvoiceForOrder(refreshedOrder)
-      if (!isImmediatePaymentTerm(refreshedOrder.payment_terms) || invoice.status === 'paid') {
+      if (!isImmediatePaymentTerm(invoice.payment_terms) || invoice.status === 'paid') {
         await createDeliveryForOrder(refreshedOrder, 'ready')
       }
     }
@@ -2480,10 +2481,10 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
       const lines = rawLines.map((line: any, index: number) => ({
         rfq_id: rfq.id,
         product_id: line.product_id || line.productId,
-        sequence_number: index + 1,
-        quantity_required: toNumber(line.quantity_required ?? line.quantity ?? 0),
-        required_delivery_date: line.required_delivery_date ?? line.requiredDeliveryDate ?? line.deliveryDate ?? null,
-        notes: line.notes || null,
+        sequence: index + 1,
+        quantity: toNumber(line.quantity_required ?? line.quantity ?? 0),
+        target_price: toNumber(line.target_price ?? line.targetPrice ?? 0),
+        description: line.notes || line.description || null,
       })).filter((line: any) => line.product_id)
       await persistLines('rfq_lines', 'rfq_id', rfq.id, lines)
     }
@@ -2495,10 +2496,10 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
       const lines = rawLines.map((line: any, index: number) => ({
         rfq_id: rfq.id,
         product_id: line.product_id || line.productId,
-        sequence_number: index + 1,
-        quantity_required: toNumber(line.quantity_required ?? line.quantity ?? 0),
-        required_delivery_date: line.required_delivery_date ?? line.requiredDeliveryDate ?? line.deliveryDate ?? null,
-        notes: line.notes || null,
+        sequence: index + 1,
+        quantity: toNumber(line.quantity_required ?? line.quantity ?? 0),
+        target_price: toNumber(line.target_price ?? line.targetPrice ?? 0),
+        description: line.notes || line.description || null,
       })).filter((line: any) => line.product_id)
       await persistLines('rfq_lines', 'rfq_id', rfq.id, lines)
     }
@@ -2510,11 +2511,10 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
       const lines = rawLines.map((line: any, index: number) => ({
         purchase_order_id: po.id,
         product_id: line.product_id || line.productId,
-        sequence_number: index + 1,
-        quantity_ordered: toNumber(line.quantity_ordered ?? line.quantity ?? 0),
+        sequence: index + 1,
+        quantity: toNumber(line.quantity_ordered ?? line.quantity ?? 0),
         unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
-        tax_percent: toNumber(line.tax_percent ?? line.tax ?? 10),
-        notes: line.notes || null,
+        description: line.notes || line.description || null,
       })).filter((line: any) => line.product_id)
       await persistLines('purchase_order_lines', 'purchase_order_id', po.id, lines)
     }
@@ -2526,11 +2526,10 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
       const lines = rawLines.map((line: any, index: number) => ({
         purchase_order_id: po.id,
         product_id: line.product_id || line.productId,
-        sequence_number: index + 1,
-        quantity_ordered: toNumber(line.quantity_ordered ?? line.quantity ?? 0),
+        sequence: index + 1,
+        quantity: toNumber(line.quantity_ordered ?? line.quantity ?? 0),
         unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
-        tax_percent: toNumber(line.tax_percent ?? line.tax ?? 10),
-        notes: line.notes || null,
+        description: line.notes || line.description || null,
       })).filter((line: any) => line.product_id)
       await persistLines('purchase_order_lines', 'purchase_order_id', po.id, lines)
     }
@@ -2549,10 +2548,7 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
         quantity_delivered: toNumber(line.quantity_delivered ?? line.delivered ?? 0),
       })).filter((line: any) => line.product_id)
       await supabase.from('delivery_order_lines').delete().eq('delivery_order_id', delivery.id)
-      await insertRowsWithFallback('delivery_order_lines', [
-        lines,
-        lines.map(({ quantity_ordered, ...line }: any) => ({ ...line, quantity: quantity_ordered })),
-      ])
+      await insertRowsWithFallback('delivery_order_lines', [lines])
     }
     await deductStockForDeliveryIfNeeded(delivery.id, null)
     return delivery
@@ -2572,10 +2568,7 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
         quantity_delivered: toNumber(line.quantity_delivered ?? line.delivered ?? line.quantity_ordered ?? line.quantity ?? 0),
       })).filter((line: any) => line.product_id)
       await supabase.from('delivery_order_lines').delete().eq('delivery_order_id', delivery.id)
-      await insertRowsWithFallback('delivery_order_lines', [
-        lines,
-        lines.map(({ quantity_ordered, ...line }: any) => ({ ...line, quantity: quantity_ordered })),
-      ])
+      await insertRowsWithFallback('delivery_order_lines', [lines])
     }
     await deductStockForDeliveryIfNeeded(delivery.id, previous?.status)
     return delivery
@@ -2709,7 +2702,6 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
       payment_method: body.payment_method || body.paymentMethod || 'bank_transfer',
       reference: body.reference || null,
       notes: body.notes || null,
-      received_by_id: body.received_by_id || currentUserId,
       created_by_id: body.created_by_id || currentUserId,
     }])
 
@@ -2746,7 +2738,6 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
       payment_method: body.payment_method || body.paymentMethod || 'bank_transfer',
       reference: body.reference || null,
       notes: body.notes || null,
-      paid_by_id: body.paid_by_id || currentUserId,
       created_by_id: body.created_by_id || currentUserId,
     }])
 
@@ -3076,7 +3067,7 @@ const deleteResource = async <T>(path: string) => {
   // ========== CRM LEADS ==========
   if (pathname.startsWith('/crm/leads/')) {
     // Check if lead is Won/Lost and has related customer
-    const { data: leadData } = await supabase.from('leads').select('status, customer_id').eq('id', id).single()
+    const { data: leadData } = await supabase.from('leads').select('customer_id').eq('id', id).single()
     if (leadData && leadData.customer_id) {
       throw new Error('Không thể xóa Lead này vì đã chuyển thành Customer. Vui lòng xóa Customer liên quan trước.')
     }

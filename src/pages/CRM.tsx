@@ -653,7 +653,6 @@ const ActivityModal: React.FC<{
 }> = ({ isOpen, leadId, users, onClose, onSaved }) => {
   const [activityType, setActivityType] = useState('')
   const [description, setDescription] = useState('')
-  const [outcome, setOutcome] = useState('')
   const [date, setDate] = useState(new Date().toISOString().slice(0, 16))
   const [performer, setPerformer] = useState('')
   const [saving, setSaving] = useState(false)
@@ -666,7 +665,6 @@ const ActivityModal: React.FC<{
         lead_id: leadId,
         activity_type: activityType,
         description,
-        outcome,
         activity_date: date,
         performed_by_id: performer || null,
       })
@@ -697,12 +695,6 @@ const ActivityModal: React.FC<{
             <label className="mb-1 block text-sm font-semibold text-gray-700">Mô tả</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
               placeholder="Mô tả hoạt động..."
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">Kết quả</label>
-            <input type="text" value={outcome} onChange={e => setOutcome(e.target.value)}
-              placeholder="Kết quả..."
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -1107,7 +1099,6 @@ const CRMModule: React.FC = () => {
                       <span className="text-xs text-gray-400">{act.performed_by?.full_name || '—'}</span>
                     </div>
                     <p className="text-sm text-gray-700 mt-0.5">{act.description}</p>
-                    {act.outcome && <p className="text-xs text-green-600 mt-0.5">→ {act.outcome}</p>}
                     <p className="text-xs text-gray-400 mt-1">
                       {act.activity_date ? new Date(act.activity_date).toLocaleString('vi-VN') : ''}
                     </p>
