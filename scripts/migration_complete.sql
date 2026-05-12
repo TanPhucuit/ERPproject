@@ -223,6 +223,8 @@ CREATE TABLE products (
   is_iot_device BOOLEAN DEFAULT FALSE,
   requires_serial_scan BOOLEAN DEFAULT FALSE,
   is_auto_bom BOOLEAN DEFAULT FALSE,
+  min_sqm NUMERIC(10,2) DEFAULT 0,
+  max_sqm NUMERIC(10,2) DEFAULT 9999,
   status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active','discontinued','prototype')),
   description TEXT,
   is_deleted BOOLEAN DEFAULT FALSE,
@@ -1452,16 +1454,19 @@ FOR EACH ROW EXECUTE FUNCTION auto_create_customer_on_lead_won();
 
 -- ============================================================
 -- TRIGGER 15: Create auto-quotation for auto_request leads
+-- Auto-creates a quotation when an auto_request lead advances to 'proposition' stage
+-- Flow: auto_request lead created → advances to proposition → system creates quotation automatically
+--   → Customer accepts quotation → converts to Sales Order (normal flow)
+--   → Customer rejects → Sales team creates manual quotation for this lead
 -- ============================================================
 CREATE OR REPLACE FUNCTION create_auto_quotation_on_lead_proposition()
 RETURNS TRIGGER AS $$
 DECLARE
-  v_is_auto BOOLEAN;
+  v_quotation_id UUID;
   v_stage_name VARCHAR(50);
-  v_won BOOLEAN;
+  v_is_auto BOOLEAN;
 BEGIN
   v_stage_name := (SELECT name FROM lead_stages WHERE id = NEW.stage_id);
-  v_won := (SELECT is_won FROM lead_stages WHERE id = NEW.stage_id);
   v_is_auto := NEW.is_auto_request = TRUE;
 
   IF v_stage_name = 'proposition' AND v_is_auto = TRUE AND NEW.customer_id IS NOT NULL THEN
@@ -1476,16 +1481,21 @@ BEGIN
       COALESCE(NEW.tax_percent, 10.0),
       'Auto-generated quotation from lead. Lead contact: ' || COALESCE(NEW.contact_person_email, ''),
       NEW.owner_id
-    RETURNING id INTO NEW.id;
+    RETURNING id INTO v_quotation_id;
+
+    -- Copy lead_products as quotation_lines
+    INSERT INTO quotation_lines (quotation_id, product_id, product_name, description, quantity_ordered, unit_price, discount_percent)
+    SELECT v_quotation_id, lp.product_id, lp.product_name, lp.description, lp.quantity, lp.unit_price, lp.discount_percent
+    FROM lead_products lp
+    WHERE lp.lead_id = NEW.id;
   END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- NOTE: Disabled by default. Enable only after testing:
--- CREATE TRIGGER trigger_create_auto_quotation_on_lead_proposition
--- AFTER UPDATE OF stage_id ON leads
--- FOR EACH ROW EXECUTE FUNCTION create_auto_quotation_on_lead_proposition();
+CREATE TRIGGER trigger_create_auto_quotation_on_lead_proposition
+AFTER UPDATE OF stage_id ON leads
+FOR EACH ROW EXECUTE FUNCTION create_auto_quotation_on_lead_proposition();
 
 -- ============================================================
 -- STEP 10: INDEXES

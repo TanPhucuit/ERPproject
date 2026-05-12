@@ -12,6 +12,7 @@ import InventoryModule from './pages/Inventory'
 import AccountingModule from './pages/Accounting'
 import MasterDataPage from './pages/MasterData'
 import IoTLifecyclePage from './pages/IoTLifecycle'
+import AutoBomModule from './pages/AutoBom'
 
 // Layouts
 import MainLayout from './layouts/MainLayout'
@@ -122,6 +123,18 @@ function App() {
             <ProtectedRoute>
               <MainLayout>
                 <IoTLifecyclePage />
+              </MainLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* App Routes - Auto-BOM */}
+        <Route
+          path="/app/auto-bom"
+          element={
+            <ProtectedRoute>
+              <MainLayout>
+                <AutoBomModule />
               </MainLayout>
             </ProtectedRoute>
           }

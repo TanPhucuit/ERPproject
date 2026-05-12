@@ -515,10 +515,23 @@ const MasterDataPage: React.FC = () => {
 
   const config = tabConfigs[activeTab]
   const records = useMemo(() => {
+    let data = datasets[activeTab]
     if (activeTab === 'categories') {
-      return [...datasets.categories].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))
+      return [...data].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))
     }
-    return datasets[activeTab]
+    if (activeTab === 'products') {
+      return [...data].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    }
+    if (activeTab === 'customers' || activeTab === 'suppliers' || activeTab === 'users') {
+      return [...data].sort((a, b) => (a.name || a.fullName || '').localeCompare(b.name || b.fullName || ''))
+    }
+    if (activeTab === 'warehouses') {
+      return [...data].sort((a, b) => (a.warehouse_code || '').localeCompare(b.warehouse_code || ''))
+    }
+    if (activeTab === 'binLocations') {
+      return [...data].sort((a, b) => (a.bin_code || '').localeCompare(b.bin_code || ''))
+    }
+    return data
   }, [datasets, activeTab])
 
   // Dropdown options for foreign keys
@@ -544,17 +557,18 @@ const MasterDataPage: React.FC = () => {
   )
   const uomOptions = useMemo(
     () => datasets.unitsOfMeasure?.map((uom: any) => ({
-      value: uom.name,  // Use name as value for display matching
-      label: `${uom.name} (${uom.code})`  // Show name and code for clarity
+      value: uom.name,  // Use name as value for label matching
+      label: `${uom.name}${uom.code ? ` (${uom.code})` : ''}`,
+      id: uom.id,  // Store UUID for saving
     })) || [],
     [datasets.unitsOfMeasure]
   )
   const warehouseOptions = useMemo(
     () =>
       datasets.warehouses.map((warehouse) => ({
-        value: warehouse.id,
-        label: `${warehouse.name} (${warehouse.warehouse_code})`,
-        name: warehouse.name,
+        value: warehouse.name,  // Use name as value for label matching
+        label: `${warehouse.name} (${warehouse.warehouse_code})`,  // Show name + code for clarity
+        id: warehouse.id,  // Store UUID for saving
       })),
     [datasets.warehouses]
   )
@@ -687,7 +701,7 @@ const MasterDataPage: React.FC = () => {
     setModalError(null)
     const recordCopy = { ...record }
     if (activeTab === 'binLocations') {
-      recordCopy.warehouseName = record.warehouse_id || record.warehouseName || ''
+      recordCopy.warehouseName = record.warehouseName || record.warehouse?.name || record.warehouse_id || ''
     }
     if (activeTab === 'products') {
       // uomName contains the name for display, uomCode contains the code
@@ -731,7 +745,8 @@ const MasterDataPage: React.FC = () => {
         recordToSave.requires_serial_scan = record.requires_serial_scan === true || record.requires_serial_scan === 'true'
       }
       if (activeTab === 'binLocations') {
-        recordToSave.warehouse_id = warehouseOptions.find(w => w.label === record.warehouseName)?.value || record.warehouseName
+        const wh = warehouseOptions.find(w => w.label === record.warehouseName || w.value === record.warehouseName)
+        recordToSave.warehouse_id = wh?.id || record.warehouseName
       }
       if (activeTab === 'warehouses') {
         recordToSave.manager_id = userOptions.find(u => u.label === record.managerName)?.value || record.managerName

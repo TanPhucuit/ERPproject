@@ -19,11 +19,13 @@
 **Key Features**:
 - **CRM**: Full lead pipeline with auto-request leads, customer auto-detection from email, activity tracking
 - **Sales**: Auto-calculation of financials (only tax% editable), quotation → SO flow
-- **Purchase**: RFQ to 3 suppliers, serial/MAC scanning, Auto-BOM product packages
+- **Purchase**: RFQ to 3 suppliers, serial/MAC scanning
 - **Inventory**: Real-time stock levels, automatic reorder status, bin location management
 - **Accounting**: Full AR/AP with credit limit checks, credit/debit notes
 - **Master Data**: 500+ IoT devices, B2B/B2C classification, multi-warehouse
 - **IoT Lifecycle**: MAC/Serial mapping, activation tracking, Proactive Warranty alerts
+- **Auto-BOM**: Product package suggestions based on apartment size (Studio→Villa), BOM editor with cost/profit preview (route: /app/auto-bom)
+- **Proactive Warranty**: Daily warranty expiry scan auto-generates CRM alerts for sales outreach
 
 ---
 
@@ -533,11 +535,12 @@ WHERE sl.quantity_on_hand < p.reorder_level;
 10. Lead auto-request: Added `is_auto_request` field, `auto_request` option in owner dropdown
 11. Quotation from lead: Added "Create Quotation" action in CRM that sends products from lead
 12. Sales Order financial fields: Only `tax_percent` sent; subtotal, total, profit are GENERATED ALWAYS AS
+13. **Auto-BOM**: Full module at `/app/auto-bom` — BOM table + product packages panel, size-based suggestions, CRUD editor (src/pages/AutoBom.tsx). API: GET/POST `/product-bom` in erpApi.ts. Migration: `product_bom` table + `is_auto_bom`, `min_sqm`, `max_sqm` columns in products table.
+14. **Proactive Warranty**: Warranty scan endpoint POST `/iot/warranty-scan` in erpApi.ts auto-generates warranty_expiring / warranty_expired alerts. "Quét BH chủ động" button in IoT Lifecycle page triggers scan. GET `/iot/warranty-scan` returns preview of expiring/expired devices.
+15. **Auto-quotation Trigger 15**: Fixed bug (RETURNING id INTO NEW.id invalid), enabled CREATE TRIGGER statement, added lead_products → quotation_lines copy.
 
 **PENDING:**
-13. Auto-BOM: UI needs BOM suggestions panel based on apartment size
-14. Proactive Warranty: Need edge function to scan `warranty_expiry_date` daily
-15. Auto-quotation trigger: Trigger 15 in migration_complete.sql disabled; enable after testing
+_(All major features implemented. Remaining tasks are minor UI polish.)_
 
 ---
 

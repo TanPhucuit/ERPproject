@@ -213,6 +213,7 @@ const IoTLifecyclePage: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [modalOpen, setModalOpen] = useState(false)
   const [modalRecord, setModalRecord] = useState<any | null>(null)
+  const [scanning, setScanning] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -306,6 +307,25 @@ const IoTLifecyclePage: React.FC = () => {
     }
     setAlerts(current => current.map(a => a.id === alert.id ? { ...a, status: 'resolved' } : a))
     showNotification('success', 'Alert đã được xử lý xong.')
+  }
+
+  const runWarrantyScan = async () => {
+    setScanning(true)
+    try {
+      const result: any = await erpApi.post<any>('/iot/warranty-scan', { warning_days: 30 })
+      // Reload alerts
+      const alertData = await erpApi.get<any[]>('/iot/warranty-alerts?limit=200')
+      setAlerts(alertData)
+      if (result.new_alerts === 0) {
+        showNotification('success', `Đã quét warranty scan: không có thiết bị nào cần cảnh báo thêm.`)
+      } else {
+        showNotification('success', `Đã tạo ${result.new_alerts} cảnh báo bảo hành mới!`)
+      }
+    } catch (e: any) {
+      showNotification('error', `Quét thất bại: ${e.message}`)
+    } finally {
+      setScanning(false)
+    }
   }
 
   // Stats
@@ -456,15 +476,22 @@ const IoTLifecyclePage: React.FC = () => {
 
       {activeTab === 'alerts' && (
         <>
-          <ActionToolbar
-            search={search}
-            onSearchChange={setSearch}
-            status={status}
-            onStatusChange={setStatus}
-            statuses={alertStatuses.map(s => s.value)}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-          />
+          <div className="flex items-center justify-between">
+            <ActionToolbar
+              search={search}
+              onSearchChange={setSearch}
+              status={status}
+              onStatusChange={setStatus}
+              statuses={alertStatuses.map(s => s.value)}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+            />
+            <button onClick={runWarrantyScan}
+              disabled={scanning}
+              className="rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60 flex items-center gap-2">
+              {scanning ? 'Đang quét...' : '🔍 Quét BH chủ động'}
+            </button>
+          </div>
 
           {viewMode === 'list' ? (
             <div className="space-y-3">

@@ -599,12 +599,15 @@ const normalizeProductRow = (row: any) => ({
   ...row,
   categoryName: row.category?.name || row.categoryName || '',
   uomCode: row.uom?.code || '',
-  uomName: row.uom?.name || row.uom?.code || '',  // Use name for display, fallback to code
+  uomName: row.uom?.name || row.uom?.code || '',
   listPrice: row.list_price,
   costPrice: row.cost_price,
   reorderLevel: row.reorder_level ?? 0,
   reorderQuantity: row.reorder_quantity ?? 0,
   supplierLeadTimeDays: row.supplier_lead_time_days ?? 0,
+  is_auto_bom: row.is_auto_bom ?? false,
+  min_sqm: row.min_sqm ?? 0,
+  max_sqm: row.max_sqm ?? 9999,
 })
 
 const normalizeCustomerMasterRow = (row: any) => ({
@@ -1098,6 +1101,7 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       name: norm(body, 'name', 'name'),
       description: norm(body, 'description', 'description') || null,
       display_order: Number(norm(body, 'display_order', 'displayOrder') ?? 0),
+      is_active: body.is_active === true || body.isActive === 'true' || body.isActive === true,
     }
   }
 
@@ -1127,6 +1131,9 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       physical_size_sqm: Number(norm(body, 'physical_size_sqm', 'physicalSizeSqm') ?? 1.0),
       is_iot_device: norm(body, 'is_iot_device', 'isIotDevice') === true || String(norm(body, 'is_iot_device', 'isIotDevice') ?? '') === 'true',
       requires_serial_scan: norm(body, 'requires_serial_scan', 'requiresSerialScan') === true || String(norm(body, 'requires_serial_scan', 'requiresSerialScan') ?? '') === 'true',
+      is_auto_bom: norm(body, 'is_auto_bom', 'isAutoBom') === true || String(norm(body, 'is_auto_bom', 'isAutoBom') ?? '') === 'true',
+      min_sqm: Number(norm(body, 'min_sqm', 'minSqm') ?? 0),
+      max_sqm: Number(norm(body, 'max_sqm', 'maxSqm') ?? 9999),
       reorder_level: Number(norm(body, 'reorder_level', 'reorderLevel') ?? 10),
       reorder_quantity: Number(norm(body, 'reorder_quantity', 'reorderQuantity') ?? 50),
       supplier_lead_time_days: Number(norm(body, 'supplier_lead_time_days', 'supplierLeadTimeDays') ?? 7),
@@ -1561,6 +1568,16 @@ const getResource = async <T>(path: string): Promise<T> => {
     return normalizeCategoryRow(data) as T
   }
 
+  if (pathname === '/product-bom') {
+    const { data, error } = await supabase
+      .from('product_bom')
+      .select('*, product:products(id, name, sku, cost_price, list_price)')
+      .order('created_at', { ascending: false })
+      .limit(500)
+    if (error) throw error
+    return (data || []) as T
+  }
+
   if (pathname === '/customers') {
     const { data, error } = await applyLimit(
       supabase.from('customers').select('*').order('created_at', { ascending: false }),
@@ -1789,6 +1806,45 @@ const getResource = async <T>(path: string): Promise<T> => {
       .single()
     if (error) throw error
     return data as T
+  }
+
+  // ========== PROACTIVE WARRANTY SCAN (GET = preview, POST = execute) ==========
+  if (pathname === '/iot/warranty-scan') {
+    const warningDays = 30
+    const now = new Date()
+    const warningDate = new Date(now.getTime() + warningDays * 24 * 60 * 60 * 1000)
+    const todayStr = now.toISOString().slice(0, 10)
+    const warningDateStr = warningDate.toISOString().slice(0, 10)
+
+    // Preview: return devices expiring within warning_days + already expired (for preview)
+    const { data: expiringDevices } = await supabase
+      .from('mac_serial_mapping')
+      .select('*, product:products(name)')
+      .lte('warranty_end_date', warningDateStr)
+      .neq('warranty_end_date', null)
+
+    const { data: expiredDevices } = await supabase
+      .from('mac_serial_mapping')
+      .select('*, product:products(name)')
+      .lt('warranty_end_date', todayStr)
+      .neq('warranty_end_date', null)
+
+    return {
+      expiring: (expiringDevices || []).map(d => ({
+        ...d,
+        product_name: d.product?.name || '',
+        days_until_expiry: d.warranty_end_date
+          ? Math.ceil((new Date(d.warranty_end_date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+          : null,
+      })),
+      expired: (expiredDevices || []).map(d => ({
+        ...d,
+        product_name: d.product?.name || '',
+        days_until_expiry: d.warranty_end_date
+          ? Math.ceil((new Date(d.warranty_end_date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+          : null,
+      })),
+    }
   }
 
   // ========== IoT WARRANTY TRACKING ==========
@@ -2075,6 +2131,27 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
   if (pathname.startsWith('/users/')) return upsert('users', pathname.split('/').pop())
   if (pathname === '/product-categories') return upsert('product_categories')
   if (pathname.startsWith('/product-categories/')) return upsert('product_categories', pathname.split('/').pop())
+  if (pathname === '/product-bom') {
+    // Bulk upsert BOM lines for a parent product
+    const { parent_product_id, lines } = body
+    if (!parent_product_id) throw new Error('parent_product_id is required')
+    // Delete existing BOM lines
+    await supabase.from('product_bom').delete().eq('parent_product_id', parent_product_id)
+    // Insert new lines
+    if (lines && lines.length > 0) {
+      const rows = lines.map((l: any) => ({
+        parent_product_id,
+        component_product_id: l.component_product_id || l.product_id,
+        quantity: Number(l.quantity || 1),
+        is_optional: l.is_optional === true,
+      })).filter((r: any) => r.component_product_id)
+      if (rows.length > 0) {
+        const { error } = await supabase.from('product_bom').insert(rows)
+        if (error) throw error
+      }
+    }
+    return { success: true } as T
+  }
   if (pathname === '/products') {
     const product = await upsert<any>('products')
     if (product && method === 'POST') {
@@ -2195,6 +2272,76 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
   // ========== IoT WARRANTY ALERTS ==========
   if (pathname === '/iot/warranty-alerts') return upsert('device_warranty_alerts')
   if (pathname.startsWith('/iot/warranty-alerts/')) return upsert('device_warranty_alerts', pathname.split('/').pop())
+
+  // ========== PROACTIVE WARRANTY SCAN ==========
+  if (pathname === '/iot/warranty-scan') {
+    // Scan all mac_serial_mapping records and auto-generate warranty alerts
+    const now = new Date()
+    const warningDays = Number(body?.warning_days ?? 30)
+    const warningDate = new Date(now.getTime() + warningDays * 24 * 60 * 60 * 1000)
+    const warningDateStr = warningDate.toISOString().slice(0, 10)
+
+    // Find devices expiring within warning_days
+    const { data: expiringDevices } = await supabase
+      .from('mac_serial_mapping')
+      .select('*, product:products(name)')
+      .lte('warranty_end_date', warningDateStr)
+      .neq('warranty_end_date', null)
+
+    // Find already expired devices (older than today)
+    const todayStr = now.toISOString().slice(0, 10)
+    const { data: expiredDevices } = await supabase
+      .from('mac_serial_mapping')
+      .select('*, product:products(name)')
+      .lt('warranty_end_date', todayStr)
+      .neq('warranty_end_date', null)
+
+    const allDevices = [...(expiringDevices || []), ...(expiredDevices || [])]
+    const existingAlertMap: Record<string, boolean> = {}
+    const { data: existingAlerts } = await supabase
+      .from('device_warranty_alerts')
+      .select('mac_serial_id, alert_type')
+      .in('mac_serial_id', allDevices.map(d => d.id))
+
+    for (const a of (existingAlerts || [])) {
+      existingAlertMap[`${a.mac_serial_id}|${a.alert_type}`] = true
+    }
+
+    const newAlerts: any[] = []
+    for (const device of allDevices) {
+      const daysUntilExpiry = device.warranty_end_date
+        ? Math.ceil((new Date(device.warranty_end_date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+        : null
+
+      const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0
+      const alertType = isExpired ? 'warranty_expired' : 'warranty_expiring'
+      const alertKey = `${device.id}|${alertType}`
+      if (existingAlertMap[alertKey]) continue
+
+      const productName = device.product?.name || device.product_name || ''
+      let message = ''
+      if (isExpired) {
+        message = `Thiết bị "${productName}" (${device.serial_number || device.mac_address}) đã hết hạn bảo hành từ ngày ${device.warranty_end_date}. Vui lòng liên hệ khách hàng để chăm sóc sau bán hàng.`
+      } else {
+        message = `Thiết bị "${productName}" (${device.serial_number || device.mac_address}) sẽ hết hạn bảo hành trong ${daysUntilExpiry} ngày (${device.warranty_end_date}). Đề xuất chủ động liên hệ khách hàng.`
+      }
+
+      newAlerts.push({
+        mac_serial_id: device.id,
+        alert_type: alertType,
+        message,
+        severity: isExpired ? 'critical' : 'warning',
+        status: 'open',
+      })
+    }
+
+    if (newAlerts.length > 0) {
+      const { error } = await supabase.from('device_warranty_alerts').insert(newAlerts)
+      if (error) throw error
+    }
+
+    return { scanned: allDevices.length, new_alerts: newAlerts.length, alerts: newAlerts }
+  }
 
   // ========== IoT REGISTRATIONS ==========
   if (pathname === '/iot/registrations') return upsert('device_registrations')
