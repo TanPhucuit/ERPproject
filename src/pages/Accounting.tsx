@@ -373,10 +373,23 @@ const AccountingModule: React.FC = () => {
     setModalOpen(false)
   }
 
-  const advanceRecord = (record: any) => {
+  const advanceRecord = async (record: any) => {
     const nextStatus = activeTab.includes('notes') && record.status === 'draft' ? 'posted' : flow[record.status]
     if (!nextStatus) return
-    setters[activeTab]((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
+    const pathMap: Record<string, string> = {
+      invoices: '/accounting/invoices',
+      bills: '/accounting/bills',
+      'credit-notes': '/accounting/credit-notes',
+      'debit-notes': '/accounting/debit-notes',
+    }
+    const path = pathMap[activeTab]
+    try {
+      await erpApi.put(`${path}/${record.id}`, { ...record, status: nextStatus })
+      setters[activeTab]((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
+      showNotification('success', `${activeTitle} moved to ${nextStatus}.`)
+    } catch (error: any) {
+      showNotification('error', `Status update failed: ${error.message}`)
+    }
   }
 
   const deleteRecord = async (record: any) => {

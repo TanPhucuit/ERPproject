@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Edit2, Plus, PlusCircle, Search, Trash2, TrendingDown, TrendingUp, X } from 'lucide-react'
+import { Search, Trash2, TrendingDown, TrendingUp, X } from 'lucide-react'
 import { erpApi } from '../services/erpApi'
 import {
   ActionToolbar,
@@ -529,8 +529,8 @@ const SalesModule: React.FC = () => {
   const [modalRecord, setModalRecord] = useState<FormRecord | null>(null)
   const [modalError, setModalError] = useState<string | null>(null)
 
-  useEffect(() => {
-    Promise.all([
+  const loadAll = () => {
+    return Promise.all([
       erpApi.get<any[]>('/sales-orders?limit=100'),
       erpApi.get<any[]>('/sales-orders/quotations?limit=100'),
       erpApi.get<any[]>('/customers?limit=1000'),
@@ -551,6 +551,10 @@ const SalesModule: React.FC = () => {
         setOrders([]); setQuotations([]); setCustomers([]); setUsers([]); setLeads([]); setProducts([])
         setLoadError(e.message)
       })
+  }
+
+  useEffect(() => {
+    loadAll()
   }, [])
 
   const activeRecords = activeTab === 'orders' ? orders : quotations
@@ -596,7 +600,6 @@ const SalesModule: React.FC = () => {
       valid_until_date: record.valid_until_date,
       required_delivery_date: record.required_delivery_date,
       sales_person_id: record.sales_person_id,
-      sales_person_name: record.sales_person_name || record.sales_person?.full_name || '',
       lines,
       tax_percent,
       subtotal, tax_amount, total_amount, total_cost, estimated_profit, profit_margin_percent,
@@ -673,8 +676,33 @@ const SalesModule: React.FC = () => {
     showNotification('success', 'Đã xóa thành công.')
   }
 
+  const advanceRecord = async (record: any) => {
+    const path = activeTab === 'orders' ? '/sales-orders' : '/sales-orders/quotations'
+    const nextStatus = activeTab === 'quotations'
+      ? (record.status === 'draft' ? 'sent' : record.status === 'sent' ? 'accepted' : null)
+      : (record.status === 'draft' ? 'confirmed' : null)
+    if (!nextStatus) return
+    try {
+      await erpApi.put(`${path}/${record.id}`, { ...record, status: nextStatus })
+      await loadAll()
+      showNotification('success', `${activeTab === 'orders' ? 'Sales Order' : 'Quotation'} moved to ${nextStatus}.`)
+    } catch (e: any) {
+      showNotification('error', `Status update failed: ${e.message}`)
+    }
+  }
+
   const renderActions = (record: any) => (
-    <RecordActions onEdit={() => openEdit(record)} onDelete={() => deleteRecord(record)} />
+    <RecordActions
+      onEdit={() => openEdit(record)}
+      onDelete={() => deleteRecord(record)}
+      onAdvance={
+        (activeTab === 'quotations' && ['draft', 'sent'].includes(record.status)) ||
+        (activeTab === 'orders' && record.status === 'draft')
+          ? () => advanceRecord(record)
+          : undefined
+      }
+      advanceLabel={activeTab === 'quotations' && record.status === 'sent' ? 'Accept' : 'Advance'}
+    />
   )
 
   const title = activeTab === 'orders' ? 'Sales Order' : 'Quotation'

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Package, Plus, Trash2, Search, Home, Building, Castle, Warehouse, X, ChevronDown, ChevronRight, Info } from 'lucide-react'
+import { Package, Plus, Trash2, Search, Home, Building, X, ChevronRight, Info } from 'lucide-react'
 import { erpApi } from '../services/erpApi'
 import { formatCurrency } from '../components/OdooLite'
 import { useUIStore } from '../stores/uiStore'

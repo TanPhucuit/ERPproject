@@ -286,10 +286,23 @@ const InventoryModule: React.FC = () => {
     setModalOpen(false)
   }
 
-  const advanceRecord = (record: any) => {
+  const advanceRecord = async (record: any) => {
     const nextStatus = activeTab === 'counts' && record.status === 'draft' ? 'posted' : flow[record.status]
     if (!nextStatus) return
-    activeSetters[activeTab]((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
+    const pathMap: Record<string, string> = {
+      deliveries: '/inventory/delivery-orders',
+      receipts: '/inventory/goods-receipts',
+      counts: '/inventory/adjustments',
+    }
+    const path = pathMap[activeTab]
+    if (!path) return
+    try {
+      await erpApi.put(`${path}/${record.id}`, { ...record, status: nextStatus })
+      activeSetters[activeTab]((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
+      showNotification('success', `${activeTitle} moved to ${nextStatus}.`)
+    } catch (error: any) {
+      showNotification('error', `Status update failed: ${error.message}`)
+    }
   }
 
   const deleteRecord = async (record: any) => {

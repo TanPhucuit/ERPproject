@@ -20,6 +20,7 @@ export interface FormField {
   options?: Array<{ value: string; label: string }>
   placeholder?: string
   disabled?: boolean
+  readonly?: boolean
 }
 
 export const formatCurrency = (value: number) =>

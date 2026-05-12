@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Search, Plus, Shield, AlertTriangle, CheckCircle, XCircle, X, Cpu, Wifi } from 'lucide-react'
+import { AlertTriangle, XCircle, X, Cpu, Wifi } from 'lucide-react'
 import { erpApi } from '../services/erpApi'
 import {
   ActionToolbar,
-  formatCurrency,
   ModuleHeader,
   ModuleTabs,
   RecordActions,
@@ -51,7 +50,7 @@ const DeviceModal: React.FC<{
   warehouses: any[]
   onClose: () => void
   onSave: (data: any) => void
-}> = ({ isOpen, record, products, customers, warehouses, onClose, onSave }) => {
+}> = ({ isOpen, record, products, customers, onClose, onSave }) => {
   const [form, setForm] = useState({
     product_id: '',
     serial_number: '',
@@ -204,7 +203,6 @@ const IoTLifecyclePage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('devices')
   const [devices, setDevices] = useState<any[]>([])
   const [alerts, setAlerts] = useState<any[]>([])
-  const [warranties, setWarranties] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
   const [customers, setCustomers] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)

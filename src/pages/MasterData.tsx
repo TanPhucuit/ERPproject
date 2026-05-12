@@ -493,7 +493,7 @@ const renderValue = (key: string, value: any) => {
 const MasterDataPage: React.FC = () => {
   const showNotification = useUIStore((state) => state.showNotification)
   const [activeTab, setActiveTab] = useState<MasterTabId>('categories')
-  const [datasets, setDatasets] = useState<Record<MasterTabId, any[]>>({
+  const [datasets, setDatasets] = useState<Record<MasterTabId, any[]> & { unitsOfMeasure: any[] }>({
     categories: [],
     products: [],
     customers: [],

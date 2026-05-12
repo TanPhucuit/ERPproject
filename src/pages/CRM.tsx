@@ -887,7 +887,7 @@ const CRMModule: React.FC = () => {
   const handleSaveQuotation = async (formData: QuotationFormData, showNotif: boolean = true) => {
     setSaving(true)
     try {
-      await erpApi.post('/sales/quotations', formData)
+      await erpApi.post('/sales-orders/quotations', formData)
       await loadAll()
       setQuotationModalOpen(false)
       setQuotationLead(null)
@@ -909,28 +909,6 @@ const CRMModule: React.FC = () => {
     const currentStage = stageName(lead.stage_id || lead.stage)
     const next = nextLeadStage[currentStage]
     if (!next) return
-
-    // Khi lead thắng, tự động tạo khách hàng
-    if (next === 'won') {
-      try {
-        const payload = {
-          name: lead.company_name,
-          customer_type: lead.customer_type || 'B2C',
-          contact_person_name: lead.contact_person_name,
-          contact_person_email: lead.contact_person_email,
-          contact_person_phone: lead.contact_person_phone,
-          billing_address: lead.company_address || '',
-          shipping_address: lead.company_address || '',
-          company_tax_id: lead.company_tax_id || null,
-          lead_id: lead.id,
-          status: 'active',
-        }
-        await erpApi.post('/customers', payload)
-        showNotification('success', `Khách hàng "${lead.company_name}" đã được tạo tự động!`)
-      } catch (e: any) {
-        console.warn('Tự động tạo khách hàng thất bại:', e.message)
-      }
-    }
 
     try {
       await erpApi.put(`/crm/leads/${lead.id}`, { stage: next })

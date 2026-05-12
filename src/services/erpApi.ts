@@ -136,15 +136,19 @@ const adjustmentStatusFromDb: Record<string, string> = {
 
 const invoiceStatusToDb: Record<string, string> = {
   draft: 'draft',
-  pending: 'issued',
+  pending: 'sent',
+  issued: 'sent',
+  sent: 'sent',
+  partial_paid: 'partial_paid',
   paid: 'paid',
   overdue: 'overdue',
+  cancelled: 'cancelled',
 }
 
 const invoiceStatusFromDb: Record<string, string> = {
   draft: 'draft',
-  issued: 'pending',
   sent: 'pending',
+  issued: 'pending',
   partial_paid: 'pending',
   paid: 'paid',
   overdue: 'overdue',
@@ -189,7 +193,6 @@ const normalizeDate = (value?: string | null, fallbackDays = 7) => {
 const normalizeText = (value?: string | null) => value?.trim() || null
 
 const isPositiveNumber = (value: any) => Number.isFinite(Number(value)) && Number(value) > 0
-const isNonNegativeNumber = (value: any) => Number.isFinite(Number(value)) && Number(value) >= 0
 
 const ensureDateOrder = (start?: string | null, end?: string | null, message = 'End date must be on or after start date.') => {
   if (!start || !end) return
@@ -336,6 +339,7 @@ const resolveUomId = async (nameOrCode: string) => {
 const resolveUserIdByName = async (fullName: string) => {
   if (!fullName) return null
   const input = normalizeText(fullName)
+  if (!input) return null
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input)) {
     return input
   }
@@ -514,7 +518,7 @@ const normalizeLeadRow = (lead: any) => ({
   billing_address: lead.billing_address,
   shipping_address: lead.shipping_address,
   tax_percent: lead.tax_percent || 10,
-  is_auto_request: lead.is_auto_request || false,
+  is_auto_request: lead.is_auto_request || lead.source === 'auto_request' || false,
 })
 
 const normalizeQuotationRow = (quote: any) => ({
@@ -681,6 +685,374 @@ const fetchBills = async () => {
   return (data || []).map(normalizeBillRow)
 }
 
+const toFiniteNumber = (value: any, fallback = 0) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+const isImmediatePaymentTerm = (term?: string | null) => ['COD', 'Prepaid'].includes(term || '')
+
+const nextDocumentNumber = (prefix: string) => `${prefix}-${Date.now().toString().slice(-8)}`
+
+const insertRowsWithFallback = async (table: string, variants: any[][]) => {
+  let lastError: any = null
+  for (const rows of variants) {
+    if (!rows.length) return
+    const { error } = await supabase.from(table).insert(rows)
+    if (!error) return
+    lastError = error
+  }
+  throw lastError
+}
+
+const insertOneWithFallback = async (table: string, variants: Record<string, any>[]) => {
+  let lastError: any = null
+  for (const payload of variants) {
+    const { data, error } = await supabase.from(table).insert(payload).select().single()
+    if (!error) return data
+    lastError = error
+  }
+  throw lastError
+}
+
+const ensureCustomerForLead = async (leadId: string, fallbackUserId?: string | null) => {
+  const { data: lead, error: leadError } = await supabase
+    .from('leads')
+    .select('*')
+    .eq('id', leadId)
+    .single()
+  if (leadError) throw leadError
+  if (lead.customer_id) {
+    const { data: existingCustomer, error } = await supabase.from('customers').select('*').eq('id', lead.customer_id).single()
+    if (error) throw error
+    return existingCustomer
+  }
+
+  let customer: any | null = null
+  if (lead.contact_person_email) {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .ilike('contact_person_email', lead.contact_person_email)
+      .limit(1)
+      .maybeSingle()
+    if (error) throw error
+    customer = data
+  }
+  if (!customer) {
+    const payload = {
+      customer_number: nextDocumentNumber('CUST'),
+      name: lead.company_name,
+      customer_type: lead.customer_type || 'B2C',
+      company_tax_id: lead.company_tax_id || lead.tax_id || null,
+      contact_person_name: lead.contact_person_name || lead.company_name,
+      contact_person_email: lead.contact_person_email || null,
+      contact_person_phone: lead.contact_person_phone || null,
+      billing_address: lead.billing_address || lead.company_address || null,
+      shipping_address: lead.shipping_address || lead.company_address || null,
+      payment_terms: lead.payment_terms || 'NET30',
+      lead_id: lead.id,
+      status: 'active',
+      created_by_id: fallbackUserId || lead.owner_id || null,
+    }
+    const { data, error } = await supabase.from('customers').insert(payload).select().single()
+    if (error) throw error
+    customer = data
+  }
+
+  await supabase.from('leads').update({ customer_id: customer.id }).eq('id', lead.id)
+  return customer
+}
+
+const ensureCustomerForQuotation = async (quotation: any, fallbackUserId?: string | null) => {
+  if (quotation.customer_id) {
+    const { data, error } = await supabase.from('customers').select('*').eq('id', quotation.customer_id).single()
+    if (error) throw error
+    return data
+  }
+  if (!quotation.lead_id) throw new Error('Quotation must be linked to a lead or customer before acceptance.')
+  const customer = await ensureCustomerForLead(quotation.lead_id, fallbackUserId)
+  await supabase.from('quotations').update({ customer_id: customer.id }).eq('id', quotation.id)
+  return customer
+}
+
+const fetchQuotationLines = async (quotationId: string) => {
+  const { data, error } = await supabase
+    .from('quotation_lines')
+    .select('*, product:products(id, name, cost_price, list_price)')
+    .eq('quotation_id', quotationId)
+  if (error) throw error
+  return data || []
+}
+
+const fetchSalesOrderLines = async (salesOrderId: string) => {
+  const { data, error } = await supabase
+    .from('sales_order_lines')
+    .select('*')
+    .eq('sales_order_id', salesOrderId)
+  if (error) throw error
+  return data || []
+}
+
+const chooseWarehouseForLines = async (lines: any[]) => {
+  const requiredByProduct = lines.reduce<Record<string, number>>((acc, line) => {
+    const productId = line.product_id
+    if (!productId) return acc
+    acc[productId] = (acc[productId] || 0) + toFiniteNumber(line.quantity ?? line.quantity_ordered ?? line.quantity_quoted, 0)
+    return acc
+  }, {})
+  const productIds = Object.keys(requiredByProduct)
+  if (!productIds.length) throw new Error('Cannot create order without product lines.')
+
+  const { data: stockRows, error } = await supabase
+    .from('stock_levels')
+    .select('product_id, warehouse_id, quantity_on_hand, quantity_reserved, warehouse:warehouses(name)')
+    .in('product_id', productIds)
+  if (error) throw error
+
+  const byWarehouse: Record<string, Record<string, number>> = {}
+  for (const row of stockRows || []) {
+    const available = toFiniteNumber(row.quantity_on_hand) - toFiniteNumber(row.quantity_reserved)
+    byWarehouse[row.warehouse_id] = byWarehouse[row.warehouse_id] || {}
+    byWarehouse[row.warehouse_id][row.product_id] = (byWarehouse[row.warehouse_id][row.product_id] || 0) + available
+  }
+
+  const fullWarehouseId = Object.entries(byWarehouse).find(([, productStock]) =>
+    productIds.every((productId) => (productStock[productId] || 0) >= requiredByProduct[productId])
+  )?.[0]
+  if (fullWarehouseId) return fullWarehouseId
+
+  const missing = productIds
+    .filter((productId) => (stockRows || []).reduce((sum: number, row: any) =>
+      row.product_id === productId ? sum + toFiniteNumber(row.quantity_on_hand) - toFiniteNumber(row.quantity_reserved) : sum, 0) < requiredByProduct[productId])
+  if (missing.length) throw new Error(`Insufficient stock for ${missing.length} product(s). Create purchase/replenishment before confirming this order.`)
+
+  const firstWarehouse = Object.keys(byWarehouse)[0]
+  if (!firstWarehouse) throw new Error('No warehouse stock records exist for the quoted products.')
+  return firstWarehouse
+}
+
+const reserveStockForOrder = async (salesOrderId: string, warehouseId: string) => {
+  const lines = await fetchSalesOrderLines(salesOrderId)
+  for (const line of lines) {
+    const qty = toFiniteNumber(line.quantity_ordered ?? line.quantity, 0)
+    if (!line.product_id || qty <= 0) continue
+    const { data: stockRow, error: stockError } = await supabase
+      .from('stock_levels')
+      .select('id, quantity_on_hand, quantity_reserved')
+      .eq('product_id', line.product_id)
+      .eq('warehouse_id', warehouseId)
+      .is('bin_location_id', null)
+      .limit(1)
+      .maybeSingle()
+    if (stockError) throw stockError
+    if (!stockRow) throw new Error(`Missing stock level for product ${line.product_id} in selected warehouse.`)
+    const available = toFiniteNumber(stockRow.quantity_on_hand) - toFiniteNumber(stockRow.quantity_reserved)
+    if (available < qty) throw new Error(`Insufficient available stock for product ${line.product_id}.`)
+    const { error } = await supabase
+      .from('stock_levels')
+      .update({ quantity_reserved: toFiniteNumber(stockRow.quantity_reserved) + qty })
+      .eq('id', stockRow.id)
+    if (error) throw error
+  }
+}
+
+const createDeliveryForOrder = async (salesOrder: any, status: 'draft' | 'ready' = 'ready') => {
+  const { data: existingDelivery, error: existingError } = await supabase
+    .from('delivery_orders')
+    .select('*')
+    .eq('sales_order_id', salesOrder.id)
+    .limit(1)
+    .maybeSingle()
+  if (existingError) throw existingError
+  if (existingDelivery) return existingDelivery
+
+  const lines = await fetchSalesOrderLines(salesOrder.id)
+  const warehouseId = await chooseWarehouseForLines(lines)
+  const { data: customer } = await supabase.from('customers').select('shipping_address, billing_address').eq('id', salesOrder.customer_id).single()
+  const deliveryPayload = {
+    delivery_order_number: nextDocumentNumber('DO'),
+    sales_order_id: salesOrder.id,
+    lead_id: salesOrder.lead_id || null,
+    customer_id: salesOrder.customer_id,
+    warehouse_id: warehouseId,
+    scheduled_delivery_date: salesOrder.required_delivery_date || new Date().toISOString().slice(0, 10),
+    shipping_address: customer?.shipping_address || customer?.billing_address || null,
+    status,
+    notes: 'Auto-created from confirmed Sales Order.',
+    created_by_id: salesOrder.created_by_id || salesOrder.sales_person_id || null,
+  }
+  const delivery = await insertOneWithFallback('delivery_orders', [
+    deliveryPayload,
+    (({ lead_id, customer_id, shipping_address, created_by_id, ...payload }) => payload)(deliveryPayload),
+  ])
+
+  const completeRows = lines.map((line: any) => ({
+    delivery_order_id: delivery.id,
+    sales_order_line_id: line.id,
+    product_id: line.product_id,
+    product_name: line.product_name || null,
+    quantity_ordered: toFiniteNumber(line.quantity_ordered ?? line.quantity, 0),
+    quantity_delivered: 0,
+  })).filter((line: any) => line.product_id && line.quantity_ordered > 0)
+  await insertRowsWithFallback('delivery_order_lines', [
+    completeRows,
+    completeRows.map(({ quantity_ordered, ...line }: any) => ({ ...line, quantity: quantity_ordered })),
+  ])
+  await reserveStockForOrder(salesOrder.id, warehouseId)
+  return delivery
+}
+
+const deductStockForDeliveryIfNeeded = async (deliveryId: string, previousStatus?: string | null) => {
+  const { data: delivery, error: deliveryError } = await supabase.from('delivery_orders').select('*').eq('id', deliveryId).single()
+  if (deliveryError) throw deliveryError
+  if (!['delivered', 'shipped'].includes(delivery.status) || ['delivered', 'shipped'].includes(previousStatus || '')) return
+
+  const { data: lines, error: linesError } = await supabase.from('delivery_order_lines').select('*').eq('delivery_order_id', delivery.id)
+  if (linesError) throw linesError
+  for (const line of lines || []) {
+    const qty = toFiniteNumber(line.quantity_delivered || line.quantity_ordered || line.quantity, 0)
+    if (!line.product_id || qty <= 0) continue
+    const { data: stockRow, error: stockError } = await supabase
+      .from('stock_levels')
+      .select('id, quantity_on_hand, quantity_reserved')
+      .eq('product_id', line.product_id)
+      .eq('warehouse_id', delivery.warehouse_id)
+      .is('bin_location_id', null)
+      .limit(1)
+      .maybeSingle()
+    if (stockError) throw stockError
+    if (!stockRow) continue
+    const { error } = await supabase
+      .from('stock_levels')
+      .update({
+        quantity_on_hand: Math.max(0, toFiniteNumber(stockRow.quantity_on_hand) - qty),
+        quantity_reserved: Math.max(0, toFiniteNumber(stockRow.quantity_reserved) - qty),
+      })
+      .eq('id', stockRow.id)
+    if (error) throw error
+  }
+}
+
+const createInvoiceForOrder = async (salesOrder: any, status = 'sent') => {
+  const { data: existingInvoice, error: existingError } = await supabase
+    .from('customer_invoices')
+    .select('*')
+    .eq('sales_order_id', salesOrder.id)
+    .limit(1)
+    .maybeSingle()
+  if (existingError) throw existingError
+  if (existingInvoice) return existingInvoice
+
+  const dueDate = new Date()
+  const paymentTerms = salesOrder.payment_terms || 'NET30'
+  const days = paymentTerms === 'NET45' ? 45 : paymentTerms === 'NET60' ? 60 : paymentTerms === 'COD' || paymentTerms === 'Prepaid' ? 0 : 30
+  dueDate.setDate(dueDate.getDate() + days)
+  const invoicePayload = {
+    invoice_number: nextDocumentNumber('INV'),
+    sales_order_id: salesOrder.id,
+    lead_id: salesOrder.lead_id || null,
+    customer_id: salesOrder.customer_id,
+    invoice_date: new Date().toISOString().slice(0, 10),
+    due_date: dueDate.toISOString().slice(0, 10),
+    status,
+    subtotal: toFiniteNumber(salesOrder.subtotal || salesOrder.total_amount_before_tax || 0),
+    tax_amount: toFiniteNumber(salesOrder.tax_amount || 0),
+    total_amount: toFiniteNumber(salesOrder.total_amount || 0),
+    paid_amount: 0,
+    payment_terms: paymentTerms,
+    description: `Invoice for Sales Order ${salesOrder.sales_order_number}`,
+    created_by_id: salesOrder.created_by_id || salesOrder.sales_person_id || null,
+    issued_by_id: salesOrder.created_by_id || salesOrder.sales_person_id || null,
+  }
+  const invoice = await insertOneWithFallback('customer_invoices', [
+    invoicePayload,
+    (({ lead_id, subtotal, issued_by_id, ...payload }) => ({ ...payload, total_amount_before_tax: subtotal }))(invoicePayload),
+  ])
+  return invoice
+}
+
+const ensureDeliveryForInvoice = async (invoiceId: string) => {
+  const { data: invoice, error } = await supabase.from('customer_invoices').select('*').eq('id', invoiceId).single()
+  if (error) throw error
+  if (!invoice.sales_order_id) return null
+  const { data: salesOrder, error: orderError } = await supabase.from('sales_orders').select('*').eq('id', invoice.sales_order_id).single()
+  if (orderError) throw orderError
+  return createDeliveryForOrder(salesOrder, 'ready')
+}
+
+const acceptQuotationWorkflow = async (quotationId: string, fallbackUserId?: string | null) => {
+  const { data: quotation, error: quotationError } = await supabase.from('quotations').select('*').eq('id', quotationId).single()
+  if (quotationError) throw quotationError
+  if (!['accepted', 'won'].includes(quotation.status)) return null
+
+  const customer = await ensureCustomerForQuotation(quotation, fallbackUserId)
+  if (customer.customer_type === 'B2B') {
+    const creditUsed = toFiniteNumber(customer.credit_used)
+    const creditLimit = toFiniteNumber(customer.credit_limit)
+    if (creditLimit > 0 && creditUsed > creditLimit * 0.8) {
+      throw new Error(`[Business Rule] Customer credit usage is above 80% of credit limit. Collect payment before confirming a new order.`)
+    }
+  }
+
+  const { data: existingOrder, error: existingError } = await supabase
+    .from('sales_orders')
+    .select('*')
+    .eq('quotation_id', quotation.id)
+    .limit(1)
+    .maybeSingle()
+  if (existingError) throw existingError
+  if (existingOrder) return existingOrder
+
+  const quoteLines = await fetchQuotationLines(quotation.id)
+  await chooseWarehouseForLines(quoteLines)
+  const paymentTerms = customer.payment_terms || 'NET30'
+  const orderPayload = {
+    sales_order_number: nextDocumentNumber('SO'),
+    quotation_id: quotation.id,
+    lead_id: quotation.lead_id || null,
+    customer_id: customer.id,
+    order_date: new Date().toISOString().slice(0, 10),
+    required_delivery_date: quotation.valid_until_date || normalizeDate(undefined, 7),
+    status: 'confirmed',
+    tax_percent: toFiniteNumber(quotation.tax_percent, 10),
+    payment_terms: paymentTerms,
+    notes: `Auto-created from accepted quotation ${quotation.quotation_number}`,
+    sales_person_id: quotation.created_by_id || fallbackUserId || null,
+    created_by_id: quotation.created_by_id || fallbackUserId || null,
+  }
+  const salesOrder = await insertOneWithFallback('sales_orders', [
+    orderPayload,
+    (({ lead_id, payment_terms, tax_percent, ...payload }) => payload)(orderPayload),
+  ])
+
+  const completeRows = quoteLines.map((line: any, index: number) => ({
+    sales_order_id: salesOrder.id,
+    product_id: line.product_id,
+    product_name: line.product_name || line.product?.name || null,
+    sequence: index + 1,
+    quantity_ordered: toFiniteNumber(line.quantity ?? line.quantity_quoted, 1),
+    quantity_delivered: 0,
+    unit_price: toFiniteNumber(line.unit_price, 0),
+    cost_price: toFiniteNumber(line.product?.cost_price, 0),
+    discount_percent: toFiniteNumber(line.discount_percent, 0),
+    notes: line.notes || null,
+  })).filter((line: any) => line.product_id)
+  await insertRowsWithFallback('sales_order_lines', [
+    completeRows,
+    completeRows.map(({ quantity_ordered, ...line }: any) => ({ ...line, quantity: quantity_ordered })),
+    completeRows.map(({ sequence, ...line }: any) => ({ ...line, sequence_number: sequence, tax_percent: toFiniteNumber(quotation.tax_percent, 10) })),
+  ])
+
+  const { data: refreshedOrder, error: refreshedError } = await supabase.from('sales_orders').select('*').eq('id', salesOrder.id).single()
+  if (refreshedError) throw refreshedError
+  const invoice = await createInvoiceForOrder(refreshedOrder)
+  if (!isImmediatePaymentTerm(paymentTerms) || invoice.status === 'paid') {
+    await createDeliveryForOrder(refreshedOrder, 'ready')
+  }
+  return refreshedOrder
+}
+
 const getAccountingMetrics = async () => {
   const [invoices, bills] = await Promise.all([fetchInvoices(), fetchBills()])
 
@@ -784,7 +1156,8 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/sales-orders' || pathname.startsWith('/sales-orders/')) {
-    if (!isPositiveNumber(norm(body, 'total_amount', 'total') || 0)) {
+    const orderProductsForValidation = body.lines || body.products || []
+    if (!orderProductsForValidation.length && !isPositiveNumber(norm(body, 'total_amount', 'total') || 0)) {
       throw new Error('Sales order total must be greater than 0.')
     }
     ensureDateOrder(
@@ -822,11 +1195,11 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       }
       
       // Check if ordered products have stock
-      const orderProducts = body.lines || body.products || []
+      const orderProducts = orderProductsForValidation
       for (const product of orderProducts) {
         const availableStock = stockByProduct[product.product_id] || 0
         if (availableStock < (product.quantity_ordered || product.quantity || 0)) {
-          console.warn(`[Business Rule] Product ${product.product_id} has insufficient stock. Available: ${availableStock}, Ordered: ${product.quantity_ordered || product.quantity || 0}`)
+          throw new Error(`[Business Rule] Product ${product.product_id} has insufficient stock. Available: ${availableStock}, Ordered: ${product.quantity_ordered || product.quantity || 0}`)
         }
       }
     }
@@ -1312,7 +1685,7 @@ const getResource = async <T>(path: string): Promise<T> => {
     const { data, error } = await applyLimit(
       supabase
         .from('sales_orders')
-        .select('*, customer:customers(name)')
+        .select('*, customer:customers(name), sales_order_lines(*)')
         .order('order_date', { ascending: false }),
       searchParams
     )
@@ -1328,7 +1701,7 @@ const getResource = async <T>(path: string): Promise<T> => {
     const id = pathname.split('/').pop()
     const { data, error } = await supabase
       .from('sales_orders')
-      .select('*, customer:customers(name)')
+      .select('*, customer:customers(name), sales_order_lines(*)')
       .eq('id', id)
       .single()
     if (error) throw error
@@ -1339,7 +1712,7 @@ const getResource = async <T>(path: string): Promise<T> => {
     const { data, error } = await applyLimit(
       supabase
         .from('quotations')
-        .select('*, customer:customers(name)')
+        .select('*, customer:customers(name), quotation_lines(*)')
         .order('issued_date', { ascending: false }),
       searchParams
     )
@@ -1351,7 +1724,7 @@ const getResource = async <T>(path: string): Promise<T> => {
     const id = pathname.split('/').pop()
     const { data, error } = await supabase
       .from('quotations')
-      .select('*, customer:customers(name)')
+      .select('*, customer:customers(name), quotation_lines(*)')
       .eq('id', id)
       .single()
     if (error) throw error
@@ -1828,7 +2201,7 @@ const getResource = async <T>(path: string): Promise<T> => {
       .lt('warranty_end_date', todayStr)
       .neq('warranty_end_date', null)
 
-    return {
+    return ({
       expiring: (expiringDevices || []).map(d => ({
         ...d,
         product_name: d.product?.name || '',
@@ -1843,7 +2216,7 @@ const getResource = async <T>(path: string): Promise<T> => {
           ? Math.ceil((new Date(d.warranty_end_date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
           : null,
       })),
-    }
+    }) as T
   }
 
   // ========== IoT WARRANTY TRACKING ==========
@@ -1901,7 +2274,12 @@ const getResource = async <T>(path: string): Promise<T> => {
 }
 
 const writeResource = async <T>(path: string, body: Record<string, any>, method: 'POST' | 'PUT') => {
-  const { pathname } = parsePath(path)
+  let { pathname } = parsePath(path)
+  if (pathname === '/sales/quotations') pathname = '/sales-orders/quotations'
+  if (pathname.startsWith('/sales/quotations/')) {
+    pathname = pathname.replace('/sales/quotations/', '/sales-orders/quotations/')
+  }
+  const currentUserId = await getCurrentUserId()
   const normalizedBody = await normalizeWriteBody(pathname, body)
   const rawLines = Array.isArray(body.lines) ? body.lines : (Array.isArray(body.products) ? body.products : null)
 
@@ -1918,8 +2296,10 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     if (insertError) throw insertError
   }
 
-  const upsert = async (table: string, id?: string) => {
-    const bodyWithDelete = method === 'POST'
+  const tablesWithoutSoftDelete = new Set(['leads'])
+
+  const upsert = async (table: string, id?: string): Promise<any> => {
+    const bodyWithDelete = method === 'POST' && !tablesWithoutSoftDelete.has(table)
       ? { ...normalizedBody, is_deleted: false }
       : normalizedBody
     const query =
@@ -1933,7 +2313,7 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
   }
 
   if (pathname === '/crm/leads') {
-    const lead = await upsert<any>('leads')
+    const lead = await upsert('leads')
     const lines = (rawLines || body.products || []).map((line: any) => ({
       lead_id: lead.id,
       product_id: line.product_id || null,
@@ -1950,7 +2330,8 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
   }
   if (pathname.startsWith('/crm/leads/')) {
     const id = pathname.split('/').pop()
-    const lead = await upsert<any>('leads', id)
+    if (!id) throw new Error('Lead id is required.')
+    const lead = await upsert('leads', id)
     const lines = (rawLines || body.products || []).map((line: any) => ({
       lead_id: id,
       product_id: line.product_id || null,
@@ -1962,6 +2343,12 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     })).filter((line: any) => line.product_id || line.product_name)
     if (lines.length > 0) {
       await persistLines('lead_products', 'lead_id', id, lines)
+    }
+    const stageName = lead.stage_id
+      ? (await supabase.from('lead_stages').select('name').eq('id', lead.stage_id).single()).data?.name
+      : null
+    if (id && stageName === 'won') {
+      await ensureCustomerForLead(id, currentUserId)
     }
     return lead
   }
@@ -1979,7 +2366,7 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     return data as T
   }
   if (pathname === '/sales-orders') {
-    const order = await upsert<any>('sales_orders')
+    const order = await upsert('sales_orders')
     if (rawLines) {
       const lines = rawLines.map((line: any, index: number) => ({
         sales_order_id: order.id,
@@ -1992,12 +2379,17 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
         discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
         notes: line.notes || null,
       })).filter((line: any) => line.product_id)
-      await persistLines('sales_order_lines', 'sales_order_id', order.id, lines)
+      await supabase.from('sales_order_lines').delete().eq('sales_order_id', order.id)
+      await insertRowsWithFallback('sales_order_lines', [
+        lines,
+        lines.map(({ quantity_ordered, ...line }: any) => ({ ...line, quantity: quantity_ordered })),
+        lines.map(({ sequence, ...line }: any) => ({ ...line, sequence_number: sequence, tax_percent: toNumber(body.tax_percent ?? 10) })),
+      ])
     }
     return order
   }
   if (pathname.startsWith('/sales-orders/quotations/')) {
-    const quotation = await upsert<any>('quotations', pathname.split('/').pop())
+    const quotation = await upsert('quotations', pathname.split('/').pop())
     if (rawLines) {
       const lines = rawLines.map((line: any, index: number) => ({
         quotation_id: quotation.id,
@@ -2008,29 +2400,53 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
         unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
         discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
       })).filter((line: any) => line.product_id || line.product_name)
-      await persistLines('quotation_lines', 'quotation_id', quotation.id, lines)
+      await supabase.from('quotation_lines').delete().eq('quotation_id', quotation.id)
+      await insertRowsWithFallback('quotation_lines', [
+        lines,
+        lines.map(({ quantity, sequence, ...line }: any) => ({
+          ...line,
+          sequence_number: sequence,
+          quantity_quoted: quantity,
+          tax_percent: toNumber(body.tax_percent ?? 10),
+        })),
+      ])
+    }
+    if (['accepted', 'won'].includes(quotation.status)) {
+      await acceptQuotationWorkflow(quotation.id, currentUserId)
     }
     return quotation
   }
   if (pathname === '/sales-orders/quotations') {
-    const quotation = await upsert<any>('quotations')
+    const quotation = await upsert('quotations')
     if (rawLines) {
       const lines = rawLines.map((line: any, index: number) => ({
         quotation_id: quotation.id,
         product_id: line.product_id || line.productId,
-        sequence_number: index + 1,
-        quantity_quoted: toNumber(line.quantity_quoted ?? line.quantity ?? 0),
+        product_name: line.product_name || line.productName || null,
+        sequence: index + 1,
+        quantity: toNumber(line.quantity_quoted ?? line.quantity ?? 0),
         unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
         discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
-        tax_percent: toNumber(line.tax_percent ?? line.tax ?? 10),
         notes: line.notes || null,
       })).filter((line: any) => line.product_id)
-      await persistLines('quotation_lines', 'quotation_id', quotation.id, lines)
+      await supabase.from('quotation_lines').delete().eq('quotation_id', quotation.id)
+      await insertRowsWithFallback('quotation_lines', [
+        lines,
+        lines.map(({ quantity, sequence, ...line }: any) => ({
+          ...line,
+          sequence_number: sequence,
+          quantity_quoted: quantity,
+          tax_percent: toNumber(body.tax_percent ?? 10),
+        })),
+      ])
+    }
+    if (['accepted', 'won'].includes(quotation.status)) {
+      await acceptQuotationWorkflow(quotation.id, currentUserId)
     }
     return quotation
   }
   if (pathname.startsWith('/sales-orders/')) {
-    const order = await upsert<any>('sales_orders', pathname.split('/').pop())
+    const order = await upsert('sales_orders', pathname.split('/').pop())
     if (rawLines) {
       const lines = rawLines.map((line: any, index: number) => ({
         sales_order_id: order.id,
@@ -2043,12 +2459,25 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
         tax_percent: toNumber(line.tax_percent ?? line.tax ?? 10),
         notes: line.notes || null,
       })).filter((line: any) => line.product_id)
-      await persistLines('sales_order_lines', 'sales_order_id', order.id, lines)
+      await supabase.from('sales_order_lines').delete().eq('sales_order_id', order.id)
+      await insertRowsWithFallback('sales_order_lines', [
+        lines,
+        lines.map(({ quantity_ordered, ...line }: any) => ({ ...line, quantity: quantity_ordered })),
+        lines.map(({ sequence_number, ...line }: any) => ({ ...line, sequence: sequence_number })),
+      ])
+    }
+    if (['confirmed', 'delivered'].includes(order.status)) {
+      const { data: refreshedOrder, error: refreshError } = await supabase.from('sales_orders').select('*').eq('id', order.id).single()
+      if (refreshError) throw refreshError
+      const invoice = await createInvoiceForOrder(refreshedOrder)
+      if (!isImmediatePaymentTerm(refreshedOrder.payment_terms) || invoice.status === 'paid') {
+        await createDeliveryForOrder(refreshedOrder, 'ready')
+      }
     }
     return order
   }
   if (pathname === '/purchase/rfqs') {
-    const rfq = await upsert<any>('rfqs')
+    const rfq = await upsert('rfqs')
     if (rawLines) {
       const lines = rawLines.map((line: any, index: number) => ({
         rfq_id: rfq.id,
@@ -2063,7 +2492,7 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     return rfq
   }
   if (pathname.startsWith('/purchase/rfqs/')) {
-    const rfq = await upsert<any>('rfqs', pathname.split('/').pop())
+    const rfq = await upsert('rfqs', pathname.split('/').pop())
     if (rawLines) {
       const lines = rawLines.map((line: any, index: number) => ({
         rfq_id: rfq.id,
@@ -2078,7 +2507,7 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     return rfq
   }
   if (pathname === '/purchase/purchase-orders') {
-    const po = await upsert<any>('purchase_orders')
+    const po = await upsert('purchase_orders')
     if (rawLines) {
       const lines = rawLines.map((line: any, index: number) => ({
         purchase_order_id: po.id,
@@ -2094,7 +2523,7 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     return po
   }
   if (pathname.startsWith('/purchase/purchase-orders/')) {
-    const po = await upsert<any>('purchase_orders', pathname.split('/').pop())
+    const po = await upsert('purchase_orders', pathname.split('/').pop())
     if (rawLines) {
       const lines = rawLines.map((line: any, index: number) => ({
         purchase_order_id: po.id,
@@ -2109,14 +2538,64 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     }
     return po
   }
-  if (pathname === '/inventory/delivery-orders') return upsert('delivery_orders')
-  if (pathname.startsWith('/inventory/delivery-orders/')) return upsert('delivery_orders', pathname.split('/').pop())
+  if (pathname === '/inventory/delivery-orders') {
+    const delivery = await upsert('delivery_orders')
+    if (rawLines) {
+      const lines = rawLines.map((line: any) => ({
+        delivery_order_id: delivery.id,
+        sales_order_line_id: line.sales_order_line_id || line.salesOrderLineId || null,
+        product_id: line.product_id || line.productId,
+        product_name: line.product_name || line.productName || null,
+        bin_location_id: line.bin_location_id || line.binLocationId || null,
+        quantity_ordered: toNumber(line.quantity_ordered ?? line.quantity ?? 1),
+        quantity_delivered: toNumber(line.quantity_delivered ?? line.delivered ?? 0),
+      })).filter((line: any) => line.product_id)
+      await supabase.from('delivery_order_lines').delete().eq('delivery_order_id', delivery.id)
+      await insertRowsWithFallback('delivery_order_lines', [
+        lines,
+        lines.map(({ quantity_ordered, ...line }: any) => ({ ...line, quantity: quantity_ordered })),
+      ])
+    }
+    await deductStockForDeliveryIfNeeded(delivery.id, null)
+    return delivery
+  }
+  if (pathname.startsWith('/inventory/delivery-orders/')) {
+    const id = pathname.split('/').pop()
+    const { data: previous } = await supabase.from('delivery_orders').select('status').eq('id', id).maybeSingle()
+    const delivery = await upsert('delivery_orders', id)
+    if (rawLines) {
+      const lines = rawLines.map((line: any) => ({
+        delivery_order_id: delivery.id,
+        sales_order_line_id: line.sales_order_line_id || line.salesOrderLineId || null,
+        product_id: line.product_id || line.productId,
+        product_name: line.product_name || line.productName || null,
+        bin_location_id: line.bin_location_id || line.binLocationId || null,
+        quantity_ordered: toNumber(line.quantity_ordered ?? line.quantity ?? 1),
+        quantity_delivered: toNumber(line.quantity_delivered ?? line.delivered ?? line.quantity_ordered ?? line.quantity ?? 0),
+      })).filter((line: any) => line.product_id)
+      await supabase.from('delivery_order_lines').delete().eq('delivery_order_id', delivery.id)
+      await insertRowsWithFallback('delivery_order_lines', [
+        lines,
+        lines.map(({ quantity_ordered, ...line }: any) => ({ ...line, quantity: quantity_ordered })),
+      ])
+    }
+    await deductStockForDeliveryIfNeeded(delivery.id, previous?.status)
+    return delivery
+  }
   if (pathname === '/inventory/goods-receipts') return upsert('goods_receipts')
   if (pathname.startsWith('/inventory/goods-receipts/')) return upsert('goods_receipts', pathname.split('/').pop())
   if (pathname === '/inventory/adjustments') return upsert('inventory_adjustments')
   if (pathname.startsWith('/inventory/adjustments/')) return upsert('inventory_adjustments', pathname.split('/').pop())
-  if (pathname === '/accounting/invoices') return upsert('customer_invoices')
-  if (pathname.startsWith('/accounting/invoices/')) return upsert('customer_invoices', pathname.split('/').pop())
+  if (pathname === '/accounting/invoices') {
+    const invoice = await upsert('customer_invoices')
+    if (invoice.status === 'paid') await ensureDeliveryForInvoice(invoice.id)
+    return invoice
+  }
+  if (pathname.startsWith('/accounting/invoices/')) {
+    const invoice = await upsert('customer_invoices', pathname.split('/').pop())
+    if (invoice.status === 'paid') await ensureDeliveryForInvoice(invoice.id)
+    return invoice
+  }
   if (pathname === '/accounting/bills') return upsert('vendor_bills')
   if (pathname.startsWith('/accounting/bills/')) return upsert('vendor_bills', pathname.split('/').pop())
   if (pathname === '/accounting/credit-notes') return upsert('credit_notes')
@@ -2149,7 +2628,7 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     return { success: true } as T
   }
   if (pathname === '/products') {
-    const product = await upsert<any>('products')
+    const product = await upsert('products')
     if (product && method === 'POST') {
       const { data: warehouses } = await supabase.from('warehouses').select('id')
       if (warehouses && warehouses.length > 0) {
@@ -2174,7 +2653,7 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
   if (pathname === '/suppliers') return upsert('suppliers')
   if (pathname.startsWith('/suppliers/')) return upsert('suppliers', pathname.split('/').pop())
   if (pathname === '/warehouse/warehouses') {
-    const warehouse = await upsert<any>('warehouses')
+    const warehouse = await upsert('warehouses')
     if (warehouse && method === 'POST') {
       const { data: products } = await supabase.from('products').select('id')
       if (products && products.length > 0) {
@@ -2200,7 +2679,7 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
   // ========== STOCK TRANSFERS ==========
   if (pathname === '/inventory/stock-transfers') return upsert('stock_transfers')
   if (pathname.startsWith('/inventory/stock-transfers/')) {
-    const transfer = await upsert<any>('stock_transfers', pathname.split('/').pop())
+    const transfer = await upsert('stock_transfers', pathname.split('/').pop())
     if (rawLines) {
       await persistLines('stock_transfer_lines', 'transfer_id', transfer.id, rawLines.map((line: any, index: number) => ({
         transfer_id: transfer.id,
@@ -2223,15 +2702,29 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     const customerId = body.customer_id || (await resolveCustomerId(body.customerName))
     const invoiceId = body.invoice_id || (body.invoiceNumber ? await resolveInvoiceId(body.invoiceNumber, body.customerName) : null)
 
-    const payment = await upsert<any>('customer_payments')
+    const payment = await insertOneWithFallback('customer_payments', [{
+      payment_number: body.payment_number || body.paymentNumber || nextDocumentNumber('PAY'),
+      customer_id: customerId,
+      invoice_id: invoiceId,
+      amount: toNumber(body.amount, 0),
+      payment_date: body.payment_date || body.paymentDate || new Date().toISOString().slice(0, 10),
+      payment_method: body.payment_method || body.paymentMethod || 'bank_transfer',
+      reference: body.reference || null,
+      notes: body.notes || null,
+      received_by_id: body.received_by_id || currentUserId,
+      created_by_id: body.created_by_id || currentUserId,
+    }])
 
     // Auto-update invoice paid_amount
     if (invoiceId && payment?.id) {
       const { data: invoice } = await supabase.from('customer_invoices').select('total_amount, paid_amount').eq('id', invoiceId).single()
       if (invoice) {
         const totalPaid = invoice.paid_amount + (body.amount || 0)
-        const newStatus = totalPaid >= invoice.total_amount ? 'paid' : totalPaid > 0 ? 'partial_paid' : 'issued'
+        const newStatus = totalPaid >= invoice.total_amount ? 'paid' : totalPaid > 0 ? 'partial_paid' : 'sent'
         await supabase.from('customer_invoices').update({ paid_amount: totalPaid, status: newStatus }).eq('id', invoiceId)
+        if (newStatus === 'paid') {
+          await ensureDeliveryForInvoice(invoiceId)
+        }
       }
     }
 
@@ -2246,7 +2739,18 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     const supplierId = body.supplier_id || (await resolveSupplierId(body.supplierName))
     const billId = body.bill_id || (body.billNumber ? await resolveBillId(body.billNumber, body.supplierName) : null)
 
-    const payment = await upsert<any>('supplier_payments')
+    const payment = await insertOneWithFallback('supplier_payments', [{
+      payment_number: body.payment_number || body.paymentNumber || nextDocumentNumber('SPAY'),
+      supplier_id: supplierId,
+      bill_id: billId,
+      amount: toNumber(body.amount, 0),
+      payment_date: body.payment_date || body.paymentDate || new Date().toISOString().slice(0, 10),
+      payment_method: body.payment_method || body.paymentMethod || 'bank_transfer',
+      reference: body.reference || null,
+      notes: body.notes || null,
+      paid_by_id: body.paid_by_id || currentUserId,
+      created_by_id: body.created_by_id || currentUserId,
+    }])
 
     // Auto-update vendor bill paid_amount
     if (billId && payment?.id) {

@@ -1,15 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Search, Plus, Trash2, X } from 'lucide-react'
+import { Search, Trash2, X } from 'lucide-react'
 import { erpApi } from '../services/erpApi'
 import {
   ActionToolbar,
   formatCurrency,
-  FormField,
   KanbanBoard,
   ModuleHeader,
   ModuleTabs,
   RecordActions,
-  RecordModal,
   StatusBadge,
   ViewMode,
 } from '../components/OdooLite'
@@ -69,7 +67,7 @@ const RFQLinesEditor: React.FC<{
   onQuotationsChange: (quotations: Record<string, RFQSupplierQuotation[]>) => void
   products: any[]
   suppliers: any[]
-}> = ({ lines, quotations, onLinesChange, onQuotationsChange, products, suppliers }) => {
+}> = ({ lines, quotations, onLinesChange, onQuotationsChange, products }) => {
   const [search, setSearch] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
 
@@ -358,51 +356,6 @@ const POLinesEditor: React.FC<{
     </div>
   )
 }
-
-const poFieldsBase: FormField[] = [
-  { name: 'poNumber', label: 'PO #', type: 'text', required: true },
-  { name: 'supplierId', label: 'Supplier', type: 'select', required: true, options: [] },
-  { name: 'rfqNumber', label: 'RFQ', type: 'select', options: [] },
-  { name: 'orderDate', label: 'PO Date', type: 'date', required: true },
-  { name: 'requiredDeliveryDate', label: 'Required Delivery Date', type: 'date' },
-  { name: 'actualDeliveryDate', label: 'Actual Delivery Date', type: 'date' },
-  { name: 'totalAmountBeforeTax', label: 'Subtotal', type: 'number' },
-  { name: 'totalTax', label: 'Tax', type: 'number' },
-  { name: 'totalAmount', label: 'Total', type: 'number', required: true },
-  { name: 'receivedAmount', label: 'Received Amount', type: 'number' },
-  {
-    name: 'status',
-    label: 'Status',
-    type: 'select',
-    options: [
-      { value: 'draft', label: 'Draft' },
-      { value: 'confirmed', label: 'Confirmed' },
-      { value: 'partial_received', label: 'Partial Received' },
-      { value: 'received', label: 'Received' },
-      { value: 'cancelled', label: 'Cancelled' },
-    ],
-  },
-  { name: 'notes', label: 'Notes', type: 'textarea' },
-]
-
-const rfqFieldsBase: FormField[] = [
-  { name: 'rfqNumber', label: 'RFQ #', type: 'text', required: true },
-  { name: 'issuedDate', label: 'Issued Date', type: 'date', required: true },
-  { name: 'closingDate', label: 'Closing Date', type: 'date' },
-  { name: 'totalEstimatedCost', label: 'Total Estimated Cost (Auto-Calculated)', type: 'number', readonly: true },
-  {
-    name: 'status',
-    label: 'Status',
-    type: 'select',
-    options: [
-      { value: 'draft', label: 'Draft' },
-      { value: 'sent', label: 'Sent' },
-      { value: 'closed', label: 'Closed' },
-      { value: 'cancelled', label: 'Cancelled' },
-    ],
-  },
-  { name: 'notes', label: 'Notes', type: 'textarea' },
-]
 
 const flow: Record<string, string> = {
   draft: 'confirmed',
@@ -794,22 +747,10 @@ const PurchaseModule: React.FC = () => {
   }, [])
 
   const activeRecords = activeTab === 'purchase-orders' ? purchaseOrders : rfqs
-  const supplierOptions = useMemo(
-    () => suppliers.map((supplier) => ({ value: supplier.id, label: `${supplier.name}${supplier.supplier_number ? ` (${supplier.supplier_number})` : ''}` })),
-    [suppliers]
-  )
   const rfqOptions = useMemo(
     () => rfqList.map((rfq) => ({ value: rfq.id, label: `${rfq.rfq_number} - ${rfq.supplier?.name || 'Supplier'}` })),
     [rfqList]
   )
-  const fields = useMemo(() => {
-    const source = activeTab === 'purchase-orders' ? poFieldsBase : rfqFieldsBase
-    return source.map((field) => {
-      if (field.name === 'supplierId') return { ...field, options: supplierOptions }
-      if (field.name === 'rfqNumber') return { ...field, options: rfqOptions }
-      return field
-    })
-  }, [activeTab, supplierOptions, rfqOptions])
   const title = activeTab === 'purchase-orders' ? 'Purchase Order' : 'RFQ'
 
   const filteredRecords = useMemo(() => {
