@@ -1,5 +1,30 @@
 # API Testing Results & Analysis
 
+## Latest Result (2026-05-12)
+
+The canonical workflow test is now:
+
+```powershell
+npm run test:erp-workflows
+```
+
+Result: **PASSED** via local curl test backend on `http://localhost:8787`.
+
+Passed workflows:
+
+- CRM/Sales/AR/Delivery: Lead -> Activity -> Lead Product -> Quotation -> Customer -> Sales Order -> Customer Invoice -> Customer Payment -> Delivery Order delivered
+- Purchase/AP/Inbound: RFQ -> Supplier Quotation -> Purchase Order -> Goods Receipt -> Vendor Bill -> Supplier Payment
+- Inventory: Inventory Adjustment -> Stock Transfer
+
+Important schema findings from the automated run:
+
+- `quotations.total_amount`, `sales_orders.total_amount`, `customer_invoices.total_amount`, and `purchase_orders.total_amount` are generated/default-calculated by the current DB and must not be inserted manually.
+- Purchase order line `line_total` is generated/default-calculated and must not be inserted manually.
+- Quotation creation remains lead-first: the test inserts `customer_id = null` on quotation, then creates/links customer only after acceptance.
+- Activities use `activity_type_id` and `description`; no `outcome` column is written.
+
+---
+
 ## Summary
 Successfully tested Supabase REST API endpoints for NovaTech ERP. Identified RLS (Row Level Security) restrictions on write operations.
 

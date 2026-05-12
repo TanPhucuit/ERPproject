@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test:erp-workflows": "powershell -ExecutionPolicy Bypass -File scripts/api_tests/run_workflow_curl_tests.ps1"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.0",

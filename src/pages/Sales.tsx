@@ -306,7 +306,7 @@ const SalesModal: React.FC<{
   const handleSave = () => {
     const nextErrors: Record<string, string> = {}
     if (isOrder && !form.customer_id) nextErrors.customer_id = 'Khách hàng là bắt buộc'
-    if (!isOrder && !form.customer_id && !form.lead_id) nextErrors.lead_id = 'Phải chọn Lead hoặc Customer'
+    if (!isOrder && !form.lead_id) nextErrors.lead_id = 'Phải chọn Lead nguồn'
     if (form.lines.length === 0) nextErrors.lines = 'Phải có ít nhất 1 sản phẩm'
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
