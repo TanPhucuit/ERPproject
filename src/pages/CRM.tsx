@@ -774,13 +774,19 @@ const CRMModule: React.FC = () => {
     return stage.display_name || stage.name || stage
   }
 
-  const stageName = (stage: any) => stage?.name || stage
+  const stageName = (leadOrStage: any) => {
+    if (!leadOrStage) return 'new'
+    if (typeof leadOrStage === 'object') {
+      return leadOrStage.stage?.name || leadOrStage.stage_name || leadOrStage.status || leadOrStage.name || 'new'
+    }
+    return leadOrStage
+  }
 
   const filteredLeads = useMemo(() =>
     leads.filter(l => {
       const hay = `${l.company_name || ''} ${l.contact_person_name || ''} ${l.contact_person_email || ''} ${l.lead_number || ''}`.toLowerCase()
       const matchSearch = hay.includes(search.toLowerCase())
-      const matchStage = stageFilter === 'all' || (stageName(l.stage_id || l.stage) || 'new') === stageFilter
+      const matchStage = stageFilter === 'all' || stageName(l) === stageFilter
       return matchSearch && matchStage
     }), [leads, search, stageFilter])
 
@@ -798,7 +804,7 @@ const CRMModule: React.FC = () => {
       company_tax_id: lead.company_tax_id || '',
       owner_id: lead.owner_id || '',
       owner_name: lead.owner?.full_name || '',
-      stage: stageName(lead.stage_id || lead.stage) || 'new',
+      stage: stageName(lead),
       source: lead.source || 'website',
       lead_rating: lead.lead_rating || 'warm',
       estimated_value: lead.estimated_value || 0,
@@ -898,7 +904,7 @@ const CRMModule: React.FC = () => {
   }
 
   const advanceLead = async (lead: any) => {
-    const currentStage = stageName(lead.stage_id || lead.stage)
+    const currentStage = stageName(lead)
     const next = nextLeadStage[currentStage]
     if (!next) return
 
@@ -933,7 +939,7 @@ const CRMModule: React.FC = () => {
         className="rounded p-1.5 text-blue-600 hover:bg-blue-50" title="Ghi nhận Activity">
         <PlusCircle size={14} />
       </button>
-      {stageName(lead.stage_id || lead.stage) !== 'won' && stageName(lead.stage_id || lead.stage) !== 'lost' && (
+      {stageName(lead) !== 'won' && stageName(lead) !== 'lost' && (
         <button onClick={() => openQuotationModal(lead)}
           className="rounded p-1.5 text-purple-600 hover:bg-purple-50" title="Tạo Báo giá">
           <FileText size={14} />
@@ -942,7 +948,7 @@ const CRMModule: React.FC = () => {
       <RecordActions
         onEdit={() => openEditLead(lead)}
         onDelete={() => deleteLead(lead)}
-        onAdvance={nextLeadStage[stageName(lead.stage_id || lead.stage)] ? () => advanceLead(lead) : undefined}
+        onAdvance={nextLeadStage[stageName(lead)] ? () => advanceLead(lead) : undefined}
         advanceLabel="Chuyển tiếp"
       />
     </div>
@@ -1035,7 +1041,7 @@ const CRMModule: React.FC = () => {
                         {lead.probability_percent || 10}%
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <StatusBadge status={stageName(lead.stage_id || lead.stage)} />
+                        <StatusBadge status={stageName(lead)} />
                       </td>
                       <td className="px-4 py-3">{renderLeadActions(lead)}</td>
                     </tr>
@@ -1051,7 +1057,7 @@ const CRMModule: React.FC = () => {
           ) : (
             <KanbanBoard
               records={filteredLeads}
-              groupBy={l => stageName(l.stage_id || l.stage) || 'new'}
+              groupBy={l => stageName(l)}
               renderCard={lead => (
                 <div className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
                   <div className="mb-2 flex items-start justify-between gap-2">
@@ -1059,7 +1065,7 @@ const CRMModule: React.FC = () => {
                       <p className="font-bold text-gray-900">{lead.company_name}</p>
                       <p className="text-xs text-gray-400">{lead.lead_number}</p>
                     </div>
-                    <StatusBadge status={stageName(lead.stage_id || lead.stage)} />
+                    <StatusBadge status={stageName(lead)} />
                   </div>
                   <p className="text-sm text-gray-600">{lead.contact_person_name} • {lead.contact_person_email}</p>
                   <div className="mt-2 flex items-center justify-between">

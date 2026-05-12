@@ -50,6 +50,9 @@ const countFieldsBase: FormField[] = [
   { name: 'reference', label: 'Count #', type: 'text', required: true },
   { name: 'warehouseName', label: 'Warehouse', type: 'select', required: true, options: [] },
   { name: 'binCode', label: 'Bin Location', type: 'select', required: true, options: [] },
+  { name: 'productName', label: 'Product', type: 'select', required: true, options: [] },
+  { name: 'quantityBefore', label: 'System Qty', type: 'number', required: false, readonly: true, disabled: true },
+  { name: 'quantityAfter', label: 'Counted Qty', type: 'number', required: true },
   { name: 'countDate', label: 'Count Date', type: 'date' },
   { name: 'lastAdjustedAt', label: 'Last Adjusted', type: 'date' },
   {
@@ -98,6 +101,8 @@ const InventoryModule: React.FC = () => {
             ...item,
             warehouseName: item.warehouse?.warehouse_name || item.warehouse?.name || item.warehouse_id,
             productName: item.product?.name || item.product_id,
+            binCode: item.bin_location?.bin_code || '',
+            bin: item.bin_location || null,
             quantityOnHand: item.quantity_on_hand || 0,
             quantityReserved: item.quantity_reserved || 0,
             quantityAvailable: item.quantity_available || 0,
@@ -253,6 +258,8 @@ const InventoryModule: React.FC = () => {
       partnerName: '',
       binCode: '',
       quantityOnHand: 0,
+      quantityBefore: 0,
+      quantityAfter: 0,
       quantityReserved: 0,
       quantityAvailable: 0,
       quantityInTransit: 0,
@@ -274,7 +281,8 @@ const InventoryModule: React.FC = () => {
           : '/inventory/stock-levels'
 
     try {
-      await erpApi.post(path, record)
+      const isExisting = record.id && activeRecords.some((item) => item.id === record.id)
+      await (isExisting ? erpApi.put(`${path}/${record.id}`, record) : erpApi.post(path, record))
     } catch (error: any) {
       showNotification('error', `Inventory save failed: ${error.message}`)
       return

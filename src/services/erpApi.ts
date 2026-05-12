@@ -298,6 +298,21 @@ const resolveWarehouseId = async (name?: string | null) => {
   throw new Error(`Warehouse "${input}" does not exist in Master Data.`)
 }
 
+const resolveProductId = async (nameOrSku?: string | null) => {
+  const input = normalizeText(nameOrSku)
+  if (!input) throw new Error('Product is required and must exist in Master Data.')
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input)) {
+    return input
+  }
+  const { data: byName, error: nameError } = await supabase.from('products').select('id').ilike('name', input).limit(1).maybeSingle()
+  if (nameError) throw nameError
+  if (byName?.id) return byName.id as string
+  const { data: bySku, error: skuError } = await supabase.from('products').select('id').ilike('sku', input).limit(1).maybeSingle()
+  if (skuError) throw skuError
+  if (bySku?.id) return bySku.id as string
+  throw new Error(`Product "${input}" does not exist in Master Data.`)
+}
+
 const resolveCategoryId = async (name?: string | null) => {
   const input = normalizeText(name)
   if (!input) throw new Error('Product category is required and must exist in Master Data.')
@@ -382,6 +397,78 @@ const ensureBinExists = async (warehouseId: string, binCode?: string | null) => 
   if (!data?.id) {
     throw new Error(`Bin "${normalizedBin}" does not exist in the selected warehouse.`)
   }
+  return data.id as string
+}
+
+const resolveBinLocationId = async (warehouseId: string, binCode?: string | null) => ensureBinExists(warehouseId, binCode)
+
+const refreshWarehouseOccupancy = async (warehouseId: string) => {
+  if (!warehouseId) return
+  const { data: stockRows, error } = await supabase
+    .from('stock_levels')
+    .select('quantity_on_hand, product:products(physical_size_sqm)')
+    .eq('warehouse_id', warehouseId)
+  if (error) throw error
+  const occupancySqm = (stockRows || []).reduce((sum: number, row: any) => {
+    return sum + toFiniteNumber(row.quantity_on_hand, 0) * toFiniteNumber(row.product?.physical_size_sqm, 1)
+  }, 0)
+  await supabase.from('warehouses').update({ current_occupancy_sqm: occupancySqm }).eq('id', warehouseId)
+}
+
+const refreshBinOccupancy = async (binLocationId?: string | null) => {
+  if (!binLocationId) return
+  const { data, error } = await supabase
+    .from('stock_in_bins')
+    .select('quantity')
+    .eq('bin_location_id', binLocationId)
+  if (error) throw error
+  const occupancyUnits = (data || []).reduce((sum: number, row: any) => sum + toFiniteNumber(row.quantity, 0), 0)
+  await supabase.from('bin_locations').update({ current_occupancy_units: occupancyUnits }).eq('id', binLocationId)
+}
+
+const upsertStockLevel = async (payload: any) => {
+  const query = supabase
+    .from('stock_levels')
+    .select('*')
+    .eq('product_id', payload.product_id)
+    .eq('warehouse_id', payload.warehouse_id)
+
+  const { data: existingRows, error: existingError } = payload.bin_location_id
+    ? await query.eq('bin_location_id', payload.bin_location_id)
+    : await query.is('bin_location_id', null)
+  if (existingError) throw existingError
+
+  const existing = existingRows?.[0]
+  const writePayload = stripGeneratedColumns('stock_levels', payload)
+  const { data, error } = existing?.id
+    ? await supabase.from('stock_levels').update(writePayload).eq('id', existing.id).select().single()
+    : await supabase.from('stock_levels').insert(writePayload).select().single()
+  if (error) throw error
+
+  if (payload.bin_location_id) {
+    const binPayload = {
+      product_id: payload.product_id,
+      warehouse_id: payload.warehouse_id,
+      bin_location_id: payload.bin_location_id,
+      quantity: payload.quantity_on_hand ?? 0,
+    }
+    const { data: existingBinStock, error: binStockError } = await supabase
+      .from('stock_in_bins')
+      .select('id')
+      .eq('product_id', payload.product_id)
+      .eq('warehouse_id', payload.warehouse_id)
+      .eq('bin_location_id', payload.bin_location_id)
+      .limit(1)
+    if (binStockError) throw binStockError
+    const binWrite = existingBinStock?.[0]?.id
+      ? await supabase.from('stock_in_bins').update(binPayload).eq('id', existingBinStock[0].id)
+      : await supabase.from('stock_in_bins').insert(binPayload)
+    if (binWrite.error) throw binWrite.error
+    await refreshBinOccupancy(payload.bin_location_id)
+  }
+
+  await refreshWarehouseOccupancy(payload.warehouse_id)
+  return data
 }
 
 const resolveSalesOrderId = async (reference?: string | null, customerName?: string | null) => {
@@ -508,6 +595,8 @@ const normalizeLeadRow = (lead: any) => ({
   ...lead,
   name: lead.contact_person_name,
   stage: lead.stage?.name || lead.stage || 'new',
+  status: lead.stage?.name || lead.stage || 'new',
+  stage_name: lead.stage?.name || lead.stage || 'new',
   email: lead.contact_person_email,
   phone: lead.contact_person_phone,
   company: lead.company_name,
@@ -518,6 +607,15 @@ const normalizeLeadRow = (lead: any) => ({
   billing_address: lead.billing_address,
   shipping_address: lead.shipping_address,
   is_auto_request: lead.is_auto_request || lead.source === 'auto_request' || false,
+})
+
+const normalizeActivityRow = (row: any) => ({
+  ...row,
+  activity_type: row.activity_type?.name || row.activity_type || 'Activity',
+  activity_type_name: row.activity_type?.name || row.activity_type || 'Activity',
+  lead_name: row.lead?.company_name || '',
+  lead_number: row.lead?.lead_number || '',
+  performer_name: row.performed_by?.full_name || '',
 })
 
 const normalizeQuotationRow = (quote: any) => ({
@@ -1358,6 +1456,26 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
     }
   }
 
+  if (pathname === '/inventory/stock-levels' || pathname.startsWith('/inventory/stock-levels/')) {
+    const warehouseId = norm(body, 'warehouse_id', 'warehouseId') || await resolveWarehouseId(norm(body, 'warehouseName', 'warehouse_name'))
+    const productId = norm(body, 'product_id', 'productId') || await resolveProductId(norm(body, 'productName', 'product_name'))
+    const binCode = norm(body, 'binCode', 'bin_code') || null
+    const binLocationId = binCode ? await resolveBinLocationId(warehouseId, binCode) : null
+    const quantityOnHand = Number(norm(body, 'quantity_on_hand', 'quantityOnHand') ?? 0)
+    const quantityReserved = Number(norm(body, 'quantity_reserved', 'quantityReserved') ?? 0)
+    return {
+      product_id: productId,
+      warehouse_id: warehouseId,
+      bin_location_id: binLocationId,
+      quantity_on_hand: quantityOnHand,
+      quantity_reserved: quantityReserved,
+      quantity_in_transit: Number(norm(body, 'quantity_in_transit', 'quantityInTransit') ?? 0),
+      reorder_status: norm(body, 'reorder_status', 'reorderStatus') || 'optimal',
+      last_counted_at: norm(body, 'last_counted_at', 'lastCountedAt') || null,
+      last_adjusted_at: norm(body, 'last_adjusted_at', 'lastAdjustedAt') || null,
+    }
+  }
+
   if (pathname === '/inventory/goods-receipts' || pathname.startsWith('/inventory/goods-receipts/')) {
     const purchaseOrderId = norm(body, 'purchase_order_id', 'purchaseOrderId') || (norm(body, 'reference', 'reference') ? await resolvePurchaseOrderId(norm(body, 'reference', 'reference'), norm(body, 'partnerName', 'partner_name')) : null)
     console.info(`[Business Rule] Goods Receipt for PO. All IoT devices (Camera, Robot, Smart Lock) must have Serial/MAC scanned for warranty tracking.`)
@@ -1376,7 +1494,8 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
 
   if (pathname === '/inventory/adjustments' || pathname.startsWith('/inventory/adjustments/')) {
     const warehouseId = norm(body, 'warehouse_id', 'warehouseId') || (norm(body, 'warehouseName', 'warehouse_name') ? await resolveWarehouseId(norm(body, 'warehouseName', 'warehouse_name')) : null)
-    await ensureBinExists(warehouseId, norm(body, 'binCode', 'bin_code') || norm(body, 'reason', 'reason'))
+    const binCode = norm(body, 'binCode', 'bin_code') || null
+    if (binCode) await ensureBinExists(warehouseId, binCode)
 
     // Business Rule: Stock count must cover all bin locations
     const { count: binCount } = await supabase.from('bin_locations').select('*', { count: 'exact', head: true }).eq('warehouse_id', warehouseId)
@@ -1390,7 +1509,7 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       adjustment_type: norm(body, 'adjustment_type', 'adjustmentType') || 'stock_count',
       count_date: norm(body, 'count_date', 'countDate') || new Date().toISOString().slice(0, 10),
       status: adjustmentStatusToDb[norm(body, 'status', 'status')] || norm(body, 'status', 'status') || 'draft',
-      reason: norm(body, 'reason', 'binCode') || null,
+      reason: norm(body, 'reason', 'reason') || null,
       notes: norm(body, 'notes', 'description') || null,
       created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
     }
@@ -1708,7 +1827,7 @@ const getResource = async <T>(path: string): Promise<T> => {
       .order('activity_date', { ascending: false })
       .limit(100)
     if (error) throw error
-    return (data || []) as T
+    return ((data || []).map(normalizeActivityRow)) as T
   }
 
   if (pathname === '/lead-stages') {
@@ -1822,7 +1941,7 @@ const getResource = async <T>(path: string): Promise<T> => {
     const { data, error } = await applyLimit(
       supabase
         .from('stock_levels')
-        .select('*, product:products(*), warehouse:warehouses(*)')
+        .select('*, product:products(*), warehouse:warehouses(*), bin_location:bin_locations(*)')
         .order('updated_at', { ascending: false }),
       searchParams
     )
@@ -2461,7 +2580,6 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
         quantity: toNumber(line.quantity_quoted ?? line.quantity ?? 0),
         unit_price: toNumber(line.unit_price ?? line.unitPrice ?? line.price ?? 0),
         discount_percent: toNumber(line.discount_percent ?? line.discount ?? 0),
-        notes: line.notes || null,
       })).filter((line: any) => line.product_id)
       await supabase.from('quotation_lines').delete().eq('quotation_id', quotation.id)
       await insertRowsWithFallback('quotation_lines', [lines])
@@ -2595,10 +2713,66 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     await deductStockForDeliveryIfNeeded(delivery.id, previous?.status)
     return delivery
   }
+  if (pathname === '/inventory/stock-levels') return upsertStockLevel(normalizedBody)
+  if (pathname.startsWith('/inventory/stock-levels/')) {
+    const id = pathname.split('/').pop()
+    const { data: current, error: currentError } = await supabase.from('stock_levels').select('*').eq('id', id).single()
+    if (currentError) throw currentError
+    const payload = { ...current, ...normalizedBody }
+    return upsertStockLevel(payload)
+  }
   if (pathname === '/inventory/goods-receipts') return upsert('goods_receipts')
   if (pathname.startsWith('/inventory/goods-receipts/')) return upsert('goods_receipts', pathname.split('/').pop())
-  if (pathname === '/inventory/adjustments') return upsert('inventory_adjustments')
-  if (pathname.startsWith('/inventory/adjustments/')) return upsert('inventory_adjustments', pathname.split('/').pop())
+  if (pathname === '/inventory/adjustments' || pathname.startsWith('/inventory/adjustments/')) {
+    const adjustmentId = pathname.startsWith('/inventory/adjustments/') ? pathname.split('/').pop() : undefined
+    const adjustment = await upsert('inventory_adjustments', adjustmentId)
+
+    const productRef = body.product_id || body.productId || body.productName || body.product_name
+    if (productRef) {
+      const productId = body.product_id || body.productId || await resolveProductId(body.productName || body.product_name)
+      const warehouseId = normalizedBody.warehouse_id
+      const binLocationId = body.binCode || body.bin_code ? await resolveBinLocationId(warehouseId, body.binCode || body.bin_code) : null
+      let quantityBefore = toNumber(body.quantity_before ?? body.quantityBefore ?? body.quantityOnHand ?? NaN)
+      if (!Number.isFinite(quantityBefore)) {
+        const baseQuery = supabase
+          .from('stock_levels')
+          .select('quantity_on_hand')
+          .eq('product_id', productId)
+          .eq('warehouse_id', warehouseId)
+        const { data: stockRows } = binLocationId
+          ? await baseQuery.eq('bin_location_id', binLocationId).limit(1)
+          : await baseQuery.is('bin_location_id', null).limit(1)
+        quantityBefore = toNumber(stockRows?.[0]?.quantity_on_hand, 0)
+      }
+      const quantityAfter = toNumber(body.quantity_after ?? body.quantityAfter ?? quantityBefore)
+
+      await supabase.from('inventory_adjustment_lines').delete().eq('adjustment_id', adjustment.id)
+      await insertRowsWithFallback('inventory_adjustment_lines', [[{
+        adjustment_id: adjustment.id,
+        product_id: productId,
+        product_name: body.productName || body.product_name || null,
+        bin_location_id: binLocationId,
+        quantity_before: quantityBefore,
+        quantity_after: quantityAfter,
+        sequence: 1,
+      }]])
+
+      if (adjustment.status === 'posted') {
+        await upsertStockLevel({
+          product_id: productId,
+          warehouse_id: warehouseId,
+          bin_location_id: binLocationId,
+          quantity_on_hand: quantityAfter,
+          quantity_reserved: 0,
+          quantity_in_transit: 0,
+          reorder_status: 'optimal',
+          last_counted_at: adjustment.count_date || new Date().toISOString(),
+          last_adjusted_at: new Date().toISOString(),
+        })
+      }
+    }
+    return adjustment
+  }
   if (pathname === '/accounting/invoices') {
     const invoice = await upsert('customer_invoices')
     if (invoice.status === 'paid') await ensureDeliveryForInvoice(invoice.id)
