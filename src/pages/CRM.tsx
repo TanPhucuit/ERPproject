@@ -130,7 +130,6 @@ const LeadModal: React.FC<{
     stage: 'new',
     source: 'website',
     lead_rating: 'warm',
-    estimated_value: 0,
     probability_percent: 10,
     expected_close_date: '',
     notes: '',
@@ -316,41 +315,41 @@ const LeadModal: React.FC<{
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
             <h3 className="mb-3 text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2">
               <User size={16} />
-              Thông tin khách hàng
+              Customer Info
               {autoDetected && (
                 <span className="text-xs font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
-                  ✓ Khách đã tồn tại trong hệ thống — đang ghép tự động
+                  ✓ Existing customer detected — auto-linking
                 </span>
               )}
             </h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="md:col-span-2">
                 <label className="mb-1 block text-sm font-semibold text-gray-700">
-                  Tên khách hàng / Công ty <span className="text-red-500">*</span>
+                  Customer / Company Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={form.company_name}
                   onChange={e => { updateField('company_name', e.target.value); setAutoDetected(null) }}
-                  placeholder="Nhập tên khách hàng hoặc công ty"
+                  placeholder="Enter customer or company name"
                   className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${errors.company_name ? 'border-red-400' : 'border-gray-300'}`}
                 />
                 {errors.company_name && <p className="mt-1 text-xs text-red-600">{errors.company_name}</p>}
                 {autoDetected && (
                   <p className="mt-1 text-xs text-green-600">
-                    Đã nhận diện: {autoDetected.name} ({autoDetected.customer_type}) — khách hàng sẽ được cập nhật khi lead thắng
+                    Detected: {autoDetected.name} ({autoDetected.customer_type}) — customer will be updated when lead is won
                   </p>
                 )}
                 {!autoDetected && form.company_name && (
-                  <p className="mt-1 text-xs text-blue-600">Khách hàng mới — sẽ được tạo khi lead thắng</p>
+                  <p className="mt-1 text-xs text-blue-600">New customer — will be created when lead is won</p>
                 )}
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Người liên hệ</label>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Contact Person</label>
                 <input type="text" value={form.contact_person_name}
                   onChange={e => updateField('contact_person_name', e.target.value)}
-                  placeholder="Người phụ trách"
+                  placeholder="Contact name"
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
 
@@ -367,47 +366,47 @@ const LeadModal: React.FC<{
                 />
                 {errors.contact_person_email && <p className="mt-1 text-xs text-red-600">{errors.contact_person_email}</p>}
                 {autoDetected && (
-                  <p className="mt-1 text-xs text-green-600">Đã ghép customer: {autoDetected.name}</p>
+                  <p className="mt-1 text-xs text-green-600">Linked to: {autoDetected.name}</p>
                 )}
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Điện thoại</label>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Phone</label>
                 <input type="text" value={form.contact_person_phone}
                   onChange={e => updateField('contact_person_phone', e.target.value)}
-                  placeholder="090..."
+                  placeholder="+84..."
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Loại khách hàng</label>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Customer Type</label>
                 <div className="flex gap-3 mt-1">
                   {(['B2C', 'B2B'] as const).map(t => (
                     <label key={t} className={`flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer text-sm ${customerType === t ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}`}>
                       <input type="radio" name="ct" value={t} checked={customerType === t}
                         onChange={() => { setCustomerType(t); updateField('customer_type', t) }}
                         className="accent-blue-600" />
-                      {t === 'B2C' ? '👤 Khách lẻ' : '🏢 Đại lý'}
+                      {t === 'B2C' ? 'B2C - Individual' : 'B2B - Business'}
                     </label>
                   ))}
                 </div>
               </div>
 
               <div className="md:col-span-2">
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Địa chỉ</label>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Address</label>
                 <input type="text" value={form.company_address}
                   onChange={e => updateField('company_address', e.target.value)}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Mã số thuế</label>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Tax ID</label>
                 <input type="text" value={form.company_tax_id}
                   onChange={e => updateField('company_tax_id', e.target.value)}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Thuế (%)</label>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Tax (%)</label>
                 <input type="number" min={0} max={100}
                   value={form.tax_percent}
                   onChange={e => updateField('tax_percent', Number(e.target.value))}
@@ -420,7 +419,7 @@ const LeadModal: React.FC<{
           <div className="rounded-lg border border-gray-200 p-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">
-                📦 Sản phẩm yêu cầu ({form.products.length})
+                Requested Products ({form.products.length})
               </h3>
               <p className="text-sm font-semibold text-blue-700">
                 Subtotal: {formatCurrency(subtotal)}
@@ -436,7 +435,7 @@ const LeadModal: React.FC<{
                   value={productSearch}
                   onChange={e => { setProductSearch(e.target.value); setShowProductDropdown(true) }}
                   onFocus={() => setShowProductDropdown(true)}
-                  placeholder="Tìm sản phẩm để thêm..."
+                  placeholder="Search products to add..."
                   className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none"
                 />
               </div>
@@ -458,7 +457,7 @@ const LeadModal: React.FC<{
               )}
               {showProductDropdown && productSearch && filteredProducts.length === 0 && (
                 <div className="absolute z-20 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg p-4 text-sm text-gray-500">
-                  Không tìm thấy sản phẩm
+                  No products found
                 </div>
               )}
             </div>
@@ -469,11 +468,11 @@ const LeadModal: React.FC<{
                 <table className="w-full text-sm">
                   <thead className="bg-gray-100">
                     <tr>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-700">Sản phẩm</th>
-                      <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">SL</th>
-                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Đơn giá</th>
-                      <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">CK%</th>
-                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Thành tiền</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-700">Product</th>
+                      <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">Qty</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Unit Price</th>
+                      <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">Disc%</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Amount</th>
                       <th className="px-2 py-2 w-10"></th>
                     </tr>
                   </thead>
@@ -515,17 +514,17 @@ const LeadModal: React.FC<{
                   </tbody>
                   <tfoot className="bg-gray-50">
                     <tr>
-                      <td colSpan={4} className="px-3 py-2 text-right font-semibold text-gray-700">Tạm tính (Subtotal):</td>
+                      <td colSpan={4} className="px-3 py-2 text-right font-semibold text-gray-700">Subtotal:</td>
                       <td className="px-2 py-2 text-right font-bold text-blue-700">{formatCurrency(subtotal)}</td>
                       <td></td>
                     </tr>
                     <tr>
-                      <td colSpan={4} className="px-3 py-1 text-right font-semibold text-gray-700">Thuế ({form.tax_percent}%):</td>
+                      <td colSpan={4} className="px-3 py-1 text-right font-semibold text-gray-700">Tax ({form.tax_percent}%):</td>
                       <td className="px-2 py-1 text-right text-sm text-gray-700">{formatCurrency(tax_amount)}</td>
                       <td></td>
                     </tr>
                     <tr className="bg-blue-50">
-                      <td colSpan={4} className="px-3 py-2 text-right font-bold text-gray-900">Tổng cộng (Total):</td>
+                      <td colSpan={4} className="px-3 py-2 text-right font-bold text-gray-900">Total:</td>
                       <td className="px-2 py-2 text-right font-bold text-blue-800">{formatCurrency(total_amount)}</td>
                       <td></td>
                     </tr>
@@ -534,7 +533,7 @@ const LeadModal: React.FC<{
               </div>
             ) : (
               <div className="rounded-md border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
-                Chưa có sản phẩm nào. Tìm và thêm sản phẩm ở ô trên.
+                No products yet. Search and add products above.
               </div>
             )}
           </div>
@@ -542,19 +541,19 @@ const LeadModal: React.FC<{
           {/* Lead Info */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Giá trị ước tính</label>
-              <input type="number" min={0} value={form.estimated_value}
-                onChange={e => updateField('estimated_value', Number(e.target.value))}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Estimated Value</label>
+              <div className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-right font-semibold text-blue-700">
+                {formatCurrency(total_amount)}
+              </div>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Xác suất thắng (%)</label>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Win Probability (%)</label>
               <input type="number" min={0} max={100} value={form.probability_percent}
                 onChange={e => updateField('probability_percent', Number(e.target.value))}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Đánh giá</label>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Lead Rating</label>
               <select value={form.lead_rating}
                 onChange={e => updateField('lead_rating', e.target.value)}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
@@ -562,34 +561,33 @@ const LeadModal: React.FC<{
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Ngày dự kiến ký</label>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Expected Close Date</label>
               <input type="date" value={form.expected_close_date}
                 onChange={e => updateField('expected_close_date', e.target.value)}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
             </div>
             <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Người phụ trách</label>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Sales Person</label>
               <select
                 value={form.owner_id}
                 onChange={e => updateField('owner_id', e.target.value)}
                 className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${isAutoRequest ? 'border-yellow-400 bg-yellow-50' : 'border-gray-300'}`}
               >
-                <option value="">-- Chọn Sales Person --</option>
+                <option value="">-- Select Sales Person --</option>
                 {salesPersonOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
               {isAutoRequest && (
                 <div className="mt-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
-                  📋 Lead này <strong>không cần Sales Person</strong>. Khi khách chấp nhận báo giá, hệ thống tự động tạo Quotation.
-                  Nếu khách không chấp nhận, Sales Person khác có thể tạo Quotation cho lead này.
+                  This lead <strong>does not require a Sales Person</strong>. When the customer accepts a quote, the system will automatically create a Quotation.
                 </div>
               )}
             </div>
             <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Ghi chú</label>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
               <textarea value={form.notes}
                 onChange={e => updateField('notes', e.target.value)}
                 rows={3}
-                placeholder="Ghi chú về lead..."
+                placeholder="Notes about this lead..."
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
             </div>
           </div>
@@ -599,11 +597,11 @@ const LeadModal: React.FC<{
         <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
           <button onClick={onClose}
             className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">
-            Hủy
+            Cancel
           </button>
           <button onClick={handleSave}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-            {record?.id ? 'Cập nhật Lead' : 'Tạo Lead'}
+            {record?.id ? 'Update Lead' : 'Create Lead'}
           </button>
         </div>
       </div>
@@ -641,7 +639,7 @@ const ActivityModal: React.FC<{
       onSaved()
       onClose()
     } catch (e: any) {
-      alert('Lỗi: ' + e.message)
+      alert('Error: ' + e.message)
     } finally {
       setSaving(false)
     }
@@ -651,49 +649,49 @@ const ActivityModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Ghi nhận Activity</h3>
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Log Activity</h3>
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">Loại activity</label>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Activity Type</label>
             <select value={activityType} onChange={e => setActivityType(e.target.value)}
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
-              <option value="">-- Chọn --</option>
+              <option value="">-- Select --</option>
               <option>Call</option><option>Email</option><option>Meeting</option><option>Site Visit</option><option>Quote Sent</option>
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">Mô tả</label>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Description</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
-              placeholder="Nội dung hoạt động..."
+              placeholder="Activity description..."
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">Kết quả</label>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Outcome</label>
             <input type="text" value={outcome} onChange={e => setOutcome(e.target.value)}
-              placeholder="Kết quả / outcome..."
+              placeholder="Outcome / result..."
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Ngày/Giờ</label>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Date / Time</label>
               <input type="datetime-local" value={date.slice(0, 16)} onChange={e => setDate(e.target.value)}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Người thực hiện</label>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Performed By</label>
               <select value={performer} onChange={e => setPerformer(e.target.value)}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
-                <option value="">-- Tự động --</option>
+                <option value="">-- Auto --</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
               </select>
             </div>
           </div>
         </div>
         <div className="flex justify-end gap-3 mt-6">
-          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700">Hủy</button>
+          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700">Cancel</button>
           <button onClick={handleSave} disabled={saving || !activityType || !description}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
-            {saving ? 'Đang lưu...' : 'Lưu Activity'}
+            {saving ? 'Saving...' : 'Save Activity'}
           </button>
         </div>
       </div>
@@ -827,10 +825,9 @@ const CRMModule: React.FC = () => {
         company_address: formData.company_address,
         company_tax_id: formData.company_tax_id,
         owner_id: formData.owner_id === 'auto_request' ? null : (formData.owner_id || null),
-        is_auto_request: formData.owner_id === 'auto_request',
         source: formData.source,
         lead_rating: formData.lead_rating,
-        estimated_value: formData.estimated_value || calcSubtotal(formData.products),
+        estimated_value: calcSubtotal(formData.products),
         probability_percent: formData.probability_percent,
         expected_close_date: formData.expected_close_date || null,
         notes: formData.notes,

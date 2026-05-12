@@ -101,7 +101,6 @@ export const authService = {
         role: payload.role,
         status: 'active',
         is_deleted: false,
-        login_attempts: 0,
       })
       .select('id, email, full_name, role, status, avatar_url')
       .single()
