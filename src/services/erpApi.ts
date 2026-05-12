@@ -517,7 +517,6 @@ const normalizeLeadRow = (lead: any) => ({
   customer_type: lead.customer_type,
   billing_address: lead.billing_address,
   shipping_address: lead.shipping_address,
-  tax_percent: lead.tax_percent || 10,
   is_auto_request: lead.is_auto_request || lead.source === 'auto_request' || false,
 })
 
@@ -1119,7 +1118,6 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       customer_type: norm(body, 'customer_type', 'customerType') || null,
       billing_address: norm(body, 'billing_address', 'company_address') || null,
       shipping_address: norm(body, 'shipping_address', 'company_address') || null,
-      tax_percent: Number(norm(body, 'tax_percent', 'taxPercent') || 10),
       customer_id: customerId,
     }
     return payload
