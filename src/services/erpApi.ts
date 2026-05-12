@@ -18,10 +18,6 @@ const applyLimit = (query: any, searchParams: URLSearchParams) => {
 
 const leadStageAliases: Record<string, string> = {
   new: 'new',
-  contacted: 'site_survey',
-  qualified: 'site_survey',
-  site_survey: 'site_survey',
-  proposition: 'proposition',
   won: 'won',
   lost: 'lost',
 }
@@ -471,6 +467,96 @@ const upsertStockLevel = async (payload: any) => {
   return data
 }
 
+const recalcStockLevelFromBins = async (productId: string, warehouseId: string, binLocationId?: string | null) => {
+  if (!productId || !warehouseId) return
+
+  const { data: binRows, error: binError } = await supabase
+    .from('stock_in_bins')
+    .select('quantity')
+    .eq('product_id', productId)
+    .eq('warehouse_id', warehouseId)
+    .eq('bin_location_id', binLocationId)
+  if (binError) throw binError
+
+  const { data: transitRows, error: transitError } = await supabase
+    .from('stock_transfer_lines')
+    .select('quantity, transfer:stock_transfers!inner(status, dest_warehouse_id)')
+    .eq('product_id', productId)
+    .eq('to_bin_location_id', binLocationId)
+    .eq('transfer.dest_warehouse_id', warehouseId)
+    .in('transfer.status', ['draft', 'validated'])
+  if (transitError) throw transitError
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from('stock_levels')
+    .select('id, quantity_reserved')
+    .eq('product_id', productId)
+    .eq('warehouse_id', warehouseId)
+    .eq('bin_location_id', binLocationId)
+    .limit(1)
+  if (existingError) throw existingError
+
+  await upsertStockLevel({
+    product_id: productId,
+    warehouse_id: warehouseId,
+    bin_location_id: binLocationId,
+    quantity_on_hand: (binRows || []).reduce((sum: number, row: any) => sum + toFiniteNumber(row.quantity, 0), 0),
+    quantity_reserved: toFiniteNumber(existingRows?.[0]?.quantity_reserved, 0),
+    quantity_in_transit: (transitRows || []).reduce((sum: number, row: any) => sum + toFiniteNumber(row.quantity, 0), 0),
+    reorder_status: 'optimal',
+    last_adjusted_at: new Date().toISOString(),
+  })
+}
+
+const adjustStockInBin = async (
+  productId: string,
+  warehouseId: string,
+  binLocationId: string,
+  deltaQty: number
+) => {
+  const { data: existingRows, error: existingError } = await supabase
+    .from('stock_in_bins')
+    .select('id, quantity')
+    .eq('product_id', productId)
+    .eq('warehouse_id', warehouseId)
+    .eq('bin_location_id', binLocationId)
+    .limit(1)
+  if (existingError) throw existingError
+
+  const existing = existingRows?.[0]
+  const nextQty = Math.max(0, toFiniteNumber(existing?.quantity, 0) + deltaQty)
+  const { error } = existing?.id
+    ? await supabase.from('stock_in_bins').update({ quantity: nextQty }).eq('id', existing.id)
+    : await supabase.from('stock_in_bins').insert({
+        product_id: productId,
+        warehouse_id: warehouseId,
+        bin_location_id: binLocationId,
+        quantity: nextQty,
+      })
+  if (error) throw error
+
+  await refreshBinOccupancy(binLocationId)
+  await recalcStockLevelFromBins(productId, warehouseId, binLocationId)
+}
+
+const executeStockTransferIfNeeded = async (transferId: string, previousStatus?: string | null) => {
+  const { data: transfer, error } = await supabase
+    .from('stock_transfers')
+    .select('*, lines:stock_transfer_lines(*)')
+    .eq('id', transferId)
+    .single()
+  if (error) throw error
+  if (transfer.status !== 'done' || previousStatus === 'done') return transfer
+
+  for (const line of transfer.lines || []) {
+    const qty = toFiniteNumber(line.quantity, 0)
+    if (!line.product_id || qty <= 0 || !line.from_bin_location_id || !line.to_bin_location_id) continue
+    await adjustStockInBin(line.product_id, transfer.source_warehouse_id, line.from_bin_location_id, -qty)
+    await adjustStockInBin(line.product_id, transfer.dest_warehouse_id, line.to_bin_location_id, qty)
+  }
+  return transfer
+}
+
 const resolveSalesOrderId = async (reference?: string | null, customerName?: string | null) => {
   const normalizedReference = normalizeText(reference)
   if (normalizedReference) {
@@ -626,6 +712,28 @@ const normalizeQuotationRow = (quote: any) => ({
   status: quotationStatusFromDb[quote.status] || quote.status,
 })
 
+const ensureLeadCanReceiveQuotation = async (leadId: string, currentQuotationId?: string) => {
+  const { data: lead, error } = await supabase
+    .from('leads')
+    .select('id, stage:lead_stages(name)')
+    .eq('id', leadId)
+    .single()
+  if (error) throw error
+  const stageName = (lead as any)?.stage?.name || 'new'
+  if (stageName === 'won') {
+    if (currentQuotationId) {
+      const { data: quotation, error: quotationError } = await supabase
+        .from('quotations')
+        .select('id, lead_id')
+        .eq('id', currentQuotationId)
+        .single()
+      if (quotationError) throw quotationError
+      if (quotation?.lead_id === leadId) return
+    }
+    throw new Error('Lead is already won and converted to customer. New quotations cannot be created for this lead.')
+  }
+}
+
 const normalizeSalesOrderRow = (order: any) => ({
   ...order,
   customerName: order.customer?.name,
@@ -644,6 +752,22 @@ const normalizeRfqRow = (rfq: any) => ({
   due_date: rfq.closing_date,
   estimated_total: rfq.total_estimated_cost,
   status: rfqStatusFromDb[rfq.status] || rfq.status,
+  lines: (rfq.rfq_lines || rfq.lines || []).map((line: any) => ({
+    ...line,
+    product_name: line.product_name || line.product?.name || '',
+    product_sku: line.product?.sku || line.product_sku || '',
+    quantity_required: line.quantity_required ?? line.quantity ?? 1,
+    required_delivery_date: line.required_delivery_date || '',
+  })),
+  quotations: (rfq.rfq_lines || rfq.lines || []).reduce((acc: Record<string, any[]>, line: any) => {
+    acc[line.id] = (line.supplier_quotations || []).map((quote: any) => ({
+      ...quote,
+      supplier_name: quote.supplier?.name || quote.supplier_name || '',
+      quoted_price: quote.quoted_price || 0,
+      is_selected: !!quote.is_selected,
+    }))
+    return acc
+  }, {}),
 })
 
 const normalizeDeliveryRow = (row: any) => ({
@@ -1193,6 +1317,27 @@ const acceptQuotationWorkflow = async (quotationId: string, fallbackUserId?: str
   return refreshedOrder
 }
 
+const rejectQuotationWorkflow = async (quotationId: string) => {
+  const { data: quotation, error } = await supabase
+    .from('quotations')
+    .select('id, lead_id, status')
+    .eq('id', quotationId)
+    .single()
+  if (error) throw error
+  if (!['rejected', 'lost'].includes(quotation.status) || !quotation.lead_id) return null
+
+  const lostStage = await resolveLeadStage('lost')
+  const { error: leadError } = await supabase
+    .from('leads')
+    .update({
+      stage_id: lostStage.id,
+      probability_percent: lostStage.probability_percent ?? 0,
+    })
+    .eq('id', quotation.lead_id)
+  if (leadError) throw leadError
+  return quotation
+}
+
 const getAccountingMetrics = async () => {
   const [invoices, bills] = await Promise.all([fetchInvoices(), fetchBills()])
 
@@ -1273,16 +1418,52 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
   }
 
   if (pathname === '/sales-orders/quotations' || pathname.startsWith('/sales-orders/quotations/')) {
-    // Business Rule: Quotation must have product lines
+    const quotationId = pathname.startsWith('/sales-orders/quotations/')
+      ? pathname.split('/').pop()
+      : undefined
+    const hasLinePayload = Array.isArray(body.lines) || Array.isArray(body.products)
     const productCount = body.lines?.length || body.products?.length || 0
-    if (productCount === 0) {
-      throw new Error('Quotation must have at least one product.')
+    const nextStatus = norm(body, 'status', 'status')
+
+    if (!quotationId || hasLinePayload) {
+      if (productCount === 0) {
+        throw new Error('Quotation must have at least one product.')
+      }
+    }
+
+    if (quotationId && !hasLinePayload && nextStatus) {
+      const { data: existing, error: existingError } = await supabase
+        .from('quotations')
+        .select('id, lead_id')
+        .eq('id', quotationId)
+        .single()
+      if (existingError) throw existingError
+      if (['accepted', 'won'].includes(quotationStatusToDb[nextStatus] || nextStatus)) {
+        const existingLines = await fetchQuotationLines(quotationId)
+        if (existingLines.length === 0) {
+          throw new Error('Quotation must have at least one product.')
+        }
+      }
+      return {
+        status: quotationStatusToDb[nextStatus] || nextStatus,
+        lead_id: existing.lead_id,
+      }
     }
 
     const leadId = norm(body, 'lead_id', 'leadId') || null
     if (!leadId) {
       throw new Error('Quotation must be linked to a lead. Customer is created automatically only after the quotation is accepted.')
     }
+    await ensureLeadCanReceiveQuotation(leadId, quotationId)
+
+    if (!quotationId && ['accepted', 'won'].includes(quotationStatusToDb[nextStatus] || nextStatus || '')) {
+      throw new Error('New quotations must start as draft or sent before acceptance.')
+    }
+
+    if (hasLinePayload && productCount === 0) {
+      throw new Error('Quotation must have at least one product.')
+    }
+
     const amounts = calcWriteAmounts(body)
 
     return {
@@ -1473,6 +1654,24 @@ const normalizeWriteBody = async (pathname: string, body: Record<string, any>) =
       reorder_status: norm(body, 'reorder_status', 'reorderStatus') || 'optimal',
       last_counted_at: norm(body, 'last_counted_at', 'lastCountedAt') || null,
       last_adjusted_at: norm(body, 'last_adjusted_at', 'lastAdjustedAt') || null,
+    }
+  }
+
+  if (pathname === '/inventory/stock-transfers' || pathname.startsWith('/inventory/stock-transfers/')) {
+    const sourceWarehouseId = norm(body, 'source_warehouse_id', 'sourceWarehouseId')
+      || await resolveWarehouseId(norm(body, 'sourceWarehouseName', 'sourceWarehouseName') || norm(body, 'sourceWarehouse', 'source_warehouse'))
+    const destWarehouseId = norm(body, 'dest_warehouse_id', 'destWarehouseId')
+      || await resolveWarehouseId(norm(body, 'destWarehouseName', 'destWarehouseName') || norm(body, 'destWarehouse', 'dest_warehouse'))
+    const rawStatus = norm(body, 'status', 'status') || 'draft'
+    const status = rawStatus === 'success' || rawStatus === 'completed' ? 'done' : rawStatus
+    return {
+      transfer_number: norm(body, 'transfer_number', 'transferNumber') || norm(body, 'reference', 'reference') || `TRF-${Date.now().toString().slice(-6)}`,
+      source_warehouse_id: sourceWarehouseId,
+      dest_warehouse_id: destWarehouseId,
+      status,
+      transfer_date: norm(body, 'transfer_date', 'transferDate') || new Date().toISOString().slice(0, 10),
+      notes: norm(body, 'notes', 'description') || null,
+      created_by_id: norm(body, 'created_by_id', 'createdById') || currentUserId,
     }
   }
 
@@ -1900,7 +2099,10 @@ const getResource = async <T>(path: string): Promise<T> => {
 
   if (pathname === '/purchase/rfqs') {
     const { data, error } = await applyLimit(
-      supabase.from('rfqs').select('*').order('issued_date', { ascending: false }),
+      supabase
+        .from('rfqs')
+        .select('*, rfq_lines(*, product:products(name, sku), supplier_quotations:rfq_supplier_quotations(*, supplier:suppliers(name)))')
+        .order('issued_date', { ascending: false }),
       searchParams
     )
     if (error) throw error
@@ -1909,7 +2111,11 @@ const getResource = async <T>(path: string): Promise<T> => {
 
   if (pathname.startsWith('/purchase/rfqs/')) {
     const id = pathname.split('/').pop()
-    const { data, error } = await supabase.from('rfqs').select('*').eq('id', id).single()
+    const { data, error } = await supabase
+      .from('rfqs')
+      .select('*, rfq_lines(*, product:products(name, sku), supplier_quotations:rfq_supplier_quotations(*, supplier:suppliers(name)))')
+      .eq('id', id)
+      .single()
     if (error) throw error
     return normalizeRfqRow(data) as T
   }
@@ -2241,7 +2447,7 @@ const getResource = async <T>(path: string): Promise<T> => {
     const { data, error } = await applyLimit(
       supabase
         .from('stock_transfers')
-        .select('*, source_warehouse:warehouses!source_warehouse_id(name), dest_warehouse:warehouses!dest_warehouse_id(name)')
+        .select('*, source_warehouse:warehouses!source_warehouse_id(name), dest_warehouse:warehouses!dest_warehouse_id(name), lines:stock_transfer_lines(*)')
         .order('transfer_date', { ascending: false }),
       searchParams
     )
@@ -2567,6 +2773,9 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     if (['accepted', 'won'].includes(quotation.status)) {
       await acceptQuotationWorkflow(quotation.id, currentUserId)
     }
+    if (['rejected', 'lost'].includes(quotation.status)) {
+      await rejectQuotationWorkflow(quotation.id)
+    }
     return quotation
   }
   if (pathname === '/sales-orders/quotations') {
@@ -2586,6 +2795,9 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     }
     if (['accepted', 'won'].includes(quotation.status)) {
       await acceptQuotationWorkflow(quotation.id, currentUserId)
+    }
+    if (['rejected', 'lost'].includes(quotation.status)) {
+      await rejectQuotationWorkflow(quotation.id)
     }
     return quotation
   }
@@ -2864,20 +3076,31 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
   if (pathname.startsWith('/warehouse/bin-locations/')) return upsert('bin_locations', pathname.split('/').pop())
 
   // ========== STOCK TRANSFERS ==========
-  if (pathname === '/inventory/stock-transfers') return upsert('stock_transfers')
-  if (pathname.startsWith('/inventory/stock-transfers/')) {
-    const transfer = await upsert('stock_transfers', pathname.split('/').pop())
+  if (pathname === '/inventory/stock-transfers' || pathname.startsWith('/inventory/stock-transfers/')) {
+    const transferId = pathname.startsWith('/inventory/stock-transfers/') ? pathname.split('/').pop() : undefined
+    const { data: previous } = transferId
+      ? await supabase.from('stock_transfers').select('status').eq('id', transferId).maybeSingle()
+      : { data: null }
+    const transfer = await upsert('stock_transfers', transferId)
     if (rawLines) {
-      await persistLines('stock_transfer_lines', 'transfer_id', transfer.id, rawLines.map((line: any, index: number) => ({
+      const lines = await Promise.all(rawLines.map(async (line: any, index: number) => ({
         transfer_id: transfer.id,
-        product_id: line.product_id,
-        product_name: line.product_name || null,
-        from_bin_location_id: line.from_bin_location_id || null,
-        to_bin_location_id: line.to_bin_location_id || null,
+        product_id: line.product_id || line.productId || await resolveProductId(line.productName || line.product_name),
+        product_name: line.product_name || line.productName || null,
+        from_bin_location_id: line.from_bin_location_id || line.fromBinLocationId || line.sourceBinLocationId || null,
+        to_bin_location_id: line.to_bin_location_id || line.toBinLocationId || line.destBinLocationId || null,
         quantity: toNumber(line.quantity, 1),
         sequence: index + 1,
-      })).filter((line: any) => line.product_id))
+      })))
+      const validLines = lines.filter((line: any) => line.product_id)
+      await persistLines('stock_transfer_lines', 'transfer_id', transfer.id, validLines)
+      for (const line of validLines) {
+        if (line.to_bin_location_id) {
+          await recalcStockLevelFromBins(line.product_id, transfer.dest_warehouse_id, line.to_bin_location_id)
+        }
+      }
     }
+    await executeStockTransferIfNeeded(transfer.id, previous?.status)
     return transfer
   }
 
@@ -3060,6 +3283,17 @@ const getRelatedRecordNames = async (table: string, foreignKey: string, id: stri
 const deleteResource = async <T>(path: string) => {
   const { pathname } = parsePath(path)
   const id = pathname.split('/').pop()
+
+  // ========== QUOTATIONS ==========
+  if (pathname.startsWith('/sales-orders/quotations/')) {
+    const { data: soData } = await supabase.from('sales_orders').select('id').eq('quotation_id', id).limit(1)
+    if (soData && soData.length > 0) {
+      throw new Error('Khong the xoa Quotation nay vi da duoc chuyen thanh Sales Order. Vui long xoa Sales Order lien quan truoc.')
+    }
+    const { error } = await supabase.from('quotations').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
 
   // ========== SALES ORDERS ==========
   if (pathname.startsWith('/sales-orders/')) {
@@ -3345,6 +3579,17 @@ const deleteResource = async <T>(path: string) => {
       throw new Error('Không thể xóa Inventory Adjustment đã được phê duyệt (Completed).')
     }
     const { error } = await supabase.from('inventory_adjustments').delete().eq('id', id)
+    if (error) throw error
+    return { success: true } as T
+  }
+
+  // ========== STOCK TRANSFERS ==========
+  if (pathname.startsWith('/inventory/stock-transfers/')) {
+    const { data: transferData } = await supabase.from('stock_transfers').select('status').eq('id', id).single()
+    if (transferData && transferData.status === 'done') {
+      throw new Error('Cannot delete a completed stock transfer.')
+    }
+    const { error } = await supabase.from('stock_transfers').delete().eq('id', id)
     if (error) throw error
     return { success: true } as T
   }

@@ -385,28 +385,38 @@ const RFQModal: React.FC<{
   })
 
   useEffect(() => {
+    const emptyRfq = {
+      rfqNumber: `RFQ-${Date.now().toString().slice(-5)}`,
+      issuedDate: new Date().toISOString().slice(0, 10),
+      closingDate: '',
+      totalEstimatedCost: 0,
+      status: 'draft',
+      notes: '',
+      lines: [],
+      quotations: {},
+    }
     if (record) {
-      setForm(record)
-    } else {
       setForm({
-        rfqNumber: `RFQ-${Date.now().toString().slice(-5)}`,
-        issuedDate: new Date().toISOString().slice(0, 10),
-        closingDate: '',
-        totalEstimatedCost: 0,
-        status: 'draft',
-        notes: '',
-        lines: [],
-        quotations: {},
+        ...emptyRfq,
+        ...record,
+        rfqNumber: record.rfqNumber || record.rfq_number || emptyRfq.rfqNumber,
+        issuedDate: record.issuedDate || record.issued_date || emptyRfq.issuedDate,
+        closingDate: record.closingDate || record.closing_date || '',
+        totalEstimatedCost: record.totalEstimatedCost || record.total_estimated_cost || 0,
+        lines: Array.isArray(record.lines || record.rfq_lines) ? (record.lines || record.rfq_lines) : [],
+        quotations: record.quotations || {},
       })
+    } else {
+      setForm(emptyRfq)
     }
   }, [record, isOpen])
 
   const handleSave = () => {
-    if (form.lines.length === 0) {
+    if ((form.lines || []).length === 0) {
       alert('RFQ must have at least 1 product line')
       return
     }
-    const totalEstimatedCost = calcRFQSubtotal(form.lines, form.quotations)
+    const totalEstimatedCost = calcRFQSubtotal(form.lines || [], form.quotations || {})
     onSave({ ...form, totalEstimatedCost })
   }
 
@@ -446,10 +456,10 @@ const RFQModal: React.FC<{
 
           {/* Product Lines */}
           <div>
-            <h3 className="mb-2 text-sm font-bold text-gray-800 uppercase tracking-wide">📦 Products ({form.lines.length})</h3>
+            <h3 className="mb-2 text-sm font-bold text-gray-800 uppercase tracking-wide">Products ({(form.lines || []).length})</h3>
             <RFQLinesEditor
-              lines={form.lines}
-              quotations={form.quotations}
+              lines={form.lines || []}
+              quotations={form.quotations || {}}
               onLinesChange={lines => setForm({ ...form, lines })}
               onQuotationsChange={quotations => setForm({ ...form, quotations })}
               products={products}
@@ -461,7 +471,7 @@ const RFQModal: React.FC<{
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
             <div className="flex items-center justify-between">
               <span className="font-bold text-gray-900">Total Estimated Cost:</span>
-              <span className="font-bold text-blue-700 text-lg">{formatCurrency(calcRFQSubtotal(form.lines, form.quotations))}</span>
+              <span className="font-bold text-blue-700 text-lg">{formatCurrency(calcRFQSubtotal(form.lines || [], form.quotations || {}))}</span>
             </div>
           </div>
 

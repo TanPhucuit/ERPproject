@@ -67,6 +67,27 @@ const countFieldsBase: FormField[] = [
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
+const transferFieldsBase: FormField[] = [
+  { name: 'reference', label: 'Transfer #', type: 'text', required: true },
+  { name: 'sourceWarehouseId', label: 'Source Warehouse', type: 'select', required: true, options: [] },
+  { name: 'sourceBinLocationId', label: 'Source Bin Location', type: 'select', required: true, options: [] },
+  { name: 'destWarehouseId', label: 'Destination Warehouse', type: 'select', required: true, options: [] },
+  { name: 'destBinLocationId', label: 'Destination Bin Location', type: 'select', required: true, options: [] },
+  { name: 'productId', label: 'Product', type: 'select', required: true, options: [] },
+  { name: 'quantity', label: 'Quantity', type: 'number', required: true },
+  { name: 'transferDate', label: 'Transfer Date', type: 'date' },
+  {
+    name: 'status',
+    label: 'Status',
+    type: 'select',
+    options: [
+      { value: 'draft', label: 'Draft' },
+      { value: 'done', label: 'Done' },
+    ],
+  },
+  { name: 'notes', label: 'Notes', type: 'textarea' },
+]
+
 const flow: Record<string, string> = {
   draft: 'ready',
   ready: 'done',
@@ -79,6 +100,7 @@ const InventoryModule: React.FC = () => {
   const [deliveries, setDeliveries] = useState<any[]>([])
   const [receipts, setReceipts] = useState<any[]>([])
   const [counts, setCounts] = useState<any[]>([])
+  const [transfers, setTransfers] = useState<any[]>([])
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [customers, setCustomers] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
@@ -169,6 +191,29 @@ const InventoryModule: React.FC = () => {
         setCounts([])
         setLoadError(error.message)
       })
+
+    erpApi
+      .get<any[]>('/inventory/stock-transfers?limit=100')
+      .then((records) => {
+        setLoadError(null)
+        setTransfers(records.map((item) => ({
+          ...item,
+          reference: item.transfer_number,
+          sourceWarehouseId: item.source_warehouse_id,
+          destWarehouseId: item.dest_warehouse_id,
+          sourceWarehouseName: item.sourceWarehouseName || item.source_warehouse?.name || item.source_warehouse_id,
+          destWarehouseName: item.destWarehouseName || item.dest_warehouse?.name || item.dest_warehouse_id,
+          transferDate: item.transfer_date,
+          productId: item.lines?.[0]?.product_id || '',
+          sourceBinLocationId: item.lines?.[0]?.from_bin_location_id || '',
+          destBinLocationId: item.lines?.[0]?.to_bin_location_id || '',
+          quantity: item.lines?.[0]?.quantity || 1,
+        })))
+      })
+      .catch((error) => {
+        setTransfers([])
+        setLoadError(error.message)
+      })
   }, [])
 
   useEffect(() => {
@@ -200,8 +245,9 @@ const InventoryModule: React.FC = () => {
     deliveries: setDeliveries,
     receipts: setReceipts,
     counts: setCounts,
+    transfers: setTransfers,
   }
-  const activeRecords = activeTab === 'stock' ? stock : activeTab === 'deliveries' ? deliveries : activeTab === 'receipts' ? receipts : counts
+  const activeRecords = activeTab === 'stock' ? stock : activeTab === 'deliveries' ? deliveries : activeTab === 'receipts' ? receipts : activeTab === 'transfers' ? transfers : counts
   const warehouseOptions = useMemo(
     () => warehouses.map((warehouse) => {
       const occupancyPercent = warehouse.capacity_sqm ? Math.round((warehouse.current_occupancy_sqm / warehouse.capacity_sqm) * 100) : 0
@@ -211,8 +257,16 @@ const InventoryModule: React.FC = () => {
     [warehouses]
   )
   const productOptions = useMemo(
-    () => products.map((product) => ({ value: product.name, label: `${product.name} (${product.sku})` })),
-    [products]
+    () => products.map((product) => ({ value: activeTab === 'transfers' ? product.id : product.name, label: `${product.name} (${product.sku})` })),
+    [activeTab, products]
+  )
+  const transferWarehouseOptions = useMemo(
+    () => warehouses.map((warehouse) => ({ value: warehouse.id, label: `${warehouse.name} (${warehouse.warehouse_code || warehouse.warehouseCode || ''})` })),
+    [warehouses]
+  )
+  const transferBinOptions = useMemo(
+    () => binLocations.map((bin) => ({ value: bin.id, label: `${bin.binCode || bin.bin_code} - ${bin.warehouseName || bin.warehouse?.name || ''}` })),
+    [binLocations]
   )
   const partnerOptions = useMemo(() => {
     const source = activeTab === 'deliveries' ? customers : suppliers
@@ -231,16 +285,19 @@ const InventoryModule: React.FC = () => {
     })
   }, [binLocations, modalRecord?.warehouseName])
   const activeFields = useMemo(() => {
-    const source = activeTab === 'stock' ? stockFieldsBase : activeTab === 'counts' ? countFieldsBase : movementFieldsBase
+    const source = activeTab === 'stock' ? stockFieldsBase : activeTab === 'counts' ? countFieldsBase : activeTab === 'transfers' ? transferFieldsBase : movementFieldsBase
     return source.map((field) => {
+      if (['sourceWarehouseId', 'destWarehouseId'].includes(field.name)) return { ...field, options: transferWarehouseOptions }
+      if (['sourceBinLocationId', 'destBinLocationId'].includes(field.name)) return { ...field, options: transferBinOptions }
+      if (field.name === 'productId') return { ...field, options: productOptions }
       if (field.name === 'warehouseName') return { ...field, options: warehouseOptions }
       if (field.name === 'productName') return { ...field, options: productOptions }
       if (field.name === 'partnerName') return { ...field, label: activeTab === 'deliveries' ? 'Customer' : 'Supplier', options: partnerOptions }
       if (field.name === 'binCode') return { ...field, options: filteredBinOptions }
       return field
     })
-  }, [activeTab, warehouseOptions, productOptions, partnerOptions, filteredBinOptions])
-  const activeTitle = activeTab === 'stock' ? 'Stock Item' : activeTab === 'deliveries' ? 'Delivery Order' : activeTab === 'receipts' ? 'Goods Receipt' : 'Stock Count'
+  }, [activeTab, warehouseOptions, transferWarehouseOptions, transferBinOptions, productOptions, partnerOptions, filteredBinOptions])
+  const activeTitle = activeTab === 'stock' ? 'Stock Item' : activeTab === 'deliveries' ? 'Delivery Order' : activeTab === 'receipts' ? 'Goods Receipt' : activeTab === 'transfers' ? 'Stock Transfer' : 'Stock Count'
 
   const filteredRecords = useMemo(() => {
     return activeRecords.filter((record) => {
@@ -267,6 +324,14 @@ const InventoryModule: React.FC = () => {
       reorderStatus: activeTab === 'stock' ? 'normal' : 'draft',
       scheduledDate: new Date().toISOString().slice(0, 10),
       countDate: new Date().toISOString().slice(0, 10),
+      transferDate: new Date().toISOString().slice(0, 10),
+      sourceWarehouseId: '',
+      destWarehouseId: '',
+      sourceBinLocationId: '',
+      destBinLocationId: '',
+      productId: '',
+      quantity: 1,
+      status: activeTab === 'transfers' ? 'draft' : undefined,
     })
     setModalOpen(true)
   }
@@ -276,13 +341,26 @@ const InventoryModule: React.FC = () => {
       ? '/inventory/delivery-orders'
       : activeTab === 'receipts'
         ? '/inventory/goods-receipts'
+        : activeTab === 'transfers'
+          ? '/inventory/stock-transfers'
         : activeTab === 'counts'
           ? '/inventory/adjustments'
           : '/inventory/stock-levels'
 
     try {
       const isExisting = record.id && activeRecords.some((item) => item.id === record.id)
-      await (isExisting ? erpApi.put(`${path}/${record.id}`, record) : erpApi.post(path, record))
+      const payload = activeTab === 'transfers'
+        ? {
+            ...record,
+            lines: [{
+              product_id: record.productId,
+              from_bin_location_id: record.sourceBinLocationId,
+              to_bin_location_id: record.destBinLocationId,
+              quantity: record.quantity,
+            }],
+          }
+        : record
+      await (isExisting ? erpApi.put(`${path}/${record.id}`, payload) : erpApi.post(path, payload))
     } catch (error: any) {
       showNotification('error', `Inventory save failed: ${error.message}`)
       return
@@ -295,11 +373,16 @@ const InventoryModule: React.FC = () => {
   }
 
   const advanceRecord = async (record: any) => {
-    const nextStatus = activeTab === 'counts' && record.status === 'draft' ? 'posted' : flow[record.status]
+    const nextStatus = activeTab === 'transfers' && record.status === 'draft'
+      ? 'done'
+      : activeTab === 'counts' && record.status === 'draft'
+        ? 'posted'
+        : flow[record.status]
     if (!nextStatus) return
     const pathMap: Record<string, string> = {
       deliveries: '/inventory/delivery-orders',
       receipts: '/inventory/goods-receipts',
+      transfers: '/inventory/stock-transfers',
       counts: '/inventory/adjustments',
     }
     const path = pathMap[activeTab]
@@ -317,6 +400,7 @@ const InventoryModule: React.FC = () => {
     const pathMap: Record<string, string> = {
       deliveries: '/inventory/delivery-orders',
       receipts: '/inventory/goods-receipts',
+      transfers: '/inventory/stock-transfers',
       counts: '/inventory/adjustments',
     }
     const path = pathMap[activeTab]
@@ -339,8 +423,8 @@ const InventoryModule: React.FC = () => {
         setModalOpen(true)
       }}
       onDelete={() => deleteRecord(record)}
-      onAdvance={(activeTab !== 'stock' && (flow[record.status] || (activeTab === 'counts' && record.status === 'draft'))) ? () => advanceRecord(record) : undefined}
-      advanceLabel={activeTab === 'counts' ? 'Post' : 'Validate'}
+      onAdvance={(activeTab !== 'stock' && (flow[record.status] || (activeTab === 'counts' && record.status === 'draft') || (activeTab === 'transfers' && record.status === 'draft'))) ? () => advanceRecord(record) : undefined}
+      advanceLabel={activeTab === 'counts' ? 'Post' : activeTab === 'transfers' ? 'Done' : 'Validate'}
     />
   )
 
@@ -370,6 +454,7 @@ const InventoryModule: React.FC = () => {
           { id: 'stock', label: 'Stock Levels', count: stock.length },
           { id: 'deliveries', label: 'Delivery Orders', count: deliveries.length },
           { id: 'receipts', label: 'Goods Receipts', count: receipts.length },
+          { id: 'transfers', label: 'Stock Transfers', count: transfers.length },
           { id: 'counts', label: 'Stock Counts', count: counts.length },
         ]}
       />
@@ -438,9 +523,9 @@ const InventoryModule: React.FC = () => {
                   ) : (
                     <>
                       <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.reference || record.delivery_order_number || record.goods_receipt_number}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{record.warehouseName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{record.partnerName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{record.scheduledDate || record.countDate || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'transfers' ? `${record.sourceWarehouseName || record.sourceWarehouseId} -> ${record.destWarehouseName || record.destWarehouseId}` : record.warehouseName}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'transfers' ? `Qty ${record.quantity || 0}` : record.partnerName}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{record.scheduledDate || record.countDate || record.transferDate || '-'}</td>
                       <td className="px-4 py-3"><StatusBadge status={record.status} /></td>
                     </>
                   )}

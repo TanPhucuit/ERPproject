@@ -314,7 +314,9 @@ const SalesModal: React.FC<{
   }
 
   const customerOptions = customers.map(c => ({ value: c.id, label: `${c.name}${c.customer_number ? ` (${c.customer_number})` : ''}` }))
-  const leadOptions = leads.map(l => ({ value: l.id, label: `${l.lead_number || ''} - ${l.company_name}` }))
+  const leadOptions = leads
+    .filter(l => !['won'].includes(l.stage_name || l.stage || l.status))
+    .map(l => ({ value: l.id, label: `${l.lead_number || ''} - ${l.company_name}` }))
   const salesPersonOptions = users.filter(u => ['Sales_Manager', 'user', 'CEO'].includes(u.role)).map(u => ({ value: u.id, label: u.full_name }))
   const quotationOptions = quotations.filter(q => ['sent', 'accepted', 'won'].includes(q.status)).map(q => ({ value: q.id, label: `${q.quotation_number} - ${q.customer?.name || ''}` }))
 
@@ -685,7 +687,7 @@ const SalesModule: React.FC = () => {
       : (record.status === 'draft' ? 'confirmed' : null)
     if (!nextStatus) return
     try {
-      await erpApi.put(`${path}/${record.id}`, { ...record, status: nextStatus })
+      await erpApi.put(`${path}/${record.id}`, { status: nextStatus })
       await loadAll()
       showNotification('success', `${activeTab === 'orders' ? 'Sales Order' : 'Quotation'} moved to ${nextStatus}.`)
     } catch (e: any) {
@@ -693,18 +695,40 @@ const SalesModule: React.FC = () => {
     }
   }
 
+  const rejectQuotation = async (record: any) => {
+    try {
+      await erpApi.put(`/sales-orders/quotations/${record.id}`, { status: 'lost' })
+      await loadAll()
+      showNotification('success', 'Quotation rejected and lead moved to lost.')
+    } catch (e: any) {
+      showNotification('error', `Reject failed: ${e.message}`)
+    }
+  }
+
   const renderActions = (record: any) => (
-    <RecordActions
-      onEdit={() => openEdit(record)}
-      onDelete={() => deleteRecord(record)}
-      onAdvance={
-        (activeTab === 'quotations' && ['draft', 'sent'].includes(record.status)) ||
-        (activeTab === 'orders' && record.status === 'draft')
-          ? () => advanceRecord(record)
-          : undefined
-      }
-      advanceLabel={activeTab === 'quotations' && record.status === 'sent' ? 'Accept' : 'Advance'}
-    />
+    <div className="flex items-center gap-1">
+      <RecordActions
+        onEdit={() => openEdit(record)}
+        onDelete={() => deleteRecord(record)}
+        onAdvance={
+          (activeTab === 'quotations' && ['draft', 'sent'].includes(record.status)) ||
+          (activeTab === 'orders' && record.status === 'draft')
+            ? () => advanceRecord(record)
+            : undefined
+        }
+        advanceLabel={activeTab === 'quotations' && record.status === 'sent' ? 'Accept' : 'Advance'}
+      />
+      {activeTab === 'quotations' && ['draft', 'sent'].includes(record.status) && (
+        <button
+          onClick={() => rejectQuotation(record)}
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
+          title="Reject quotation"
+        >
+          <X size={14} />
+          Reject
+        </button>
+      )}
+    </div>
   )
 
   const title = activeTab === 'orders' ? 'Sales Order' : 'Quotation'
