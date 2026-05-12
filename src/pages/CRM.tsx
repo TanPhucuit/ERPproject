@@ -198,11 +198,10 @@ const LeadModal: React.FC<{
     onSave(form, autoDetected)
   }
 
-  const isAutoRequest = form.owner_id === 'auto_request'
+  const isAutoRequest = form.source === 'auto_request'
 
   const salesPersonOptions = [
     ...users.map(u => ({ value: u.id, label: `${u.full_name} (${u.role})` })),
-    { value: 'auto_request', label: '📋 Yêu cầu tự động (tạo báo giá mẫu)' },
   ]
 
   if (!isOpen) return null
@@ -243,12 +242,17 @@ const LeadModal: React.FC<{
               <select
                 value={form.source}
                 onChange={e => updateField('source', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                className={`w-full rounded-md border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none ${isAutoRequest ? 'border-yellow-400 bg-yellow-50' : 'border-gray-300'}`}
               >
                 {leadSources.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
           </div>
+          {isAutoRequest && (
+            <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
+              Lead này sẽ <strong>tự động tạo một báo giá mẫu</strong> ngay sau khi được tạo.
+            </div>
+          )}
 
           {/* Customer Auto-Detection */}
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
@@ -380,16 +384,12 @@ const LeadModal: React.FC<{
               <select
                 value={form.owner_id}
                 onChange={e => updateField('owner_id', e.target.value)}
-                className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${isAutoRequest ? 'border-yellow-400 bg-yellow-50' : 'border-gray-300'}`}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
+                disabled={isAutoRequest}
               >
                 <option value="">-- Chọn nhân viên --</option>
                 {salesPersonOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
-              {isAutoRequest && (
-                <div className="mt-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
-                  Lead này sẽ <strong>tự động tạo báo giá mẫu</strong> khi chuyển sang giai đoạn "Báo giá".
-                </div>
-              )}
             </div>
             <div className="md:col-span-2">
               <label className="mb-1 block text-sm font-semibold text-gray-700">Ghi chú</label>
@@ -843,22 +843,48 @@ const CRMModule: React.FC = () => {
         } catch {}
       }
 
+      const isAutoRequest = formData.source === 'auto_request'
       const payload = {
         ...formData,
-        owner_id: formData.owner_id === 'auto_request' ? null : (formData.owner_id || null),
+        owner_id: isAutoRequest ? null : (formData.owner_id || null),
         expected_close_date: formData.expected_close_date || null,
       }
 
+      let savedLead
       if (leadModalRecord?.id) {
-        await erpApi.put(`/crm/leads/${leadModalRecord.id}`, payload)
+        savedLead = await erpApi.put(`/crm/leads/${leadModalRecord.id}`, payload)
       } else {
-        await erpApi.post('/crm/leads', payload)
+        savedLead = await erpApi.post('/crm/leads', payload)
       }
+
+      // If it's an auto-request, immediately create a sample quotation
+      if (isAutoRequest && savedLead) {
+        const sampleProducts = products.slice(0, 3).map(p => ({
+            product_id: p.id,
+            quantity: 1,
+            unit_price: p.list_price,
+            discount_percent: 0,
+        }));
+
+        const quotationPayload: Omit<QuotationFormData, 'products'> & { products: any[] } = {
+            lead_id: savedLead.id,
+            status: 'draft',
+            issued_date: new Date().toISOString().slice(0, 10),
+            valid_until_date: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
+            tax_percent: 10,
+            notes: 'Báo giá tự động từ hệ thống theo yêu cầu của khách hàng.',
+            products: sampleProducts,
+        };
+        await handleSaveQuotation(quotationPayload as QuotationFormData, false); // Don't show notification for this
+        showNotification('success', 'Lead và Báo giá mẫu đã được tạo tự động!')
+      } else {
+        showNotification('success', 'Lead đã được lưu thành công.')
+      }
+
       await loadAll()
       setLeadModalOpen(false)
       setLeadModalRecord(null)
       setModalError(null)
-      showNotification('success', 'Lead đã được lưu thành công.')
     } catch (e: any) {
       setModalError(e.message)
     } finally {
@@ -866,16 +892,22 @@ const CRMModule: React.FC = () => {
     }
   }
 
-  const handleSaveQuotation = async (formData: QuotationFormData) => {
+  const handleSaveQuotation = async (formData: QuotationFormData, showNotif: boolean = true) => {
     setSaving(true)
     try {
       await erpApi.post('/sales/quotations', formData)
       await loadAll()
       setQuotationModalOpen(false)
       setQuotationLead(null)
-      showNotification('success', 'Báo giá đã được tạo thành công.')
+      if (showNotif) {
+        showNotification('success', 'Báo giá đã được tạo thành công.')
+      }
     } catch (e: any) {
-      showNotification('error', `Tạo báo giá thất bại: ${e.message}`)
+      if (showNotif) {
+        showNotification('error', `Tạo báo giá thất bại: ${e.message}`)
+      } else {
+        console.error("Auto-quote creation failed:", e.message)
+      }
     } finally {
       setSaving(false)
     }
@@ -885,32 +917,6 @@ const CRMModule: React.FC = () => {
     const currentStage = stageName(lead.stage_id || lead.stage)
     const next = nextLeadStage[currentStage]
     if (!next) return
-
-    // Nếu là "Yêu cầu tự động" và chuyển sang "Báo giá", tự động tạo báo giá mẫu
-    if (lead.source === 'auto_request' && next === 'proposition') {
-        // Logic để tạo báo giá mẫu ở đây
-        // Ví dụ: lấy 3 sản phẩm đầu tiên trong danh sách
-        const sampleProducts = products.slice(0, 3).map(p => ({
-            product_id: p.id,
-            product_name: p.name,
-            product_sku: p.sku,
-            quantity: 1,
-            unit_price: p.list_price,
-            discount_percent: 0,
-            line_total: p.list_price,
-        }));
-
-        const quotationPayload: QuotationFormData = {
-            lead_id: lead.id,
-            status: 'draft',
-            issued_date: new Date().toISOString().slice(0, 10),
-            valid_until_date: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
-            tax_percent: 10,
-            notes: 'Báo giá tự động từ hệ thống.',
-            products: sampleProducts,
-        };
-        await handleSaveQuotation(quotationPayload);
-    }
 
     // Khi lead thắng, tự động tạo khách hàng
     if (next === 'won') {
