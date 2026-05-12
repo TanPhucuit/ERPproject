@@ -2010,12 +2010,6 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
     }
     return quotation
   }
-        notes: line.notes || null,
-      })).filter((line: any) => line.product_id)
-      await persistLines('quotation_lines', 'quotation_id', quotation.id, lines)
-    }
-    return quotation
-  }
   if (pathname === '/sales-orders/quotations') {
     const quotation = await upsert<any>('quotations')
     if (rawLines) {
