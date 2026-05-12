@@ -1920,10 +1920,13 @@ const writeResource = async <T>(path: string, body: Record<string, any>, method:
   }
 
   const upsert = async (table: string, id?: string) => {
+    const bodyWithDelete = method === 'POST'
+      ? { ...normalizedBody, is_deleted: false }
+      : normalizedBody
     const query =
       method === 'POST'
-        ? supabase.from(table).insert(normalizedBody).select().single()
-        : supabase.from(table).update(normalizedBody).eq('id', id).select().single()
+        ? supabase.from(table).insert(bodyWithDelete).select().single()
+        : supabase.from(table).update(bodyWithDelete).eq('id', id).select().single()
 
     const { data, error } = await query
     if (error) throw error
