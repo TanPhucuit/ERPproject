@@ -130,7 +130,7 @@ INSERT INTO activities (lead_id, activity_type_id, description, activity_date, p
 INSERT INTO quotations (id, lead_id, customer_id, quotation_number, issue_date, valid_until, status, notes) VALUES
   ('00000000-0000-0000-0000-000000001001','00000000-0000-0000-0000-000000000903',NULL,'QT-SEED-0001',CURRENT_DATE - 4,CURRENT_DATE + 20,'sent','Retail security quotation awaiting response.'),
   ('00000000-0000-0000-0000-000000001002','00000000-0000-0000-0000-000000000904','00000000-0000-0000-0000-000000000803','QT-SEED-0002',CURRENT_DATE - 35,CURRENT_DATE - 5,'accepted','Accepted hotel package quotation.'),
-  ('00000000-0000-0000-0000-000000001003','00000000-0000-0000-0000-000000000901',NULL,'QT-SEED-0003',CURRENT_DATE - 2,CURRENT_DATE + 28,'draft','Draft quotation for referral lead.'),
+  ('00000000-0000-0000-0000-000000001003','00000000-0000-0000-0000-000000000901',NULL,'QT-SEED-0003',CURRENT_DATE - 2,CURRENT_DATE + 28,'sent','Quotation for referral lead.'),
   ('00000000-0000-0000-0000-000000001004',NULL,'00000000-0000-0000-0000-000000000802','QT-SEED-0004',CURRENT_DATE - 50,CURRENT_DATE - 20,'rejected','Rejected office retrofit quote.')
 ON CONFLICT (id) DO NOTHING;
 
@@ -145,7 +145,7 @@ INSERT INTO quotation_items (quotation_id, product_id, quantity, unit_price, dis
 -- Sales orders, deliveries, invoices
 INSERT INTO sales_orders (id, quotation_id, customer_id, order_number, order_date, status, shipping_address, notes) VALUES
   ('00000000-0000-0000-0000-000000001101','00000000-0000-0000-0000-000000001002','00000000-0000-0000-0000-000000000803','SO-SEED-0001',CURRENT_DATE - 25,'delivered','Da Nang hotel site','Delivered hotel package.'),
-  ('00000000-0000-0000-0000-000000001102',NULL,'00000000-0000-0000-0000-000000000802','SO-SEED-0002',CURRENT_DATE - 3,'confirmed','Grace Office HQ','Office add-on order awaiting delivery.')
+  ('00000000-0000-0000-0000-000000001102',NULL,'00000000-0000-0000-0000-000000000802','SO-SEED-0002',CURRENT_DATE - 3,'ready','Grace Office HQ','Office add-on order awaiting delivery.')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO sales_order_items (sales_order_id, product_id, quantity, unit_price) VALUES
@@ -179,7 +179,7 @@ INSERT INTO warranty_order_products (warranty_orders_id, product_id, quantity) V
 
 INSERT INTO invoices (id, sales_order_id, invoice_number, issue_date, due_date, status, total_amount, tax_amount, net_amount, warranty_orders_id, notes) VALUES
   ('00000000-0000-0000-0000-000000001401','00000000-0000-0000-0000-000000001101','INV-SEED-0001',CURRENT_DATE - 22,CURRENT_DATE + 8,'sent',28000000,2545454.55,25454545.45,NULL,'Hotel package invoice.'),
-  ('00000000-0000-0000-0000-000000001402','00000000-0000-0000-0000-000000001102','INV-SEED-0002',CURRENT_DATE - 2,CURRENT_DATE + 28,'draft',15000000,1363636.36,13636363.64,NULL,'Office add-on draft invoice.')
+  ('00000000-0000-0000-0000-000000001402','00000000-0000-0000-0000-000000001102','INV-SEED-0002',CURRENT_DATE - 2,CURRENT_DATE + 28,'sent',15000000,1363636.36,13636363.64,NULL,'Office add-on invoice.')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO credit_notes (id, invoices_id, reason, total_amount) VALUES
@@ -199,7 +199,7 @@ INSERT INTO rfq_items (rfq_id, supplier_products_id, quantity) VALUES
   ('00000000-0000-0000-0000-000000001602','00000000-0000-0000-0000-000000000615',20);
 
 INSERT INTO purchase_orders (id, rfq_id, vendor_id, order_number, order_date, expected_arrival_date, status, notes) VALUES
-  ('00000000-0000-0000-0000-000000001701','00000000-0000-0000-0000-000000001601','00000000-0000-0000-0000-000000000601','PO-SEED-0001',CURRENT_DATE - 5,CURRENT_DATE + 10,'confirmed','Hub and sensor replenishment.'),
+  ('00000000-0000-0000-0000-000000001701','00000000-0000-0000-0000-000000001601','00000000-0000-0000-0000-000000000601','PO-SEED-0001',CURRENT_DATE - 5,CURRENT_DATE + 10,'sent','Hub and sensor replenishment.'),
   ('00000000-0000-0000-0000-000000001702','00000000-0000-0000-0000-000000001602','00000000-0000-0000-0000-000000000602','PO-SEED-0002',CURRENT_DATE - 32,CURRENT_DATE - 15,'received','Camera replenishment received.')
 ON CONFLICT (id) DO NOTHING;
 
@@ -210,8 +210,8 @@ INSERT INTO purchase_order_items (purchase_order_id, supplier_products_id, quant
   ('00000000-0000-0000-0000-000000001702','00000000-0000-0000-0000-000000000615',20,1320000);
 
 INSERT INTO receipts (id, purchase_order_id, receipt_date, status, notes) VALUES
-  ('00000000-0000-0000-0000-000000001801','00000000-0000-0000-0000-000000001701',CURRENT_DATE,'draft','Incoming shipment not received yet.'),
-  ('00000000-0000-0000-0000-000000001802','00000000-0000-0000-0000-000000001702',CURRENT_DATE - 14,'draft','Camera shipment received into new quantity.')
+  ('00000000-0000-0000-0000-000000001801','00000000-0000-0000-0000-000000001701',CURRENT_DATE,'completed','Incoming shipment not received yet.'),
+  ('00000000-0000-0000-0000-000000001802','00000000-0000-0000-0000-000000001702',CURRENT_DATE - 14,'completed','Camera shipment received into new quantity.')
 ON CONFLICT (id) DO NOTHING;
 
 UPDATE receipts SET status = 'completed' WHERE id = '00000000-0000-0000-0000-000000001802';
@@ -239,3 +239,5 @@ INSERT INTO stock_transfers (id, product_id, src_bin_location_id, target_bin_loc
 ON CONFLICT (id) DO NOTHING;
 
 COMMIT;
+
+

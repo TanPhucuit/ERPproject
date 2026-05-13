@@ -33,7 +33,6 @@ const movementFieldsBase: FormField[] = [
     label: 'Status',
     type: 'select',
     options: [
-      { value: 'draft', label: 'Draft' },
       { value: 'completed', label: 'Completed' },
       { value: 'cancelled', label: 'Cancelled' },
     ],
@@ -51,10 +50,9 @@ const deliveryFieldsBase: FormField[] = [
     label: 'Status',
     type: 'select',
     options: [
-      { value: 'draft', label: 'Draft' },
       { value: 'ready', label: 'Ready' },
+      { value: 'delivering', label: 'Delivering' },
       { value: 'delivered', label: 'Delivered' },
-      { value: 'cancelled', label: 'Cancelled' },
     ],
   },
   { name: 'tracking_number', label: 'Tracking Number', type: 'text' },
@@ -73,8 +71,7 @@ const transferFieldsBase: FormField[] = [
 ]
 
 const flow: Record<string, string> = {
-  draft: 'ready',
-  ready: 'done',
+  delivering: 'delivered',
 }
 
 const InventoryModule: React.FC = () => {
@@ -379,7 +376,7 @@ const InventoryModule: React.FC = () => {
       totalQuantity: 0,
       quantityAvailable: 0,
       newQuantity: 0,
-      reorderStatus: activeTab === 'stock' ? 'normal' : 'draft',
+      reorderStatus: activeTab === 'stock' ? 'normal' : 'ready',
       scheduledDate: new Date().toISOString().slice(0, 10),
       transferDate: new Date().toISOString().slice(0, 10),
       sourceWarehouseId: '',
@@ -388,7 +385,7 @@ const InventoryModule: React.FC = () => {
       destBinLocationId: '',
       productId: '',
       quantity: 1,
-      status: activeTab === 'receipts' ? 'draft' : undefined,
+      status: activeTab === 'receipts' ? 'completed' : activeTab === 'deliveries' ? 'ready' : undefined,
     })
     setModalOpen(true)
   }
@@ -424,7 +421,7 @@ const InventoryModule: React.FC = () => {
         ? {
             sales_order_id: record.salesOrderId || selectedInvoice?.sales_order_id,
             delivery_date: record.scheduledDate,
-            status: record.status || 'draft',
+            status: record.status || 'ready',
             tracking_number: record.tracking_number || null,
             notes: record.notes || null,
           }
@@ -432,7 +429,7 @@ const InventoryModule: React.FC = () => {
           ? {
             purchase_order_id: record.purchaseOrderId,
             receipt_date: record.scheduledDate,
-            status: record.status || 'draft',
+            status: record.status || 'completed',
             notes: record.notes || null,
           }
         : activeTab === 'transfers'
@@ -458,9 +455,7 @@ const InventoryModule: React.FC = () => {
   }
 
   const advanceRecord = async (record: any) => {
-    const nextStatus = activeTab === 'transfers' && record.status === 'draft'
-      ? 'done'
-      : flow[record.status]
+    const nextStatus = flow[record.status]
     if (!nextStatus) return
     const pathMap: Record<string, string> = {
       deliveries: '/inventory/delivery-orders',
@@ -504,8 +499,8 @@ const InventoryModule: React.FC = () => {
         setModalOpen(true)
       }}
       onDelete={() => deleteRecord(record)}
-      onAdvance={(activeTab !== 'stock' && activeTab !== 'transfers' && flow[record.status]) ? () => advanceRecord(record) : undefined}
-      advanceLabel={activeTab === 'transfers' ? 'Done' : 'Validate'}
+      onAdvance={(activeTab === 'deliveries' && record.status === 'delivering') ? () => advanceRecord(record) : undefined}
+      advanceLabel="Delivered"
     />
   )
 

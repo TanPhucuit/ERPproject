@@ -85,10 +85,10 @@ const RFQLinesEditor: React.FC<{
   const addProduct = (supplierProduct: any) => {
     const newLine: RFQLine = {
       id: `rfq-${Date.now()}-${Math.random()}`,
-      product_id: supplierProduct.product_id,
+      product_id: supplierProduct.product_id || '',
       supplier_products_id: supplierProduct.id,
       supplier_name: supplierProduct.supplierName || supplierProduct.supplier_name,
-      product_name: supplierProduct.productName || supplierProduct.product_name,
+      product_name: supplierProduct.sku,
       product_sku: supplierProduct.sku,
       quantity_required: 1,
       required_delivery_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
@@ -254,10 +254,10 @@ const POLinesEditor: React.FC<{
   const addProduct = (supplierProduct: any) => {
     const newLine: POLine = {
       id: `po-${Date.now()}-${Math.random()}`,
-      product_id: supplierProduct.product_id,
+      product_id: supplierProduct.product_id || '',
       supplier_products_id: supplierProduct.id,
       supplier_name: supplierProduct.supplierName || supplierProduct.supplier_name,
-      product_name: supplierProduct.productName || supplierProduct.product_name,
+      product_name: supplierProduct.sku,
       product_sku: supplierProduct.sku,
       product_cost_price: supplierProduct.price || 0,
       quantity_ordered: 1,
@@ -374,9 +374,7 @@ const POLinesEditor: React.FC<{
 }
 
 const flow: Record<string, string> = {
-  draft: 'confirmed',
-  confirmed: 'received',
-  received: 'received',
+  sent: 'received',
 }
 
 // ========== RFQ CUSTOM MODAL ==========
@@ -393,7 +391,7 @@ const RFQModal: React.FC<{
     issuedDate: new Date().toISOString().slice(0, 10),
     closingDate: '',
     totalEstimatedCost: 0,
-    status: 'draft',
+    status: 'sent',
     notes: '',
     lines: [],
     quotations: {},
@@ -405,7 +403,7 @@ const RFQModal: React.FC<{
       issuedDate: new Date().toISOString().slice(0, 10),
       closingDate: '',
       totalEstimatedCost: 0,
-      status: 'draft',
+      status: 'sent',
       notes: '',
       lines: [],
       quotations: {},
@@ -497,7 +495,6 @@ const RFQModal: React.FC<{
               <select value={form.status}
                 onChange={e => setForm({ ...form, status: e.target.value })}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
-                <option value="draft">Draft</option>
                 <option value="sent">Sent</option>
                 <option value="closed">Closed</option>
                 <option value="cancelled">Cancelled</option>
@@ -547,7 +544,7 @@ const POModal: React.FC<{
     totalTax: 0,
     totalAmount: 0,
     receivedAmount: 0,
-    status: 'draft',
+    status: 'sent',
     notes: '',
     lines: [],
   })
@@ -566,7 +563,7 @@ const POModal: React.FC<{
         totalTax: 0,
         totalAmount: 0,
         receivedAmount: 0,
-        status: 'draft',
+        status: 'sent',
         notes: '',
         lines: [],
       })
@@ -663,8 +660,7 @@ const POModal: React.FC<{
               <select value={form.status}
                 onChange={e => setForm({ ...form, status: e.target.value })}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
-                <option value="draft">Draft</option>
-                <option value="confirmed">Confirmed</option>
+                <option value="sent">Sent</option>
                 <option value="received">Received</option>
                 <option value="cancelled">Cancelled</option>
               </select>
@@ -733,7 +729,7 @@ const PurchaseModule: React.FC = () => {
               product_id: item.supplier_product?.product_id || item.product_id,
               supplier_products_id: item.supplier_products_id,
               supplier_name: po.supplier?.name,
-              product_name: item.supplier_product?.product?.product_name || item.supplier_product?.productName || '',
+              product_name: item.supplier_product?.sku || '',
               product_sku: item.supplier_product?.sku || item.supplier_product?.product?.sku || '',
               quantity_ordered: item.quantity,
               unit_price: item.unit_price,
@@ -810,7 +806,7 @@ const PurchaseModule: React.FC = () => {
       totalAmount: 0,
       totalEstimatedCost: 0,
       receivedAmount: 0,
-      status: 'draft',
+      status: 'sent',
     })
     setModalOpen(true)
   }
@@ -871,11 +867,9 @@ const PurchaseModule: React.FC = () => {
   const advanceRecord = async (record: any) => {
     // Different flow for PO and RFQ
     const poFlow: Record<string, string> = {
-      draft: 'confirmed',
-      confirmed: 'received',
+      sent: 'received',
     }
     const rfqFlow: Record<string, string> = {
-      draft: 'sent',
       sent: 'closed',
     }
     const currentFlow = activeTab === 'purchase-orders' ? poFlow : rfqFlow
@@ -920,7 +914,7 @@ const PurchaseModule: React.FC = () => {
         setModalOpen(true)
       }}
       onDelete={() => deleteRecord(record)}
-      onAdvance={flow[record.status] ? () => advanceRecord(record) : undefined}
+      onAdvance={activeTab === 'purchase-orders' && record.status !== 'received' && flow[record.status] ? () => advanceRecord(record) : activeTab === 'rfqs' && flow[record.status] ? () => advanceRecord(record) : undefined}
       advanceLabel={activeTab === 'purchase-orders' ? 'Receive' : 'Award'}
     />
   )
@@ -958,7 +952,7 @@ const PurchaseModule: React.FC = () => {
         onSearchChange={setSearch}
         status={status}
         onStatusChange={setStatus}
-        statuses={Array.from(new Set(activeRecords.map((record) => record.status)))}
+        statuses={Array.from(new Set(activeRecords.map((record) => record.status).filter(Boolean)))}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
       />
@@ -1031,3 +1025,4 @@ const PurchaseModule: React.FC = () => {
 }
 
 export default PurchaseModule
+

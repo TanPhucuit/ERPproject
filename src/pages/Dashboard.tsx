@@ -180,7 +180,7 @@ const Dashboard: React.FC = () => {
         ).length
 
         const pendingApprovals = purchaseOrders.filter((po) =>
-          ['draft', 'confirmed'].includes(String(po.status || '').toLowerCase())
+          ['sent'].includes(String(po.status || '').toLowerCase())
         ).length
 
         setMetrics({
@@ -500,3 +500,4 @@ const Dashboard: React.FC = () => {
 }
 
 export default Dashboard
+

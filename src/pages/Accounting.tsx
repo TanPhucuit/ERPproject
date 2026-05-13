@@ -30,7 +30,6 @@ const invoiceFieldsBase: FormField[] = [
     label: 'Status',
     type: 'select',
     options: [
-      { value: 'draft', label: 'Draft' },
       { value: 'sent', label: 'Sent' },
       { value: 'partial_paid', label: 'Partial Paid' },
       { value: 'paid', label: 'Paid' },
@@ -54,7 +53,6 @@ const billFieldsBase: FormField[] = [
     label: 'Status',
     type: 'select',
     options: [
-      { value: 'draft', label: 'Draft' },
       { value: 'posted', label: 'Posted' },
       { value: 'partial_paid', label: 'Partial Paid' },
       { value: 'paid', label: 'Paid' },
@@ -97,13 +95,6 @@ const paymentFieldsBase: FormField[] = [
   { name: 'referenceNumber', label: 'Reference Number', type: 'text' },
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
-
-const flow: Record<string, string> = {
-  draft: 'sent',
-  sent: 'paid',
-  posted: 'paid',
-  overdue: 'paid',
-}
 
 const normalizeInvoice = (invoice: any) => ({
   ...invoice,
@@ -344,7 +335,7 @@ const AccountingModule: React.FC = () => {
       subtotal: 0,
       taxAmount: 0,
       totalAmount: 0,
-      status: 'draft',
+      status: activeTab === 'bills' ? 'posted' : 'sent',
       accountNumber: '',
       bank: '',
       name: '',
@@ -436,30 +427,27 @@ const AccountingModule: React.FC = () => {
     setModalOpen(false)
   }
 
-  const advanceRecord = async (record: any) => {
-    const statusFlow = activeTab === 'bills'
-      ? { draft: 'posted', posted: 'paid', overdue: 'paid' } as Record<string, string>
-      : activeTab === 'invoices'
-        ? flow
-        : {}
-    const nextStatus = statusFlow[record.status]
-    if (!nextStatus) return
-    const pathMap: Record<string, string> = {
-      invoices: '/accounting/invoices',
-      bills: '/accounting/bills',
-      'credit-notes': '/accounting/credit-notes',
-      'debit-notes': '/accounting/debit-notes',
-      payments: '/accounting/payments',
-      accounts: '/accounting/accounts',
-    }
-    const path = pathMap[activeTab]
-    try {
-      await erpApi.put(`${path}/${record.id}`, { ...record, status: nextStatus })
-      setters[activeTab]((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
-      showNotification('success', `${activeTitle} moved to ${nextStatus}.`)
-    } catch (error: any) {
-      showNotification('error', `Status update failed: ${error.message}`)
-    }
+  const openPaymentFor = (record: any) => {
+    const isInvoice = activeTab === 'invoices' || activeTab === 'credit-notes'
+    const documentId = activeTab === 'credit-notes'
+      ? record.referenceDocument || record.invoices_id
+      : activeTab === 'debit-notes'
+        ? record.referenceDocument || record.vendor_bills_id
+        : record.id
+    setActiveTab('payments')
+    setModalRecord({
+      id: `payments-${Date.now()}`,
+      documentType: isInvoice ? 'invoice' : 'vendor_bill',
+      documentId,
+      paymentDate: new Date().toISOString().slice(0, 10),
+      paymentMethod: 'bank_transfer',
+      amount: record.totalAmount || record.total_amount || record.total || 0,
+      paymentAccount: '',
+      targetAccount: '',
+      referenceNumber: '',
+      notes: `Payment for ${record.invoiceNumber || record.billNumber || record.noteNumber || record.id}`,
+    })
+    setModalOpen(true)
   }
 
   const deleteRecord = async (record: any) => {
@@ -491,14 +479,18 @@ const AccountingModule: React.FC = () => {
           <Download size={16} />
         </button>
       )}
+      {['invoices', 'bills', 'credit-notes', 'debit-notes'].includes(activeTab) && !['paid', 'cancelled'].includes(record.status) && (
+        <button onClick={() => openPaymentFor(record)} className="rounded px-2 py-1 text-xs font-semibold text-green-700 hover:bg-green-50" title="Create payment">
+          Pay
+        </button>
+      )}
       <RecordActions
         onEdit={() => {
           setModalRecord(record)
           setModalOpen(true)
         }}
         onDelete={() => deleteRecord(record)}
-        onAdvance={(['invoices', 'bills'].includes(activeTab) && (activeTab === 'bills' ? ['draft', 'posted', 'overdue'] : ['draft', 'sent', 'overdue']).includes(record.status)) ? () => advanceRecord(record) : undefined}
-        advanceLabel={record.status === 'draft' ? (activeTab === 'bills' ? 'Post' : 'Send') : 'Pay'}
+        onAdvance={undefined}
       />
     </div>
   )
@@ -614,3 +606,4 @@ const AccountingModule: React.FC = () => {
 }
 
 export default AccountingModule
+

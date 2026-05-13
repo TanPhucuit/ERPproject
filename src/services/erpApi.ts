@@ -41,8 +41,29 @@ const normalizeStatus = (value?: string | null) => {
   if (value === 'done') return 'delivered'
   if (value === 'ready') return 'ready'
   if (value === 'partial_received') return 'received'
-  return value || 'draft'
+  return value || 'sent'
 }
+
+const quotationStatus = (value?: string | null) =>
+  ['sent', 'accepted', 'rejected'].includes(value || '') ? value! : 'sent'
+
+const salesOrderStatus = (value?: string | null) =>
+  ['ready', 'delivering', 'delivered', 'cancelled'].includes(value || '') ? value! : 'ready'
+
+const deliveryStatus = (value?: string | null) =>
+  ['ready', 'delivering', 'delivered'].includes(value || '') ? value! : 'ready'
+
+const invoiceStatus = (value?: string | null) =>
+  ['sent', 'partial_paid', 'paid', 'overdue', 'cancelled'].includes(value || '') ? value! : 'sent'
+
+const billStatus = (value?: string | null) =>
+  ['posted', 'partial_paid', 'paid', 'overdue', 'cancelled'].includes(value || '') ? value! : 'posted'
+
+const rfqStatus = (value?: string | null) =>
+  ['sent', 'closed', 'cancelled'].includes(value || '') ? value! : 'sent'
+
+const purchaseOrderStatus = (value?: string | null) =>
+  ['sent', 'received', 'cancelled'].includes(value || '') ? value! : 'sent'
 
 const productName = (product: any) => product?.product_name || product?.name || ''
 
@@ -244,10 +265,10 @@ const getResource = async <T>(path: string): Promise<T> => {
       ...row,
       supplierName: row.supplier?.supplier_name,
       supplier_name: row.supplier?.supplier_name,
-      productName: productName(row.product),
-      product_name: productName(row.product),
+      productName: row.sku,
+      product_name: row.sku,
       productSku: row.product?.sku,
-      name: `${row.supplier?.supplier_name || 'Supplier'} - ${productName(row.product) || row.sku}`,
+      name: `${row.supplier?.supplier_name || 'Supplier'} - ${row.sku}`,
     })) as T
   }
 
@@ -506,6 +527,9 @@ const writeSimple = async <T>(table: string, body: any, id?: string, mapper = (v
 const applyAcceptedQuotationWorkflow = async (quotationId: string) => {
   const quotation: any = await getSingle('quotations', quotationId, selectQuotation)
   if (quotation.status !== 'accepted') return
+  if (!quotation.lead_id && !quotation.customer_id) {
+    throw new Error('Accepted quotation must belong to a lead or customer before conversion.')
+  }
 
   let customerId = quotation.customer_id
   if (!customerId && quotation.lead_id) {
@@ -565,7 +589,7 @@ const applyAcceptedQuotationWorkflow = async (quotationId: string) => {
       quotation_id: quotationId,
       customer_id: customerId,
       order_date: today(),
-      status: 'draft',
+      status: 'ready',
       notes: 'Auto-created from accepted quotation.',
     })
     .select('id')
@@ -585,14 +609,27 @@ const applyAcceptedQuotationWorkflow = async (quotationId: string) => {
 }
 
 const writeQuotation = async <T>(body: any, id?: string): Promise<T> => {
+  const leadId = body.lead_id || null
+  if (!id && leadId) {
+    const { data: existingQuotation, error: quotationLookupError } = await supabase
+      .from('quotations')
+      .select('id, quotation_number, status')
+      .eq('lead_id', leadId)
+      .neq('status', 'rejected')
+      .maybeSingle()
+    if (quotationLookupError) throw quotationLookupError
+    if (existingQuotation?.id) {
+      throw new Error(`This lead already has quotation ${existingQuotation.quotation_number || existingQuotation.id}.`)
+    }
+  }
   const payload: any = id
     ? {}
     : {
-        lead_id: body.lead_id || null,
+        lead_id: leadId,
         customer_id: body.customer_id || null,
         issue_date: body.issue_date || body.issued_date || today(),
         valid_until: body.valid_until || body.valid_until_date || addDays(30),
-        status: normalizeStatus(body.status),
+        status: quotationStatus(normalizeStatus(body.status)),
         notes: body.notes || null,
       }
   if (id) {
@@ -600,7 +637,7 @@ const writeQuotation = async <T>(body: any, id?: string): Promise<T> => {
     if ('customer_id' in body) payload.customer_id = body.customer_id || null
     if ('issue_date' in body || 'issued_date' in body) payload.issue_date = body.issue_date || body.issued_date || today()
     if ('valid_until' in body || 'valid_until_date' in body) payload.valid_until = body.valid_until || body.valid_until_date || addDays(30)
-    if ('status' in body) payload.status = normalizeStatus(body.status)
+    if ('status' in body) payload.status = quotationStatus(normalizeStatus(body.status))
     if ('notes' in body) payload.notes = body.notes || null
   }
   if (body.quotation_number) Object.assign(payload, { quotation_number: body.quotation_number })
@@ -651,7 +688,7 @@ const writeSalesOrder = async <T>(body: any, id?: string): Promise<T> => {
         quotation_id: body.quotation_id || null,
         customer_id: customerId,
         order_date: body.order_date || today(),
-        status: normalizeStatus(body.status),
+        status: salesOrderStatus(body.status),
         shipping_address: body.shipping_address || body.required_delivery_date || null,
         notes: body.notes || null,
       }
@@ -659,7 +696,7 @@ const writeSalesOrder = async <T>(body: any, id?: string): Promise<T> => {
     if ('quotation_id' in body) payload.quotation_id = body.quotation_id || null
     if ('customer_id' in body && customerId) payload.customer_id = customerId
     if ('order_date' in body) payload.order_date = body.order_date || today()
-    if ('status' in body) payload.status = normalizeStatus(body.status)
+    if ('status' in body) payload.status = salesOrderStatus(body.status)
     if ('shipping_address' in body || 'required_delivery_date' in body) payload.shipping_address = body.shipping_address || body.required_delivery_date || null
     if ('notes' in body) payload.notes = body.notes || null
   }
@@ -686,7 +723,7 @@ const writeRfq = async <T>(body: any, id?: string): Promise<T> => {
   const payload = {
     issue_date: body.issue_date || body.issuedDate || today(),
     deadline: body.deadline || body.closingDate || null,
-    status: normalizeStatus(body.status),
+    status: rfqStatus(body.status),
   }
   const { data, error } = id
     ? await supabase.from('rfqs').update(payload).eq('id', id).select().single()
@@ -709,7 +746,7 @@ const writePurchaseOrder = async <T>(body: any, id?: string): Promise<T> => {
         vendor_id: body.vendor_id || body.supplier_id || body.supplierId,
         order_date: body.order_date || body.orderDate || today(),
         expected_arrival_date: body.expected_arrival_date || body.requiredDeliveryDate || null,
-        status: normalizeStatus(body.status),
+        status: purchaseOrderStatus(body.status),
         notes: body.notes || null,
       }
   if (id) {
@@ -717,7 +754,7 @@ const writePurchaseOrder = async <T>(body: any, id?: string): Promise<T> => {
     if ('vendor_id' in body || 'supplier_id' in body || 'supplierId' in body) payload.vendor_id = body.vendor_id || body.supplier_id || body.supplierId
     if ('order_date' in body || 'orderDate' in body) payload.order_date = body.order_date || body.orderDate || today()
     if ('expected_arrival_date' in body || 'requiredDeliveryDate' in body) payload.expected_arrival_date = body.expected_arrival_date || body.requiredDeliveryDate || null
-    if ('status' in body) payload.status = normalizeStatus(body.status)
+    if ('status' in body) payload.status = purchaseOrderStatus(body.status)
     if ('notes' in body) payload.notes = body.notes || null
   }
   if (!id && !payload.vendor_id) throw new Error('Supplier is required.')
@@ -756,6 +793,21 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<
   }
   const { data, error } = await supabase.from('payments').insert(payload).select().single()
   if (error) throw error
+  if (payload.invoice_id) {
+    const { data: invoice } = await supabase.from('invoices').select('sales_order_id,status').eq('id', payload.invoice_id).single()
+    if (invoice?.status === 'paid') {
+      await supabase
+        .from('delivery_orders')
+        .update({ status: 'delivering' })
+        .eq('sales_order_id', invoice.sales_order_id)
+        .eq('status', 'ready')
+      await supabase
+        .from('sales_orders')
+        .update({ status: 'delivering' })
+        .eq('id', invoice.sales_order_id)
+        .eq('status', 'ready')
+    }
+  }
   return data as T
 }
 
@@ -818,7 +870,7 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
   if (pathname === '/purchase/purchase-orders' || pathname.startsWith('/purchase/purchase-orders/')) return writePurchaseOrder<T>(body, id)
   if (pathname === '/inventory/goods-receipts' || pathname.startsWith('/inventory/goods-receipts/')) {
     return writeSimple<T>('receipts', body, id, (value) => {
-      const status = value.status === 'done' || value.status === 'ready' || value.status === 'received' ? 'completed' : normalizeStatus(value.status)
+      const status = ['cancelled'].includes(value.status) ? 'cancelled' : 'completed'
       return { purchase_order_id: value.purchase_order_id, receipt_date: value.receipt_date || value.scheduledDate || today(), status, notes: value.notes || null }
     })
   }
@@ -845,7 +897,7 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
     }))
   }
   if (pathname === '/inventory/delivery-orders' || pathname.startsWith('/inventory/delivery-orders/')) {
-    return writeSimple<T>('delivery_orders', body, id, (value) => ({ sales_order_id: value.sales_order_id, delivery_date: value.delivery_date || today(), status: normalizeStatus(value.status), tracking_number: value.tracking_number || null, notes: value.notes || null }))
+    return writeSimple<T>('delivery_orders', body, id, (value) => ({ sales_order_id: value.sales_order_id, delivery_date: value.delivery_date || today(), status: deliveryStatus(value.status), tracking_number: value.tracking_number || null, notes: value.notes || null }))
   }
 
   if (pathname === '/accounting/invoices' || pathname.startsWith('/accounting/invoices/')) {
@@ -854,7 +906,7 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
       invoice_number: value.invoice_number || value.invoiceNumber || '',
       issue_date: value.issue_date || value.invoice_date || today(),
       due_date: value.due_date || null,
-      status: ['draft','sent','partial_paid','paid','overdue','cancelled'].includes(value.status) ? value.status : 'draft',
+      status: invoiceStatus(value.status),
       total_amount: toNumber(value.total_amount),
       tax_amount: toNumber(value.tax_amount ?? value.total_tax),
       net_amount: toNumber(value.net_amount ?? value.subtotal ?? value.total_amount_before_tax ?? value.total_amount),
@@ -868,7 +920,7 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
       bill_number: value.bill_number || value.billNumber || '',
       issue_date: value.issue_date || value.bill_date || today(),
       due_date: value.due_date || null,
-      status: ['draft','posted','partial_paid','paid','overdue','cancelled'].includes(value.status) ? value.status : 'draft',
+      status: billStatus(value.status),
       total: toNumber(value.total ?? value.total_amount),
       tax_amount: toNumber(value.tax_amount ?? value.total_tax),
       subtotal: toNumber(value.subtotal ?? value.total_amount_before_tax),

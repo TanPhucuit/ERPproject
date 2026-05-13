@@ -239,7 +239,7 @@ const SalesModal: React.FC<{
     tax_percent: 10,
     subtotal: 0, tax_amount: 0, total_amount: 0,
     total_cost: 0, estimated_profit: 0, profit_margin_percent: 0,
-    status: 'draft',
+    status: activeTab === 'orders' ? 'ready' : 'sent',
     notes: '',
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -276,7 +276,7 @@ const SalesModal: React.FC<{
         tax_percent: 10,
         subtotal: 0, tax_amount: 0, total_amount: 0,
         total_cost: 0, estimated_profit: 0, profit_margin_percent: 0,
-        status: 'draft',
+        status: activeTab === 'orders' ? 'ready' : 'sent',
         notes: '',
       })
     }
@@ -611,7 +611,7 @@ const SalesModule: React.FC = () => {
       required_delivery_date: formData.required_delivery_date,
       // Only editable financial field
       tax_percent: formData.tax_percent,
-      status: formData.status,
+      status: isOrder ? 'ready' : (formData.status || 'sent'),
       notes: formData.notes,
       lines: formData.lines.map(l => ({
         product_id: l.product_id,
@@ -659,19 +659,13 @@ const SalesModule: React.FC = () => {
     setActiveRecords(current => current.filter(r => r.id !== record.id))
     showNotification('success', 'Đã xóa thành công.')
   }
-
-  const advanceRecord = async (record: any) => {
-    const path = activeTab === 'orders' ? '/sales-orders' : '/sales-orders/quotations'
-    const nextStatus = activeTab === 'quotations'
-      ? (record.status === 'draft' ? 'sent' : record.status === 'sent' ? 'accepted' : null)
-      : (record.status === 'draft' ? 'confirmed' : null)
-    if (!nextStatus) return
+  const acceptQuotation = async (record: any) => {
     try {
-      await erpApi.put(`${path}/${record.id}`, { status: nextStatus })
+      await erpApi.put(`/sales-orders/quotations/${record.id}`, { status: 'accepted' })
       await loadAll()
-      showNotification('success', `${activeTab === 'orders' ? 'Sales Order' : 'Quotation'} moved to ${nextStatus}.`)
+      showNotification('success', 'Quotation accepted. Sales order and delivery order were generated.')
     } catch (e: any) {
-      showNotification('error', `Status update failed: ${e.message}`)
+      showNotification('error', `Accept failed: ${e.message}`)
     }
   }
 
@@ -690,15 +684,17 @@ const SalesModule: React.FC = () => {
       <RecordActions
         onEdit={() => openEdit(record)}
         onDelete={() => deleteRecord(record)}
-        onAdvance={
-          (activeTab === 'quotations' && ['draft', 'sent'].includes(record.status)) ||
-          (activeTab === 'orders' && record.status === 'draft')
-            ? () => advanceRecord(record)
-            : undefined
-        }
-        advanceLabel={activeTab === 'quotations' && record.status === 'sent' ? 'Accept' : 'Advance'}
       />
-      {activeTab === 'quotations' && ['draft', 'sent'].includes(record.status) && (
+      {activeTab === 'quotations' && record.status === 'sent' && (
+        <button
+          onClick={() => acceptQuotation(record)}
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-green-700 hover:bg-green-50"
+          title="Accept quotation"
+        >
+          Accept
+        </button>
+      )}
+      {activeTab === 'quotations' && record.status === 'sent' && (
         <button
           onClick={() => rejectQuotation(record)}
           className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
@@ -712,7 +708,7 @@ const SalesModule: React.FC = () => {
   )
 
   const title = activeTab === 'orders' ? 'Sales Order' : 'Quotation'
-  const statuses = useMemo(() => Array.from(new Set(activeRecords.map(r => r.status))), [activeRecords])
+  const statuses = useMemo(() => Array.from(new Set(activeRecords.map(r => r.status).filter(Boolean))), [activeRecords])
 
   return (
     <div className="space-y-6">
@@ -838,4 +834,5 @@ const SalesModule: React.FC = () => {
 }
 
 export default SalesModule
+
 

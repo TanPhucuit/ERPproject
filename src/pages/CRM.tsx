@@ -188,7 +188,7 @@ const LeadModal: React.FC<{
 
           {isAutoRequest && (
             <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
-              Auto request leads create a draft sample quotation after save.
+              Auto request leads create a sent sample quotation after save.
             </div>
           )}
 
@@ -269,7 +269,7 @@ const QuotationModal: React.FC<{
     lead_id: '',
     issued_date: new Date().toISOString().slice(0, 10),
     valid_until_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-    status: 'draft',
+    status: 'sent',
     tax_percent: 10,
     products: [],
   })
@@ -576,6 +576,7 @@ const CRMModule: React.FC = () => {
   const [activities, setActivities] = useState<any[]>([])
   const [users, setUsers] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
+  const [quotations, setQuotations] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('all')
@@ -592,10 +593,11 @@ const CRMModule: React.FC = () => {
 
   const loadAll = async () => {
     try {
-      const [leadData, userData, productData, _stageData, _actTypeData, actData] = await Promise.all([
+      const [leadData, userData, productData, quoteData, _stageData, _actTypeData, actData] = await Promise.all([
         erpApi.get<any[]>('/crm/leads?limit=100'),
         erpApi.get<any[]>('/users?limit=100'),
         erpApi.get<any[]>('/products?limit=1000'),
+        erpApi.get<any[]>('/sales-orders/quotations?limit=500'),
         erpApi.get<any[]>('/lead-stages'),
         erpApi.get<any[]>('/activity-types'),
         erpApi.get<any[]>('/crm/activities?limit=100'),
@@ -603,6 +605,7 @@ const CRMModule: React.FC = () => {
       setLeads(leadData)
       setUsers(userData)
       setProducts(productData)
+      setQuotations(quoteData)
       setActivities(actData)
       setLoadError(null)
     } catch (e: any) {
@@ -680,29 +683,10 @@ const CRMModule: React.FC = () => {
       } else {
         savedLead = await erpApi.post('/crm/leads', payload)
       }
-
-      // If it's an auto-request, immediately create a sample quotation
       if (isAutoRequest && savedLead) {
-        const sampleProducts = products.slice(0, 3).map(p => ({
-            product_id: p.id,
-            quantity: 1,
-            unit_price: p.list_price,
-            discount_percent: 0,
-        }));
-
-        const quotationPayload: Omit<QuotationFormData, 'products'> & { products: any[] } = {
-            lead_id: savedLead.id,
-            status: 'draft',
-            issued_date: new Date().toISOString().slice(0, 10),
-            valid_until_date: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
-            tax_percent: 10,
-            notes: 'Báo giá tự động từ hệ thống theo yêu cầu của khách hàng.',
-            products: sampleProducts,
-        };
-        await handleSaveQuotation(quotationPayload as QuotationFormData, false); // Don't show notification for this
-        showNotification('success', 'Lead và Báo giá mẫu đã được tạo tự động!')
+        showNotification('success', 'Lead auto request da duoc luu. He thong se tao bao gia tu dong.')
       } else {
-        showNotification('success', 'Lead đã được lưu thành công.')
+        showNotification('success', 'Lead da duoc luu thanh cong.')
       }
 
       await loadAll()
@@ -749,6 +733,11 @@ const CRMModule: React.FC = () => {
   }
 
   const openQuotationModal = (lead: any) => {
+    const existingQuotation = quotations.find((quotation) => quotation.lead_id === lead.id && quotation.status !== 'rejected')
+    if (existingQuotation) {
+      showNotification('error', `Lead nay da co quotation ${existingQuotation.quotation_number || existingQuotation.id}.`)
+      return
+    }
     setQuotationLead(lead)
     setQuotationModalOpen(true)
   }
@@ -905,7 +894,7 @@ const CRMModule: React.FC = () => {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-gray-900">{act.activity_type || 'Activity'}</span>
-                      <span className="text-xs text-gray-400">{act.performed_by?.full_name || '—'}</span>
+                      <span className="text-xs text-gray-400">{act.performed_by?.full_name || '-'} - {act.lead?.company || act.lead?.company_name || act.lead?.email || 'No lead'}</span>
                     </div>
                     <p className="text-sm text-gray-700 mt-0.5">{act.description}</p>
                     <p className="text-xs text-gray-400 mt-1">
@@ -949,6 +938,7 @@ const CRMModule: React.FC = () => {
 }
 
 export default CRMModule
+
 
 
 

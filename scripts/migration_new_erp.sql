@@ -220,7 +220,7 @@ CREATE TABLE quotations (
   quotation_number TEXT UNIQUE NOT NULL DEFAULT '',
   issue_date DATE NOT NULL DEFAULT CURRENT_DATE,
   valid_until DATE,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','sent','accepted','rejected','expired')),
+  status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent','accepted','rejected')),
   total_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -245,7 +245,7 @@ CREATE TABLE sales_orders (
   customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
   order_number TEXT UNIQUE NOT NULL DEFAULT '',
   order_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','confirmed','delivered','cancelled')),
+  status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready','delivering','delivered','cancelled')),
   shipping_address TEXT,
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -264,7 +264,7 @@ CREATE TABLE delivery_orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   sales_order_id UUID NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
   delivery_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','ready','delivered','cancelled')),
+  status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready','delivering','delivered')),
   tracking_number TEXT,
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -359,7 +359,7 @@ CREATE TABLE invoices (
   invoice_number TEXT UNIQUE NOT NULL DEFAULT '',
   issue_date DATE NOT NULL DEFAULT CURRENT_DATE,
   due_date DATE,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','sent','partial_paid','paid','overdue','cancelled')),
+  status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent','partial_paid','paid','overdue','cancelled')),
   total_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
   tax_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
   net_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
@@ -390,7 +390,7 @@ CREATE TABLE vendor_bills (
   bill_number TEXT UNIQUE NOT NULL DEFAULT '',
   issue_date DATE NOT NULL DEFAULT CURRENT_DATE,
   due_date DATE,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','posted','partial_paid','paid','overdue','cancelled')),
+  status TEXT NOT NULL DEFAULT 'posted' CHECK (status IN ('posted','partial_paid','paid','overdue','cancelled')),
   total NUMERIC(14,2) NOT NULL DEFAULT 0,
   tax_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
   subtotal NUMERIC(14,2) NOT NULL DEFAULT 0,
@@ -424,7 +424,7 @@ CREATE TABLE rfqs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   issue_date DATE NOT NULL DEFAULT CURRENT_DATE,
   deadline DATE,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','sent','closed','cancelled')),
+  status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent','closed','cancelled')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -443,7 +443,7 @@ CREATE TABLE purchase_orders (
   order_number TEXT UNIQUE NOT NULL DEFAULT '',
   order_date DATE NOT NULL DEFAULT CURRENT_DATE,
   expected_arrival_date DATE,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','confirmed','received','cancelled')),
+  status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent','received','cancelled')),
   notes TEXT
 );
 
@@ -459,7 +459,7 @@ CREATE TABLE receipts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   purchase_order_id UUID NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
   receipt_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','completed','cancelled')),
+  status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('completed','cancelled')),
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -530,7 +530,7 @@ BEGIN
     IF customer_id_val IS NOT NULL
        AND NOT EXISTS (SELECT 1 FROM sales_orders WHERE quotation_id = NEW.id) THEN
       INSERT INTO sales_orders (quotation_id, customer_id, order_date, status, notes)
-      VALUES (NEW.id, customer_id_val, CURRENT_DATE, 'draft', 'Auto-created from accepted quotation.')
+      VALUES (NEW.id, customer_id_val, CURRENT_DATE, 'ready', 'Auto-created from accepted quotation.')
       RETURNING id INTO sales_order_id_val;
 
       INSERT INTO sales_order_items (sales_order_id, product_id, quantity, unit_price)
@@ -558,13 +558,13 @@ BEGIN
   SELECT id INTO delivery_order_id_val
   FROM delivery_orders
   WHERE sales_order_id = NEW.sales_order_id
-    AND status IN ('draft','ready')
+    AND status IN ('ready','delivering')
   ORDER BY created_at
   LIMIT 1;
 
   IF delivery_order_id_val IS NULL THEN
     INSERT INTO delivery_orders (sales_order_id, delivery_date, status, notes)
-    VALUES (NEW.sales_order_id, CURRENT_DATE, 'draft', 'Auto-created for reserved sales order stock.')
+    VALUES (NEW.sales_order_id, CURRENT_DATE, 'ready', 'Auto-created for reserved sales order stock.')
     RETURNING id INTO delivery_order_id_val;
   END IF;
 
@@ -618,7 +618,7 @@ DECLARE
 BEGIN
   IF NEW.source = 'auto_request' THEN
     INSERT INTO quotations (lead_id, issue_date, valid_until, status, notes)
-    VALUES (NEW.id, CURRENT_DATE, CURRENT_DATE + INTERVAL '15 days', 'draft', 'Auto quotation generated from auto-request lead.')
+    VALUES (NEW.id, CURRENT_DATE, CURRENT_DATE + INTERVAL '15 days', 'sent', 'Auto quotation generated from auto-request lead.')
     RETURNING id INTO qid;
 
     FOR product_row IN
@@ -653,6 +653,10 @@ BEGIN
     SELECT COALESCE(SUM(amount), 0) INTO paid_total FROM payments WHERE invoice_id = NEW.invoice_id;
     SELECT total_amount INTO doc_total FROM invoices WHERE id = NEW.invoice_id;
     UPDATE invoices SET status = CASE WHEN paid_total >= doc_total THEN 'paid' ELSE 'partial_paid' END WHERE id = NEW.invoice_id;
+    IF paid_total >= doc_total THEN
+      UPDATE delivery_orders d SET status = 'delivering' FROM invoices i WHERE i.id = NEW.invoice_id AND d.sales_order_id = i.sales_order_id AND d.status = 'ready';
+      UPDATE sales_orders so SET status = 'delivering' FROM invoices i WHERE i.id = NEW.invoice_id AND so.id = i.sales_order_id AND so.status = 'ready';
+    END IF;
   ELSE
     SELECT COALESCE(SUM(amount), 0) INTO paid_total FROM payments WHERE vendor_bill_id = NEW.vendor_bill_id;
     SELECT total INTO doc_total FROM vendor_bills WHERE id = NEW.vendor_bill_id;
@@ -837,6 +841,7 @@ CREATE TRIGGER calc_warranty_line_before_insert BEFORE INSERT OR UPDATE ON warra
 
 CREATE INDEX idx_leads_status ON leads(status);
 CREATE INDEX idx_quotations_lead ON quotations(lead_id);
+CREATE UNIQUE INDEX uniq_quotations_one_open_per_lead ON quotations(lead_id) WHERE lead_id IS NOT NULL AND status <> 'rejected';
 CREATE INDEX idx_sales_orders_customer ON sales_orders(customer_id);
 CREATE INDEX idx_delivery_orders_sales_order ON delivery_orders(sales_order_id);
 CREATE INDEX idx_payments_invoice ON payments(invoice_id);
@@ -844,3 +849,4 @@ CREATE INDEX idx_payments_vendor_bill ON payments(vendor_bill_id);
 CREATE INDEX idx_stock_levels_product_warehouse ON stock_levels(product_id, warehouse_id);
 
 COMMIT;
+
