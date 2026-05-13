@@ -23,6 +23,40 @@ export interface Product {
 
 export interface Customer {
   id: string
+  full_name: string
+  email?: string
+  phone?: string
+  address?: string
+  company_name?: string
+  tax_id?: string
+  customer_type: 'individual' | 'company'
+  is_active: boolean
+  name?: string
+  customer_number?: string
+  status?: 'active' | 'inactive'
+}
+
+export interface Lead {
+  id: string
+  first_name: string
+  last_name: string
+  email: string
+  phone?: string
+  company?: string
+  source: 'referral' | 'auto_request' | 'website' | 'phone' | 'email' | 'event' | 'other'
+  status: 'new' | 'quoted' | 'won' | 'lost'
+  probability: number
+  assigned_to_id?: string
+  lead_number?: string
+  company_name?: string
+  contact_person_name?: string
+  contact_person_email?: string
+  probability_percent?: number
+  stage?: 'new' | 'quoted' | 'won' | 'lost'
+}
+
+export interface LegacyCustomer {
+  id: string
   customer_number: string
   name: string
   customer_type: 'B2B' | 'B2C'
@@ -30,16 +64,6 @@ export interface Customer {
   credit_limit: number
   credit_used: number
   status: 'active' | 'inactive' | 'blocked'
-}
-
-export interface Lead {
-  id: string
-  lead_number: string
-  company_name: string
-  stage: 'new' | 'site_survey' | 'proposition' | 'won' | 'lost'
-  estimated_value: number
-  probability_percent: number
-  owner_id?: string
 }
 
 export interface SalesOrder {

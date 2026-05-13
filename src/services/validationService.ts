@@ -118,10 +118,10 @@ export const ValidationRules = {
         'company',
         'email',
         'phone',
-        'job_title',
-        'lead_source',
-        'estimated_value',
-        'next_follow_up',
+        'source',
+        'status',
+        'probability',
+        'assigned_to_id',
         'internal_notes',
       ]
     },
@@ -140,8 +140,8 @@ export const ValidationRules = {
         errors.push('Phone number format is invalid')
       }
 
-      if (data.estimated_value !== undefined && data.estimated_value < 0) {
-        errors.push('Estimated value cannot be negative')
+      if (data.probability !== undefined && (data.probability < 0 || data.probability > 100)) {
+        errors.push('Probability must be between 0 and 100')
       }
 
       if (data.next_follow_up && new Date(data.next_follow_up) < new Date()) {

@@ -18,6 +18,7 @@ import { useUIStore } from '../stores/uiStore'
 type MasterTabId =
   | 'categories'
   | 'products'
+  | 'supplierProducts'
   | 'customers'
   | 'suppliers'
   | 'users'
@@ -40,49 +41,30 @@ type TabConfig = {
 const categoryFields: FormField[] = [
   { name: 'name', label: 'Category Name', type: 'text', required: true },
   { name: 'parentName', label: 'Parent Category', type: 'select', options: [] },
-  { name: 'displayOrder', label: 'Display Order', type: 'number' },
-  {
-    name: 'isActive',
-    label: 'Active',
-    type: 'select',
-    options: [
-      { value: 'true', label: 'Yes' },
-      { value: 'false', label: 'No' },
-    ],
-  },
-  { name: 'description', label: 'Description', type: 'textarea' },
 ]
 
 const productFields: FormField[] = [
   { name: 'sku', label: 'SKU', type: 'text', required: true },
   { name: 'name', label: 'Product Name', type: 'text', required: true },
   { name: 'categoryName', label: 'Category', type: 'select', required: true, options: [] },
-  { name: 'uomName', label: 'Unit of Measure', type: 'select', options: [] },
-  { name: 'barcode', label: 'Barcode', type: 'text' },
-  { name: 'image_url', label: 'Image URL', type: 'text' },
+  { name: 'uom', label: 'Unit of Measure', type: 'text' },
   { name: 'list_price', label: 'List Price', type: 'number', required: true },
   { name: 'cost_price', label: 'Cost Price', type: 'number', required: true },
-  { name: 'physical_size_sqm', label: 'Physical Size (sqm)', type: 'number' },
-  { name: 'is_iot_device', label: 'IoT Device', type: 'select', options: [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }] },
-  { name: 'requires_serial_scan', label: 'Requires Serial Scan', type: 'select', options: [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }] },
-  { name: 'reorder_level', label: 'Reorder Level', type: 'number' },
-  { name: 'reorder_quantity', label: 'Reorder Qty', type: 'number' },
-  { name: 'supplier_lead_time_days', label: 'Supplier Lead Time (days)', type: 'number' },
+  { name: 'warranty_period', label: 'Warranty Period (days)', type: 'number' },
+  { name: 'repair_fee', label: 'Repair Fee', type: 'number' },
   {
     name: 'status',
     label: 'Status',
     type: 'select',
     options: [
       { value: 'active', label: 'Active' },
-      { value: 'discontinued', label: 'Discontinued' },
-      { value: 'prototype', label: 'Prototype' },
+      { value: 'inactive', label: 'Inactive' },
     ],
   },
   { name: 'description', label: 'Description', type: 'textarea' },
 ]
 
 const customerFields: FormField[] = [
-  { name: 'customer_number', label: 'Customer Number', type: 'text' },
   { name: 'name', label: 'Customer Name', type: 'text', required: true },
   {
     name: 'customer_type',
@@ -90,39 +72,15 @@ const customerFields: FormField[] = [
     type: 'select',
     required: true,
     options: [
-      { value: 'B2B', label: 'B2B' },
-      { value: 'B2C', label: 'B2C' },
+      { value: 'individual', label: 'Individual' },
+      { value: 'company', label: 'Company' },
     ],
   },
-  { name: 'company_tax_id', label: 'Tax ID', type: 'text' },
-  { name: 'contact_person_name', label: 'Contact Name', type: 'text' },
-  { name: 'contact_person_email', label: 'Contact Email', type: 'email' },
-  { name: 'contact_person_phone', label: 'Contact Phone', type: 'text' },
-  { name: 'billing_address', label: 'Billing Address', type: 'textarea' },
-  { name: 'shipping_address', label: 'Shipping Address', type: 'textarea' },
-  {
-    name: 'shipping_same_as_billing',
-    label: 'Same as Billing',
-    type: 'select',
-    options: [
-      { value: 'true', label: 'Yes' },
-      { value: 'false', label: 'No' },
-    ],
-  },
-  { name: 'credit_limit', label: 'Credit Limit', type: 'number' },
-  // NOTE: credit_used is AUTO-CALCULATED from customer_invoices - do NOT include in form
-  {
-    name: 'payment_terms',
-    label: 'Payment Terms',
-    type: 'select',
-    options: [
-      { value: 'NET30', label: 'NET30' },
-      { value: 'NET45', label: 'NET45' },
-      { value: 'NET60', label: 'NET60' },
-      { value: 'COD', label: 'COD' },
-      { value: 'Prepaid', label: 'Prepaid' },
-    ],
-  },
+  { name: 'company_name', label: 'Company Name', type: 'text' },
+  { name: 'tax_id', label: 'Tax ID', type: 'text' },
+  { name: 'email', label: 'Email', type: 'email' },
+  { name: 'phone', label: 'Phone', type: 'text' },
+  { name: 'address', label: 'Address', type: 'textarea' },
   {
     name: 'status',
     label: 'Status',
@@ -130,62 +88,17 @@ const customerFields: FormField[] = [
     options: [
       { value: 'active', label: 'Active' },
       { value: 'inactive', label: 'Inactive' },
-      { value: 'blocked', label: 'Blocked' },
     ],
   },
 ]
 
 const supplierFields: FormField[] = [
-  { name: 'supplier_number', label: 'Supplier Number', type: 'text' },
   { name: 'name', label: 'Supplier Name', type: 'text', required: true },
-  { name: 'company_tax_id', label: 'Tax ID', type: 'text' },
-  {
-    name: 'supplierType',
-    label: 'Supplier Type',
-    type: 'select',
-    required: true,
-    options: [
-      { value: 'equipment', label: 'Equipment & Product Suppliers' },
-      { value: 'components', label: 'Component & Part Suppliers' },
-      { value: 'logistics', label: 'Logistics & Transportation' },
-      { value: 'services', label: 'Service Providers' },
-      { value: 'maintenance', label: 'Maintenance & Repair Services' },
-    ],
-  },
   { name: 'contact_person_name', label: 'Contact Name', type: 'text' },
   { name: 'contact_person_email', label: 'Contact Email', type: 'email' },
   { name: 'contact_person_phone', label: 'Contact Phone', type: 'text' },
-  { name: 'company_address', label: 'Company Address', type: 'textarea' },
-  { name: 'company_city', label: 'Company City', type: 'text' },
-  { name: 'company_province', label: 'Company Province', type: 'text' },
-  { name: 'company_postal_code', label: 'Postal Code', type: 'text' },
-  { name: 'company_website', label: 'Website', type: 'text' },
-  // NOTE: logo_url is NOT user input - optional field
-  {
-    name: 'payment_terms',
-    label: 'Payment Terms',
-    type: 'select',
-    options: [
-      { value: 'NET30', label: 'NET30' },
-      { value: 'NET45', label: 'NET45' },
-      { value: 'NET60', label: 'NET60' },
-      { value: 'COD', label: 'COD' },
-      { value: 'Prepaid', label: 'Prepaid' },
-    ],
-  },
-  { name: 'average_lead_time_days', label: 'Lead Time Days', type: 'number' },
-  // NOTE: quality_rating is AUTO-CALCULATED by trigger from goods_receipt_lines — do NOT include in form
-  {
-    name: 'is_preferred',
-    label: 'Preferred Supplier',
-    type: 'select',
-    options: [
-      { value: 'true', label: 'Yes' },
-      { value: 'false', label: 'No' },
-    ],
-  },
-  // NOTE: total_spent is AUTO-CALCULATED from vendor_bills - do NOT include in form
-  // NOTE: average_response_time_hours is AUTO-CALCULATED from rfq_supplier_quotations - do NOT include in form
+  { name: 'company_address', label: 'Address', type: 'textarea' },
+  { name: 'tax_id', label: 'Tax ID', type: 'text' },
   {
     name: 'status',
     label: 'Status',
@@ -193,30 +106,33 @@ const supplierFields: FormField[] = [
     options: [
       { value: 'active', label: 'Active' },
       { value: 'inactive', label: 'Inactive' },
-      { value: 'blocked', label: 'Blocked' },
     ],
   },
 ]
 
+const supplierProductFields: FormField[] = [
+  { name: 'supplierId', label: 'Supplier', type: 'select', required: true, options: [] },
+  { name: 'productId', label: 'Product', type: 'select', required: true, options: [] },
+  { name: 'sku', label: 'Supplier SKU', type: 'text', required: true },
+  { name: 'price', label: 'Supplier Price', type: 'number', required: true },
+]
+
 const userFields: FormField[] = [
+  { name: 'username', label: 'Username', type: 'text', required: true },
   { name: 'fullName', label: 'Full Name', type: 'text', required: true },
   { name: 'email', label: 'Email', type: 'email', required: true },
-  { name: 'phone', label: 'Phone', type: 'text' },
-  { name: 'departmentName', label: 'Department', type: 'select', options: [] },
-  { name: 'avatarUrl', label: 'Avatar URL', type: 'text' },
   {
     name: 'role',
     label: 'Role',
     type: 'select',
     required: true,
     options: [
-      { value: 'CEO', label: 'CEO' },
-      { value: 'Sales_Manager', label: 'Sales Manager' },
-      { value: 'Purchasing_Manager', label: 'Purchasing Manager' },
-      { value: 'Warehouse_Manager', label: 'Warehouse Manager' },
-      { value: 'Accountant', label: 'Chief Accountant' },
-      { value: 'Admin', label: 'Admin' },
-      { value: 'user', label: 'User' },
+      { value: 'admin', label: 'Admin' },
+      { value: 'sales', label: 'Sales' },
+      { value: 'purchasing', label: 'Purchasing' },
+      { value: 'warehouse', label: 'Warehouse' },
+      { value: 'accountant', label: 'Accountant' },
+      { value: 'manager', label: 'Manager' },
     ],
   },
   {
@@ -226,31 +142,21 @@ const userFields: FormField[] = [
     options: [
       { value: 'active', label: 'Active' },
       { value: 'inactive', label: 'Inactive' },
-      { value: 'suspended', label: 'Suspended' },
     ],
   },
   { name: 'password', label: 'Password', type: 'text', placeholder: 'Leave simple for demo import' },
 ]
 
 const warehouseFields: FormField[] = [
-  { name: 'warehouse_code', label: 'Warehouse Code', type: 'text', required: true },
   { name: 'name', label: 'Warehouse Name', type: 'text', required: true },
-  { name: 'description', label: 'Description', type: 'textarea' },
-  { name: 'location_address', label: 'Location Address', type: 'textarea' },
-  { name: 'city', label: 'City', type: 'text' },
-  { name: 'province', label: 'Province', type: 'text' },
-  { name: 'postal_code', label: 'Postal Code', type: 'text' },
-  { name: 'managerName', label: 'Warehouse Manager', type: 'select', options: [] },
-  { name: 'capacity_sqm', label: 'Capacity (sqm)', type: 'number' },
-  // NOTE: current_occupancy_sqm is AUTO-CALCULATED by trigger from bin_locations - do NOT include in form
+  { name: 'location_address', label: 'Address', type: 'textarea' },
   {
     name: 'status',
     label: 'Status',
     type: 'select',
     options: [
       { value: 'active', label: 'Active' },
-      { value: 'maintenance', label: 'Maintenance' },
-      { value: 'closed', label: 'Closed' },
+      { value: 'inactive', label: 'Inactive' },
     ],
   },
 ]
@@ -258,17 +164,14 @@ const warehouseFields: FormField[] = [
 const binLocationFields: FormField[] = [
   { name: 'warehouseName', label: 'Warehouse', type: 'select', required: true, options: [] },
   { name: 'bin_code', label: 'Bin Code', type: 'text', required: true },
-  { name: 'description', label: 'Description', type: 'textarea' },
-  { name: 'capacity_units', label: 'Capacity Units', type: 'number' },
-  // NOTE: current_occupancy_units is AUTO-CALCULATED by trigger from stock_in_bins - do NOT include in form
+  { name: 'name', label: 'Bin Name', type: 'text' },
   {
     name: 'status',
     label: 'Status',
     type: 'select',
     options: [
       { value: 'active', label: 'Active' },
-      { value: 'maintenance', label: 'Maintenance' },
-      { value: 'reserve', label: 'Reserve' },
+      { value: 'inactive', label: 'Inactive' },
     ],
   },
 ]
@@ -280,15 +183,12 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     endpoint: '/product-categories',
     primaryLabel: 'New Category',
     title: 'Product Categories',
-    createRecord: () => ({ name: '', parentName: '', displayOrder: 0, isActive: 'true', description: '' }),
+    createRecord: () => ({ name: '', parentName: '' }),
     fields: categoryFields,
-    searchKeys: ['name', 'description'],
+    searchKeys: ['name', 'parentName'],
     getColumns: () => [
       { key: 'name', label: 'Category' },
       { key: 'parentName', label: 'Parent' },
-      { key: 'displayOrder', label: 'Display Order', align: 'right' },
-      { key: 'isActive', label: 'Active' },
-      { key: 'description', label: 'Description' },
     ],
   },
   products: {
@@ -301,17 +201,11 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
       sku: '',
       name: '',
       categoryName: '',
-      uomName: '',
-      barcode: '',
-      image_url: '',
+      uom: 'pcs',
       list_price: 0,
       cost_price: 0,
-      physical_size_sqm: 1.0,
-      is_iot_device: 'false',
-      requires_serial_scan: 'false',
-      reorder_level: 10,
-      reorder_quantity: 50,
-      supplier_lead_time_days: 7,
+      warranty_period: 365,
+      repair_fee: 0,
       status: 'active',
       description: '',
     }),
@@ -327,6 +221,27 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
       { key: 'status', label: 'Status' },
     ],
   },
+  supplierProducts: {
+    id: 'supplierProducts',
+    label: 'Supplier Products',
+    endpoint: '/supplier-products',
+    primaryLabel: 'New Supplier Product',
+    title: 'Supplier Products',
+    createRecord: () => ({
+      supplierId: '',
+      productId: '',
+      sku: '',
+      price: 0,
+    }),
+    fields: supplierProductFields,
+    searchKeys: ['supplierName', 'productName', 'sku'],
+    getColumns: () => [
+      { key: 'supplierName', label: 'Supplier' },
+      { key: 'productName', label: 'Product' },
+      { key: 'sku', label: 'Supplier SKU' },
+      { key: 'price', label: 'Price', align: 'right' },
+    ],
+  },
   customers: {
     id: 'customers',
     label: 'Customers',
@@ -334,29 +249,24 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     primaryLabel: 'New Customer',
     title: 'Customers',
     createRecord: () => ({
-      customer_number: '',
       name: '',
-      customer_type: 'B2C',
-      company_tax_id: '',
-      contact_person_name: '',
-      contact_person_email: '',
-      contact_person_phone: '',
-      billing_address: '',
-      shipping_address: '',
-      shipping_same_as_billing: 'true',
-      credit_limit: 0,
-      payment_terms: 'NET30',
+      customer_type: 'individual',
+      company_name: '',
+      tax_id: '',
+      email: '',
+      phone: '',
+      address: '',
       status: 'active',
     }),
     fields: customerFields,
-    searchKeys: ['customer_number', 'name', 'contact_person_name', 'contact_person_email', 'contact_person_phone'],
+    searchKeys: ['name', 'company_name', 'email', 'phone', 'tax_id'],
     statusKey: 'status',
     getColumns: () => [
-      { key: 'customer_number', label: 'Customer No.' },
       { key: 'name', label: 'Customer' },
       { key: 'customer_type', label: 'Type' },
-      { key: 'contact_person_name', label: 'Contact' },
-      { key: 'contact_person_email', label: 'Email' },
+      { key: 'company_name', label: 'Company' },
+      { key: 'email', label: 'Email' },
+      { key: 'phone', label: 'Phone' },
       { key: 'status', label: 'Status' },
     ],
   },
@@ -367,34 +277,23 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     primaryLabel: 'New Supplier',
     title: 'Suppliers',
     createRecord: () => ({
-      supplier_number: '',
       name: '',
-      company_tax_id: '',
-      supplier_type_id: '',
       contact_person_name: '',
       contact_person_email: '',
       contact_person_phone: '',
       company_address: '',
-      company_city: '',
-      company_province: '',
-      company_postal_code: '',
-      company_website: '',
-      payment_terms: 'NET30',
-      average_lead_time_days: 7,
-      is_preferred: 'false',
+      tax_id: '',
       status: 'active',
     }),
     fields: supplierFields,
-    searchKeys: ['supplier_number', 'name', 'contact_person_name', 'contact_person_email', 'contact_person_phone'],
+    searchKeys: ['name', 'contact_person_name', 'contact_person_email', 'contact_person_phone', 'tax_id'],
     statusKey: 'status',
     getColumns: () => [
-      { key: 'supplier_number', label: 'Supplier No.' },
       { key: 'name', label: 'Supplier' },
       { key: 'contact_person_name', label: 'Contact' },
+      { key: 'contact_person_email', label: 'Email' },
       { key: 'contact_person_phone', label: 'Phone' },
-      { key: 'company_city', label: 'City' },
-      { key: 'average_lead_time_days', label: 'Lead Days', align: 'right' },
-      { key: 'is_preferred', label: 'Preferred' },
+      { key: 'tax_id', label: 'Tax ID' },
       { key: 'status', label: 'Status' },
     ],
   },
@@ -405,22 +304,20 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     primaryLabel: 'New User',
     title: 'Users',
     createRecord: () => ({
+      username: '',
       fullName: '',
       email: '',
-      phone: '',
-      departmentName: '',
-      avatarUrl: '',
-      role: 'user',
+      role: 'sales',
       status: 'active',
       password: '123456',
     }),
     fields: userFields,
-    searchKeys: ['fullName', 'email', 'phone', 'role'],
+    searchKeys: ['username', 'fullName', 'email', 'role'],
     statusKey: 'status',
     getColumns: () => [
+      { key: 'username', label: 'Username' },
       { key: 'fullName', label: 'Full Name' },
       { key: 'email', label: 'Email' },
-      { key: 'departmentName', label: 'Department' },
       { key: 'role', label: 'Role' },
       { key: 'status', label: 'Status' },
     ],
@@ -432,28 +329,16 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     primaryLabel: 'New Warehouse',
     title: 'Warehouses',
     createRecord: () => ({
-      warehouse_code: '',
       name: '',
-      description: '',
       location_address: '',
-      city: '',
-      province: '',
-      postal_code: '',
-      managerName: '',
-      capacity_sqm: 0,
       status: 'active',
     }),
     fields: warehouseFields,
-    searchKeys: ['warehouse_code', 'name', 'city', 'province', 'location_address'],
+    searchKeys: ['name', 'location_address'],
     statusKey: 'status',
     getColumns: () => [
-      { key: 'warehouse_code', label: 'Code' },
       { key: 'name', label: 'Warehouse' },
-      { key: 'city', label: 'City' },
-      { key: 'province', label: 'Province' },
-      { key: 'managerName', label: 'Manager' },
-      { key: 'capacity_sqm', label: 'Capacity (sqm)', align: 'right' },
-      { key: 'current_occupancy_sqm', label: 'Occupancy (sqm)', align: 'right' },
+      { key: 'location_address', label: 'Address' },
       { key: 'status', label: 'Status' },
     ],
   },
@@ -466,19 +351,16 @@ const tabConfigs: Record<MasterTabId, TabConfig> = {
     createRecord: () => ({
       warehouseName: '',
       bin_code: '',
-      description: '',
-      capacity_units: 0,
+      name: '',
       status: 'active',
     }),
     fields: binLocationFields,
-    searchKeys: ['bin_code', 'description'],
+    searchKeys: ['bin_code', 'name', 'warehouseName'],
     statusKey: 'status',
     getColumns: () => [
       { key: 'warehouseName', label: 'Warehouse' },
       { key: 'bin_code', label: 'Bin Code' },
-      { key: 'description', label: 'Description' },
-      { key: 'capacity_units', label: 'Capacity', align: 'right' },
-      { key: 'current_occupancy_units', label: 'Occupancy', align: 'right' },
+      { key: 'name', label: 'Bin Name' },
       { key: 'status', label: 'Status' },
     ],
   },
@@ -493,17 +375,16 @@ const renderValue = (key: string, value: any) => {
 const MasterDataPage: React.FC = () => {
   const showNotification = useUIStore((state) => state.showNotification)
   const [activeTab, setActiveTab] = useState<MasterTabId>('categories')
-  const [datasets, setDatasets] = useState<Record<MasterTabId, any[]> & { unitsOfMeasure: any[] }>({
+  const [datasets, setDatasets] = useState<Record<MasterTabId, any[]>>({
     categories: [],
     products: [],
+    supplierProducts: [],
     customers: [],
     suppliers: [],
     users: [],
     warehouses: [],
     binLocations: [],
-    unitsOfMeasure: [],
   })
-  const [departments, setDepartments] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -516,18 +397,17 @@ const MasterDataPage: React.FC = () => {
   const config = tabConfigs[activeTab]
   const records = useMemo(() => {
     let data = datasets[activeTab]
-    if (activeTab === 'categories') {
-      return [...data].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))
-    }
+    if (activeTab === 'categories') return [...data].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
     if (activeTab === 'products') {
       return [...data].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    }
+    if (activeTab === 'supplierProducts') {
+      return [...data].sort((a, b) => (`${a.supplierName || ''} ${a.productName || ''}`).localeCompare(`${b.supplierName || ''} ${b.productName || ''}`))
     }
     if (activeTab === 'customers' || activeTab === 'suppliers' || activeTab === 'users') {
       return [...data].sort((a, b) => (a.name || a.fullName || '').localeCompare(b.name || b.fullName || ''))
     }
-    if (activeTab === 'warehouses') {
-      return [...data].sort((a, b) => (a.warehouse_code || '').localeCompare(b.warehouse_code || ''))
-    }
+    if (activeTab === 'warehouses') return [...data].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
     if (activeTab === 'binLocations') {
       return [...data].sort((a, b) => (a.bin_code || '').localeCompare(b.bin_code || ''))
     }
@@ -539,15 +419,6 @@ const MasterDataPage: React.FC = () => {
     () => datasets.categories.map((category) => ({ value: category.id, label: category.name })),
     [datasets.categories]
   )
-  const [supplierTypes, setSupplierTypes] = useState<any[]>([])
-
-  const supplierTypeOptions = useMemo(
-    () => supplierTypes.map((type: any) => ({
-      value: type.id,  // Use id as value
-      label: type.name  // Show name for display
-    })),
-    [supplierTypes]
-  )
   const parentCategoryOptions = useMemo(
     () => [
       { value: '', label: '-- No Parent --' },
@@ -555,70 +426,26 @@ const MasterDataPage: React.FC = () => {
     ],
     [datasets.categories]
   )
-  const uomOptions = useMemo(
-    () => datasets.unitsOfMeasure?.map((uom: any) => ({
-      value: uom.name,  // Use name as value for label matching
-      label: `${uom.name}${uom.code ? ` (${uom.code})` : ''}`,
-      id: uom.id,  // Store UUID for saving
-    })) || [],
-    [datasets.unitsOfMeasure]
-  )
   const warehouseOptions = useMemo(
     () =>
       datasets.warehouses.map((warehouse) => ({
-        value: warehouse.name,  // Use name as value for label matching
-        label: `${warehouse.name} (${warehouse.warehouse_code})`,  // Show name + code for clarity
-        id: warehouse.id,  // Store UUID for saving
+        value: warehouse.id,
+        label: warehouse.name || warehouse.warehouse_name,
       })),
     [datasets.warehouses]
   )
-  const userOptions = useMemo(
-    () =>
-      datasets.users.map((user) => ({
-        value: user.id,
-        label: `${user.full_name || user.fullName} (${user.role || user.email})`,
-        name: user.full_name || user.fullName,
-      })),
-    [datasets.users]
+  const supplierOptions = useMemo(
+    () => datasets.suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name || supplier.supplier_name || supplier.supplierName })),
+    [datasets.suppliers]
   )
-  const departmentOptions = useMemo(() => {
-    return [
-      { value: '', label: '-- Select Department --' },
-      ...departments.map((d: any) => ({ value: d.id, label: d.name }))
-    ]
-  }, [departments])
-
+  const productIdOptions = useMemo(
+    () => datasets.products.map((product) => ({ value: product.id, label: `${product.name || product.product_name} (${product.sku})` })),
+    [datasets.products]
+  )
   const loadTab = async (tabId: MasterTabId) => {
     const tab = tabConfigs[tabId]
     const data = await erpApi.get<any[]>(tab.endpoint)
     setDatasets((current) => ({ ...current, [tabId]: data }))
-  }
-
-  const loadUnitsOfMeasure = async () => {
-    try {
-      const data = await erpApi.get<any[]>('/units-of-measure')
-      setDatasets((current) => ({ ...current, unitsOfMeasure: data }))
-    } catch (e) {
-      // Silently fail if endpoint doesn't exist
-    }
-  }
-
-  const loadSupplierTypes = async () => {
-    try {
-      const data = await erpApi.get<any[]>('/supplier-types')
-      setSupplierTypes(data)
-    } catch (e) {
-      // Silently fail if endpoint doesn't exist
-    }
-  }
-
-  const loadDepartments = async () => {
-    try {
-      const data = await erpApi.get<any[]>('/departments')
-      setDepartments(data)
-    } catch (e) {
-      // Silently fail if endpoint doesn't exist
-    }
   }
 
   const loadAll = async () => {
@@ -635,9 +462,6 @@ const MasterDataPage: React.FC = () => {
 
   useEffect(() => {
     loadAll()
-    loadUnitsOfMeasure()
-    loadSupplierTypes()
-    loadDepartments()
   }, [])
 
   useEffect(() => {
@@ -670,7 +494,10 @@ const MasterDataPage: React.FC = () => {
     return config.fields.map((field) => {
       if (activeTab === 'products') {
         if (field.name === 'categoryName') return { ...field, type: 'select' as const, options: categoryOptions }
-        if (field.name === 'uomName') return { ...field, type: 'select' as const, options: uomOptions }
+      }
+      if (activeTab === 'supplierProducts') {
+        if (field.name === 'supplierId') return { ...field, type: 'select' as const, options: supplierOptions }
+        if (field.name === 'productId') return { ...field, type: 'select' as const, options: productIdOptions }
       }
       if (activeTab === 'categories' && field.name === 'parentName') {
         return { ...field, type: 'select' as const, options: parentCategoryOptions }
@@ -678,18 +505,9 @@ const MasterDataPage: React.FC = () => {
       if (activeTab === 'binLocations') {
         if (field.name === 'warehouseName') return { ...field, type: 'select' as const, options: warehouseOptions }
       }
-      if (activeTab === 'warehouses') {
-        if (field.name === 'managerName') return { ...field, type: 'select' as const, options: userOptions }
-      }
-      if (activeTab === 'suppliers') {
-        if (field.name === 'supplierType') return { ...field, type: 'select' as const, options: supplierTypeOptions }
-      }
-      if (activeTab === 'users' && field.name === 'departmentName') {
-        return { ...field, type: 'select' as const, options: departmentOptions }
-      }
       return field
     })
-  }, [activeTab, categoryOptions, uomOptions, warehouseOptions, userOptions, departmentOptions, parentCategoryOptions, supplierTypeOptions, supplierTypes, datasets.unitsOfMeasure, config.fields])
+  }, [activeTab, categoryOptions, warehouseOptions, parentCategoryOptions, supplierOptions, productIdOptions, config.fields])
 
   const openCreate = () => {
     setModalError(null)
@@ -704,28 +522,14 @@ const MasterDataPage: React.FC = () => {
       recordCopy.warehouseName = record.warehouseName || record.warehouse?.name || record.warehouse_id || ''
     }
     if (activeTab === 'products') {
-      // uomName contains the name for display, uomCode contains the code
-      recordCopy.uomName = record.uomName || record.uom?.name || record.uom?.code || ''
-      recordCopy.is_iot_device = record.is_iot_device === true || record.is_iot_device === 'true'
-      recordCopy.requires_serial_scan = record.requires_serial_scan === true || record.requires_serial_scan === 'true'
+      recordCopy.uom = record.uom || 'pcs'
     }
-    if (activeTab === 'warehouses') {
-      recordCopy.managerName = record.manager_id || record.manager?.id || record.manager?.full_name || ''
+    if (activeTab === 'supplierProducts') {
+      recordCopy.supplierId = record.supplier_id || record.supplierId || ''
+      recordCopy.productId = record.product_id || record.productId || ''
     }
     if (activeTab === 'categories') {
       recordCopy.parentName = record.parent_id || ''
-    }
-    if (activeTab === 'customers') {
-      recordCopy.shipping_same_as_billing = record.shipping_same_as_billing !== undefined ? String(record.shipping_same_as_billing) : 'true'
-    }
-    if (activeTab === 'suppliers') {
-      recordCopy.is_preferred = record.is_preferred !== undefined ? String(record.is_preferred) : 'false'
-      // supplierType should show the name for display in dropdown
-      recordCopy.supplierType = record.supplierTypeName || record.supplier_type?.name || ''
-    }
-    if (activeTab === 'users') {
-      // departmentName should show the name for display in dropdown
-      recordCopy.departmentName = record.department?.name || record.departmentName || ''
     }
     setModalRecord(recordCopy)
     setModalOpen(true)
@@ -738,32 +542,14 @@ const MasterDataPage: React.FC = () => {
       // Map FK fields to proper names for API
       if (activeTab === 'products') {
         recordToSave.category_id = categoryOptions.find(c => c.label === record.categoryName)?.value || record.categoryName
-        // UOM: record.uomName contains the name (used as value), resolve to UUID
-        const uomData = datasets.unitsOfMeasure?.find((u: any) => u.name === record.uomName)
-        recordToSave.uom_id = uomData?.id || record.uomName
-        recordToSave.is_iot_device = record.is_iot_device === true || record.is_iot_device === 'true'
-        recordToSave.requires_serial_scan = record.requires_serial_scan === true || record.requires_serial_scan === 'true'
+      }
+      if (activeTab === 'supplierProducts') {
+        recordToSave.supplier_id = record.supplierId
+        recordToSave.product_id = record.productId
       }
       if (activeTab === 'binLocations') {
         const wh = warehouseOptions.find(w => w.label === record.warehouseName || w.value === record.warehouseName)
-        recordToSave.warehouse_id = wh?.id || record.warehouseName
-      }
-      if (activeTab === 'warehouses') {
-        recordToSave.manager_id = userOptions.find(u => u.label === record.managerName)?.value || record.managerName
-      }
-      if (activeTab === 'customers') {
-        recordToSave.shipping_same_as_billing = record.shipping_same_as_billing === true || record.shipping_same_as_billing === 'true'
-      }
-      if (activeTab === 'suppliers') {
-        recordToSave.is_preferred = record.is_preferred === true || record.is_preferred === 'true'
-        // Supplier Type: record.supplierType contains the NAME (for display), resolve to UUID
-        const supplierTypeData = supplierTypes.find((s: any) => s.name === record.supplierType)
-        recordToSave.supplier_type_id = supplierTypeData?.id || record.supplierType
-      }
-      if (activeTab === 'users') {
-        // Department: record.departmentName contains the NAME (for display), resolve to UUID
-        const deptData = departments.find((d: any) => d.name === record.departmentName)
-        recordToSave.department_id = deptData?.id || record.departmentName
+        recordToSave.warehouse_id = wh?.value || record.warehouseName
       }
       
       if (recordToSave.id) {
@@ -927,3 +713,5 @@ const MasterDataPage: React.FC = () => {
 }
 
 export default MasterDataPage
+
+

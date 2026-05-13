@@ -11,8 +11,6 @@ import PurchaseModule from './pages/Purchase'
 import InventoryModule from './pages/Inventory'
 import AccountingModule from './pages/Accounting'
 import MasterDataPage from './pages/MasterData'
-import IoTLifecyclePage from './pages/IoTLifecycle'
-import AutoBomModule from './pages/AutoBom'
 
 // Layouts
 import MainLayout from './layouts/MainLayout'
@@ -111,30 +109,6 @@ function App() {
             <ProtectedRoute>
               <MainLayout>
                 <MasterDataPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* App Routes - IoT Lifecycle */}
-        <Route
-          path="/app/iot-lifecycle"
-          element={
-            <ProtectedRoute>
-              <MainLayout>
-                <IoTLifecyclePage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        {/* App Routes - Auto-BOM */}
-        <Route
-          path="/app/auto-bom"
-          element={
-            <ProtectedRoute>
-              <MainLayout>
-                <AutoBomModule />
               </MainLayout>
             </ProtectedRoute>
           }

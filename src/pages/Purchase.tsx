@@ -17,6 +17,8 @@ import { useUIStore } from '../stores/uiStore'
 interface RFQLine {
   id: string
   product_id: string
+  supplier_products_id?: string
+  supplier_name?: string
   product_name: string
   product_sku: string
   quantity_required: number
@@ -37,6 +39,8 @@ interface RFQSupplierQuotation {
 interface POLine {
   id: string
   product_id: string
+  supplier_products_id?: string
+  supplier_name?: string
   product_name: string
   product_sku: string
   product_cost_price?: number
@@ -65,24 +69,27 @@ const RFQLinesEditor: React.FC<{
   quotations: Record<string, RFQSupplierQuotation[]>
   onLinesChange: (lines: RFQLine[]) => void
   onQuotationsChange: (quotations: Record<string, RFQSupplierQuotation[]>) => void
-  products: any[]
+  supplierProducts: any[]
   suppliers: any[]
-}> = ({ lines, quotations, onLinesChange, onQuotationsChange, products }) => {
+}> = ({ lines, quotations, onLinesChange, onQuotationsChange, supplierProducts }) => {
   const [search, setSearch] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
 
-  const filteredProducts = products.filter(p =>
-    !lines.some(l => l.product_id === p.id) &&
-    ((p.name || '').toLowerCase().includes(search.toLowerCase()) ||
+  const filteredProducts = supplierProducts.filter(p =>
+    !lines.some(l => l.supplier_products_id === p.id) &&
+    ((p.productName || p.product_name || '').toLowerCase().includes(search.toLowerCase()) ||
+     (p.supplierName || p.supplier_name || '').toLowerCase().includes(search.toLowerCase()) ||
      (p.sku || '').toLowerCase().includes(search.toLowerCase()))
   )
 
-  const addProduct = (product: any) => {
+  const addProduct = (supplierProduct: any) => {
     const newLine: RFQLine = {
       id: `rfq-${Date.now()}-${Math.random()}`,
-      product_id: product.id,
-      product_name: product.name,
-      product_sku: product.sku,
+      product_id: supplierProduct.product_id,
+      supplier_products_id: supplierProduct.id,
+      supplier_name: supplierProduct.supplierName || supplierProduct.supplier_name,
+      product_name: supplierProduct.productName || supplierProduct.product_name,
+      product_sku: supplierProduct.sku,
       quantity_required: 1,
       required_delivery_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
     }
@@ -143,8 +150,11 @@ const RFQLinesEditor: React.FC<{
             {filteredProducts.slice(0, 10).map(p => (
               <button key={p.id} onClick={() => addProduct(p)}
                 className="w-full px-4 py-2 text-left text-sm hover:bg-blue-50 flex justify-between items-center">
-                <span className="font-medium text-gray-900">{p.name}</span>
-                <span className="text-xs text-gray-500">{p.sku}</span>
+                <div>
+                  <span className="font-medium text-gray-900">{p.productName || p.product_name}</span>
+                  <p className="text-xs text-gray-500">{p.supplierName || p.supplier_name}</p>
+                </div>
+                <span className="text-xs text-gray-500">{p.sku} - {formatCurrency(p.price || 0)}</span>
               </button>
             ))}
           </div>
@@ -160,7 +170,7 @@ const RFQLinesEditor: React.FC<{
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1">
                   <p className="font-bold text-gray-900">{line.product_name}</p>
-                  <p className="text-xs text-gray-500">{line.product_sku}</p>
+                  <p className="text-xs text-gray-500">{line.supplier_name} - {line.product_sku}</p>
                 </div>
                 <button onClick={() => removeLine(line.id)} className="text-red-500 hover:bg-red-50 p-1 rounded">
                   <Trash2 size={16} />
@@ -229,27 +239,30 @@ const RFQLinesEditor: React.FC<{
 const POLinesEditor: React.FC<{
   lines: POLine[]
   onLinesChange: (lines: POLine[]) => void
-  products: any[]
-}> = ({ lines, onLinesChange, products }) => {
+  supplierProducts: any[]
+}> = ({ lines, onLinesChange, supplierProducts }) => {
   const [search, setSearch] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
 
-  const filteredProducts = products.filter(p =>
-    !lines.some(l => l.product_id === p.id) &&
-    ((p.name || '').toLowerCase().includes(search.toLowerCase()) ||
+  const filteredProducts = supplierProducts.filter(p =>
+    !lines.some(l => l.supplier_products_id === p.id) &&
+    ((p.productName || p.product_name || '').toLowerCase().includes(search.toLowerCase()) ||
+     (p.supplierName || p.supplier_name || '').toLowerCase().includes(search.toLowerCase()) ||
      (p.sku || '').toLowerCase().includes(search.toLowerCase()))
   )
 
-  const addProduct = (product: any) => {
+  const addProduct = (supplierProduct: any) => {
     const newLine: POLine = {
       id: `po-${Date.now()}-${Math.random()}`,
-      product_id: product.id,
-      product_name: product.name,
-      product_sku: product.sku,
-      product_cost_price: product.cost_price || 0,
+      product_id: supplierProduct.product_id,
+      supplier_products_id: supplierProduct.id,
+      supplier_name: supplierProduct.supplierName || supplierProduct.supplier_name,
+      product_name: supplierProduct.productName || supplierProduct.product_name,
+      product_sku: supplierProduct.sku,
+      product_cost_price: supplierProduct.price || 0,
       quantity_ordered: 1,
-      unit_price: product.cost_price || 0,
-      line_total: product.cost_price || 0,
+      unit_price: supplierProduct.price || 0,
+      line_total: supplierProduct.price || 0,
       required_delivery_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
     }
     onLinesChange([...lines, newLine])
@@ -295,8 +308,11 @@ const POLinesEditor: React.FC<{
             {filteredProducts.slice(0, 10).map(p => (
               <button key={p.id} onClick={() => addProduct(p)}
                 className="w-full px-4 py-2 text-left text-sm hover:bg-blue-50 flex justify-between items-center">
-                <span className="font-medium text-gray-900">{p.name}</span>
-                <span className="text-xs text-gray-500">{p.sku}</span>
+                <div>
+                  <span className="font-medium text-gray-900">{p.productName || p.product_name}</span>
+                  <p className="text-xs text-gray-500">{p.supplierName || p.supplier_name}</p>
+                </div>
+                <span className="text-xs text-gray-500">{p.sku} - {formatCurrency(p.price || 0)}</span>
               </button>
             ))}
           </div>
@@ -359,8 +375,7 @@ const POLinesEditor: React.FC<{
 
 const flow: Record<string, string> = {
   draft: 'confirmed',
-  confirmed: 'partial_received',
-  partial_received: 'received',
+  confirmed: 'received',
   received: 'received',
 }
 
@@ -369,10 +384,10 @@ const RFQModal: React.FC<{
   isOpen: boolean
   record: any
   suppliers: any[]
-  products: any[]
+  supplierProducts: any[]
   onClose: () => void
   onSave: (data: any) => void
-}> = ({ isOpen, record, suppliers, products, onClose, onSave }) => {
+}> = ({ isOpen, record, suppliers, supplierProducts, onClose, onSave }) => {
   const [form, setForm] = useState<any>({
     rfqNumber: '',
     issuedDate: new Date().toISOString().slice(0, 10),
@@ -462,7 +477,7 @@ const RFQModal: React.FC<{
               quotations={form.quotations || {}}
               onLinesChange={lines => setForm({ ...form, lines })}
               onQuotationsChange={quotations => setForm({ ...form, quotations })}
-              products={products}
+              supplierProducts={supplierProducts}
               suppliers={suppliers}
             />
           </div>
@@ -518,10 +533,10 @@ const POModal: React.FC<{
   isOpen: boolean
   record: any
   suppliers: any[]
-  products: any[]
+  supplierProducts: any[]
   onClose: () => void
   onSave: (data: any) => void
-}> = ({ isOpen, record, suppliers, products, onClose, onSave }) => {
+}> = ({ isOpen, record, suppliers, supplierProducts, onClose, onSave }) => {
   const [form, setForm] = useState<any>({
     poNumber: '',
     supplierId: '',
@@ -619,7 +634,7 @@ const POModal: React.FC<{
             <POLinesEditor
               lines={form.lines}
               onLinesChange={lines => setForm({ ...form, lines })}
-              products={products}
+              supplierProducts={supplierProducts.filter((item) => !form.supplierId || item.supplier_id === form.supplierId)}
             />
           </div>
 
@@ -650,7 +665,6 @@ const POModal: React.FC<{
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
                 <option value="draft">Draft</option>
                 <option value="confirmed">Confirmed</option>
-                <option value="partial_received">Partial Received</option>
                 <option value="received">Received</option>
                 <option value="cancelled">Cancelled</option>
               </select>
@@ -685,7 +699,7 @@ const PurchaseModule: React.FC = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
   const [rfqs, setRfqs] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
-  const [products, setProducts] = useState<any[]>([])  // FIX #6: Add products state
+  const [supplierProducts, setSupplierProducts] = useState<any[]>([])
   const [rfqList, setRfqList] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -714,6 +728,17 @@ const PurchaseModule: React.FC = () => {
             receivedAmount: po.received_amount,
             notes: po.notes,
             rfqNumber: po.rfq_id,
+            lines: (po.items || []).map((item: any) => ({
+              id: item.id,
+              product_id: item.supplier_product?.product_id || item.product_id,
+              supplier_products_id: item.supplier_products_id,
+              supplier_name: po.supplier?.name,
+              product_name: item.supplier_product?.product?.product_name || item.supplier_product?.productName || '',
+              product_sku: item.supplier_product?.sku || item.supplier_product?.product?.sku || '',
+              quantity_ordered: item.quantity,
+              unit_price: item.unit_price,
+              line_total: Number(item.quantity || 0) * Number(item.unit_price || 0),
+            })),
           }))
         )
       })
@@ -751,9 +776,9 @@ const PurchaseModule: React.FC = () => {
       .catch(() => setSuppliers([]))
 
     erpApi
-      .get<any[]>('/products?limit=1000')  // FIX #6: Load products for both RFQ and PO editors
-      .then(setProducts)
-      .catch(() => setProducts([]))
+      .get<any[]>('/supplier-products?limit=1000')
+      .then(setSupplierProducts)
+      .catch(() => setSupplierProducts([]))
   }, [])
 
   const activeRecords = activeTab === 'purchase-orders' ? purchaseOrders : rfqs
@@ -818,7 +843,11 @@ const PurchaseModule: React.FC = () => {
           total_estimated_cost: record.totalEstimatedCost,
           status: record.status,
           notes: record.notes,
-          lines: record.lines || [],  // FIX #5: Include RFQ lines
+          lines: (record.lines || []).map((line: any) => ({
+            ...line,
+            supplier_products_id: line.supplier_products_id,
+            quantity: line.quantity ?? line.quantity_required,
+          })),
           quotations: record.quotations || {},  // FIX #5: Include supplier quotations
         }
     try {
@@ -839,12 +868,11 @@ const PurchaseModule: React.FC = () => {
     setModalOpen(false)
   }
 
-  const advanceRecord = (record: any) => {
+  const advanceRecord = async (record: any) => {
     // Different flow for PO and RFQ
     const poFlow: Record<string, string> = {
       draft: 'confirmed',
-      confirmed: 'partial_received',
-      partial_received: 'received',
+      confirmed: 'received',
     }
     const rfqFlow: Record<string, string> = {
       draft: 'sent',
@@ -853,7 +881,22 @@ const PurchaseModule: React.FC = () => {
     const currentFlow = activeTab === 'purchase-orders' ? poFlow : rfqFlow
     const nextStatus = currentFlow[record.status]
     if (!nextStatus) return
-    setActiveRecords((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
+    const path = activeTab === 'purchase-orders' ? '/purchase/purchase-orders' : '/purchase/rfqs'
+    try {
+      await erpApi.put(`${path}/${record.id}`, { ...record, status: nextStatus })
+      if (activeTab === 'purchase-orders' && nextStatus === 'received') {
+        await erpApi.post('/inventory/goods-receipts', {
+          purchase_order_id: record.id,
+          receipt_date: new Date().toISOString().slice(0, 10),
+          status: 'completed',
+          notes: `Auto receipt from ${record.poNumber || record.purchase_order_number || 'purchase order'}`,
+        })
+      }
+      setActiveRecords((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
+      showNotification('success', `${title} moved to ${nextStatus}.`)
+    } catch (error: any) {
+      showNotification('error', `Status update failed: ${error.message}`)
+    }
   }
 
   const deleteRecord = async (record: any) => {
@@ -969,7 +1012,7 @@ const PurchaseModule: React.FC = () => {
         isOpen={modalOpen && activeTab === 'purchase-orders'}
         record={modalRecord}
         suppliers={suppliers}
-        products={products}
+        supplierProducts={supplierProducts}
         onClose={() => setModalOpen(false)}
         onSave={saveRecord}
       />
@@ -979,7 +1022,7 @@ const PurchaseModule: React.FC = () => {
         isOpen={modalOpen && activeTab === 'rfqs'}
         record={modalRecord}
         suppliers={suppliers}
-        products={products}
+        supplierProducts={supplierProducts}
         onClose={() => setModalOpen(false)}
         onSave={saveRecord}
       />

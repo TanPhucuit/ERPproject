@@ -8,8 +8,6 @@ import {
   Warehouse,
   BookOpen,
   ChevronRight,
-  Cpu,
-  Layers,
 } from 'lucide-react'
 
 interface SidebarProps {
@@ -27,8 +25,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen }) => {
     { path: '/app/purchase', label: 'Purchase', icon: Package },
     { path: '/app/inventory', label: 'Inventory', icon: Warehouse },
     { path: '/app/accounting', label: 'Accounting', icon: BookOpen },
-    { path: '/app/iot-lifecycle', label: 'IoT Device', icon: Cpu },
-    { path: '/app/auto-bom', label: 'Auto-BOM', icon: Layers },
   ]
 
   const isActive = (path: string) => {

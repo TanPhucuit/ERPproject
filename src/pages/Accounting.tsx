@@ -17,23 +17,20 @@ import {
 import { useUIStore } from '../stores/uiStore'
 
 const invoiceFieldsBase: FormField[] = [
-  { name: 'invoiceNumber', label: 'Invoice #', type: 'text', required: true },
-  { name: 'customerId', label: 'Customer', type: 'select', required: true, options: [] },  // FIX #2: Changed from customerName to customerId
-  { name: 'salesOrderNumber', label: 'Sales Order', type: 'select', options: [] },
+  { name: 'invoiceNumber', label: 'Invoice #', type: 'text' },
+  { name: 'salesOrderId', label: 'Sales Order', type: 'select', required: true, options: [] },
   { name: 'invoiceDate', label: 'Invoice Date', type: 'date', required: true },
   { name: 'dueDate', label: 'Due Date', type: 'date' },
-  { name: 'totalAmountBeforeTax', label: 'Subtotal', type: 'number' },
-  { name: 'totalTax', label: 'Tax', type: 'number' },
+  { name: 'netAmount', label: 'Net Amount', type: 'number' },
+  { name: 'taxAmount', label: 'Tax Amount', type: 'number' },
   { name: 'totalAmount', label: 'Total', type: 'number', required: true },
-  { name: 'paidAmount', label: 'Paid Amount', type: 'number' },
-  // NOTE: outstandingAmount is AUTO-CALCULATED (totalAmount - paidAmount) - do NOT include in form
+  { name: 'warrantyOrderId', label: 'Warranty Order', type: 'select', options: [] },
   {
     name: 'status',
     label: 'Status',
     type: 'select',
     options: [
       { value: 'draft', label: 'Draft' },
-      { value: 'issued', label: 'Issued' },
       { value: 'sent', label: 'Sent' },
       { value: 'partial_paid', label: 'Partial Paid' },
       { value: 'paid', label: 'Paid' },
@@ -41,29 +38,24 @@ const invoiceFieldsBase: FormField[] = [
       { value: 'cancelled', label: 'Cancelled' },
     ],
   },
-  { name: 'paymentTerms', label: 'Payment Terms', type: 'text' },
-  { name: 'description', label: 'Description', type: 'textarea' },
+  { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
 const billFieldsBase: FormField[] = [
-  { name: 'billNumber', label: 'Bill #', type: 'text', required: true },
-  { name: 'supplierId', label: 'Supplier', type: 'select', required: true, options: [] },  // FIX #2: Changed from supplierName to supplierId
-  { name: 'purchaseOrderNumber', label: 'Purchase Order', type: 'select', options: [] },
+  { name: 'billNumber', label: 'Bill #', type: 'text' },
+  { name: 'purchaseOrderId', label: 'Purchase Order', type: 'select', required: true, options: [] },
   { name: 'billDate', label: 'Bill Date', type: 'date', required: true },
   { name: 'dueDate', label: 'Due Date', type: 'date' },
-  { name: 'totalAmountBeforeTax', label: 'Subtotal', type: 'number' },
-  { name: 'totalTax', label: 'Tax', type: 'number' },
+  { name: 'subtotal', label: 'Subtotal', type: 'number' },
+  { name: 'taxAmount', label: 'Tax Amount', type: 'number' },
   { name: 'totalAmount', label: 'Total', type: 'number', required: true },
-  { name: 'paidAmount', label: 'Paid Amount', type: 'number' },
-  // NOTE: outstandingAmount is AUTO-CALCULATED (totalAmount - paidAmount) - do NOT include in form
   {
     name: 'status',
     label: 'Status',
     type: 'select',
     options: [
       { value: 'draft', label: 'Draft' },
-      { value: 'received', label: 'Received' },
-      { value: 'verified', label: 'Verified' },
+      { value: 'posted', label: 'Posted' },
       { value: 'partial_paid', label: 'Partial Paid' },
       { value: 'paid', label: 'Paid' },
       { value: 'overdue', label: 'Overdue' },
@@ -74,28 +66,41 @@ const billFieldsBase: FormField[] = [
 ]
 
 const noteFieldsBase: FormField[] = [
-  { name: 'noteNumber', label: 'Note #', type: 'text', required: true },
-  { name: 'partnerId', label: 'Customer / Supplier', type: 'select', required: true, options: [] },  // FIX #2: Changed from partnerName to partnerId
   { name: 'referenceDocument', label: 'Reference Invoice/Bill', type: 'select', options: [] },
-  { name: 'noteDate', label: 'Date', type: 'date', required: true },
   { name: 'reason', label: 'Reason', type: 'text', required: true },
   { name: 'totalAmount', label: 'Amount', type: 'number', required: true },
-  {
-    name: 'status',
-    label: 'Status',
-    type: 'select',
-    options: [
-      { value: 'draft', label: 'Draft' },
-      { value: 'issued', label: 'Issued' },
-      { value: 'applied', label: 'Applied' },
-    ],
-  },
-  { name: 'description', label: 'Description', type: 'textarea' },
+]
+
+const accountFieldsBase: FormField[] = [
+  { name: 'accountNumber', label: 'Account Number', type: 'text', required: true },
+  { name: 'bank', label: 'Bank', type: 'text' },
+  { name: 'name', label: 'Account Name', type: 'text', required: true },
+  { name: 'balance', label: 'Balance', type: 'number', required: true },
+]
+
+const paymentFieldsBase: FormField[] = [
+  { name: 'documentType', label: 'Payment For', type: 'select', required: true, options: [
+    { value: 'invoice', label: 'Customer Invoice' },
+    { value: 'vendor_bill', label: 'Vendor Bill' },
+  ] },
+  { name: 'documentId', label: 'Document', type: 'select', required: true, options: [] },
+  { name: 'paymentDate', label: 'Payment Date', type: 'date', required: true },
+  { name: 'paymentMethod', label: 'Payment Method', type: 'select', required: true, options: [
+    { value: 'cash', label: 'Cash' },
+    { value: 'bank_transfer', label: 'Bank Transfer' },
+    { value: 'card', label: 'Card' },
+    { value: 'other', label: 'Other' },
+  ] },
+  { name: 'amount', label: 'Amount', type: 'number', required: true },
+  { name: 'paymentAccount', label: 'Source Account', type: 'select', options: [] },
+  { name: 'targetAccount', label: 'Target Account', type: 'select', options: [] },
+  { name: 'referenceNumber', label: 'Reference Number', type: 'text' },
+  { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
 const flow: Record<string, string> = {
-  draft: 'posted',
-  pending: 'paid',
+  draft: 'sent',
+  sent: 'paid',
   posted: 'paid',
   overdue: 'paid',
 }
@@ -103,40 +108,59 @@ const flow: Record<string, string> = {
 const normalizeInvoice = (invoice: any) => ({
   ...invoice,
   invoiceNumber: invoice.invoice_number,
-  customerId: invoice.customer_id,  // FIX #2: Use customer_id for option selection
-  customerName: invoice.customer?.name || invoice.customer_id,  // Keep for display only
-  invoiceDate: invoice.invoice_date,
+  salesOrderId: invoice.sales_order_id,
+  customerName: invoice.customer?.name || invoice.sales_order?.customer?.full_name || invoice.customer_id,
+  invoiceDate: invoice.issue_date,
   dueDate: invoice.due_date,
-  totalAmountBeforeTax: invoice.total_amount_before_tax,
-  totalTax: invoice.total_tax,
-  totalAmount: invoice.total_amount || invoice.total,
-  paidAmount: invoice.paid_amount,
-  outstandingAmount: invoice.outstanding_amount,
+  netAmount: invoice.net_amount,
+  taxAmount: invoice.tax_amount,
+  totalAmount: invoice.total_amount,
+  warrantyOrderId: invoice.warranty_orders_id,
+  notes: invoice.notes,
 })
 
 const normalizeBill = (bill: any) => ({
   ...bill,
   billNumber: bill.bill_number,
-  supplierId: bill.supplier_id,  // FIX #2: Use supplier_id for option selection
-  supplierName: bill.supplier?.name || bill.supplier_id,  // Keep for display only
-  billDate: bill.bill_date,
+  purchaseOrderId: bill.purchase_order_id,
+  supplierName: bill.purchase_order?.supplier?.supplier_name || bill.purchase_order?.supplier?.name || bill.purchase_order?.vendor_id,
+  billDate: bill.issue_date,
   dueDate: bill.due_date,
-  totalAmountBeforeTax: bill.total_amount_before_tax,
-  totalTax: bill.total_tax,
-  totalAmount: bill.total_amount || bill.total,
-  paidAmount: bill.paid_amount,
-  outstandingAmount: bill.outstanding_amount,
+  subtotal: bill.subtotal,
+  taxAmount: bill.tax_amount,
+  totalAmount: bill.total,
+  notes: bill.notes,
 })
 
 const normalizeNote = (note: any, isCredit: boolean) => ({
   ...note,
-  noteNumber: isCredit ? note.credit_note_number : note.debit_note_number,
-  partnerId: isCredit ? note.customer_id : note.supplier_id,  // FIX #2: Use IDs for selection
-  partnerName: isCredit ? (note.customer?.name || note.customer_id) : (note.supplier?.name || note.supplier_id),  // Keep for display
-  noteDate: isCredit ? note.credit_date : note.debit_date,
+  noteNumber: note.id?.slice(0, 8),
+  referenceDocument: isCredit ? note.invoices_id : note.vendor_bills_id,
+  partnerName: isCredit ? (note.invoice?.invoice_number || note.invoices_id) : (note.vendor_bill?.bill_number || note.vendor_bills_id),
+  noteDate: '',
   reason: note.reason,
   totalAmount: note.total_amount,
-  status: note.status,
+  status: 'posted',
+})
+
+const normalizePayment = (payment: any) => ({
+  ...payment,
+  paymentNumber: payment.id?.slice(0, 8),
+  documentType: payment.invoice_id ? 'invoice' : 'vendor_bill',
+  documentId: payment.invoice_id || payment.vendor_bill_id,
+  documentName: payment.invoice?.invoice_number || payment.vendor_bill?.bill_number || payment.invoice_id || payment.vendor_bill_id,
+  paymentDate: payment.payment_date,
+  paymentMethod: payment.payment_method,
+  paymentAccount: payment.payment_account,
+  targetAccount: payment.target_account,
+  referenceNumber: payment.reference_number,
+  status: 'posted',
+})
+
+const normalizeAccount = (account: any) => ({
+  ...account,
+  accountNumber: account.account_number,
+  status: 'active',
 })
 
 const AccountingModule: React.FC = () => {
@@ -146,8 +170,8 @@ const AccountingModule: React.FC = () => {
   const [vendorBills, setVendorBills] = useState<any[]>([])
   const [credits, setCredits] = useState<any[]>([])
   const [debits, setDebits] = useState<any[]>([])
-  const [customers, setCustomers] = useState<any[]>([])
-  const [suppliers, setSuppliers] = useState<any[]>([])
+  const [payments, setPayments] = useState<any[]>([])
+  const [accounts, setAccounts] = useState<any[]>([])
   const [salesOrders, setSalesOrders] = useState<any[]>([])
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -201,101 +225,135 @@ const AccountingModule: React.FC = () => {
         setDebits([])
         setLoadError(error.message)
       })
+
+    erpApi
+      .get<any[]>('/accounting/accounts')
+      .then((records) => {
+        setLoadError(null)
+        setAccounts(records.map(normalizeAccount))
+      })
+      .catch((error) => {
+        setAccounts([])
+        setLoadError(error.message)
+      })
+
+    erpApi
+      .get<any[]>('/accounting/payments?limit=100')
+      .then((records) => {
+        setLoadError(null)
+        setPayments(records.map(normalizePayment))
+      })
+      .catch((error) => {
+        setPayments([])
+        setLoadError(error.message)
+      })
   }, [])
 
   useEffect(() => {
     Promise.all([
-      erpApi.get<any[]>('/customers?limit=1000'),
-      erpApi.get<any[]>('/suppliers?limit=1000'),
       erpApi.get<any[]>('/sales-orders?limit=100'),
       erpApi.get<any[]>('/purchase/purchase-orders?limit=100'),
     ])
-      .then(([customerData, supplierData, soData, poData]) => {
-        setCustomers(customerData)
-        setSuppliers(supplierData)
+      .then(([soData, poData]) => {
         setSalesOrders(soData)
         setPurchaseOrders(poData)
       })
       .catch(() => {
-        setCustomers([])
-        setSuppliers([])
         setSalesOrders([])
         setPurchaseOrders([])
       })
   }, [])
 
-  const activeRecords = activeTab === 'invoices' ? invoices : activeTab === 'bills' ? vendorBills : activeTab === 'credit-notes' ? credits : debits
-  const customerOptions = useMemo(() => customers.map((customer) => ({ value: customer.id, label: `${customer.name}${customer.customer_number ? ` (${customer.customer_number})` : ''}` })), [customers])
-  const supplierOptions = useMemo(() => suppliers.map((supplier) => ({ value: supplier.id, label: `${supplier.name}${supplier.supplier_number ? ` (${supplier.supplier_number})` : ''}` })), [suppliers])
+  const activeRecords = activeTab === 'invoices' ? invoices : activeTab === 'bills' ? vendorBills : activeTab === 'credit-notes' ? credits : activeTab === 'debit-notes' ? debits : activeTab === 'payments' ? payments : accounts
   const salesOrderOptions = useMemo(() => salesOrders.map((so) => ({ value: so.id, label: `${so.sales_order_number} - ${so.customer?.name || 'Customer'}` })), [salesOrders])
   const purchaseOrderOptions = useMemo(() => purchaseOrders.map((po) => ({ value: po.id, label: `${po.purchase_order_number} - ${po.supplier?.name || 'Supplier'}` })), [purchaseOrders])
+  const accountOptions = useMemo(() => accounts.map((account) => ({ value: account.id, label: `${account.account_number} - ${account.name}` })), [accounts])
+  const invoiceOptions = useMemo(() => invoices.map((invoice) => ({ value: invoice.id, label: `${invoice.invoiceNumber} - ${invoice.customerName || 'Customer'}` })), [invoices])
+  const billOptions = useMemo(() => vendorBills.map((bill) => ({ value: bill.id, label: `${bill.billNumber} - ${bill.supplierName || 'Supplier'}` })), [vendorBills])
 
   const activeFields = useMemo(() => {
     if (activeTab === 'invoices') {
       return invoiceFieldsBase.map((field) => {
-        if (field.name === 'customerId') return { ...field, options: customerOptions }  // FIX #2: Map customerId to customer options
-        if (field.name === 'salesOrderNumber') return { ...field, options: salesOrderOptions }
+        if (field.name === 'salesOrderId') return { ...field, options: salesOrderOptions }
         return field
       })
     }
     if (activeTab === 'bills') {
       return billFieldsBase.map((field) => {
-        if (field.name === 'supplierId') return { ...field, options: supplierOptions }  // FIX #2: Map supplierId to supplier options
-        if (field.name === 'purchaseOrderNumber') return { ...field, options: purchaseOrderOptions }
+        if (field.name === 'purchaseOrderId') return { ...field, options: purchaseOrderOptions }
         return field
       })
     }
     if (activeTab === 'credit-notes') {
       return noteFieldsBase.map((field) => {
-        if (field.name === 'partnerId') return { ...field, options: customerOptions }  // FIX #2: Map partnerId to customer options
-        if (field.name === 'referenceDocument') return { ...field, options: salesOrderOptions }
+        if (field.name === 'referenceDocument') return { ...field, options: invoiceOptions }
         return field
       })
     }
+    if (activeTab === 'payments') {
+      return paymentFieldsBase.map((field) => {
+        if (field.name === 'documentId') return { ...field, options: [...invoiceOptions, ...billOptions] }
+        if (field.name === 'paymentAccount' || field.name === 'targetAccount') return { ...field, options: accountOptions }
+        return field
+      })
+    }
+    if (activeTab === 'accounts') return accountFieldsBase
     return noteFieldsBase.map((field) => {
-      if (field.name === 'partnerId') return { ...field, options: supplierOptions }  // FIX #2: Map partnerId to supplier options
-      if (field.name === 'referenceDocument') return { ...field, options: purchaseOrderOptions }
+      if (field.name === 'referenceDocument') return { ...field, options: billOptions }
       return field
     })
-  }, [activeTab, customerOptions, supplierOptions, salesOrderOptions, purchaseOrderOptions])
-  const activeTitle = activeTab === 'invoices' ? 'Customer Invoice' : activeTab === 'bills' ? 'Vendor Bill' : activeTab === 'credit-notes' ? 'Credit Note' : 'Debit Note'
+  }, [activeTab, salesOrderOptions, purchaseOrderOptions, invoiceOptions, billOptions, accountOptions])
+  const activeTitle = activeTab === 'invoices' ? 'Customer Invoice' : activeTab === 'bills' ? 'Vendor Bill' : activeTab === 'credit-notes' ? 'Credit Note' : activeTab === 'debit-notes' ? 'Debit Note' : activeTab === 'payments' ? 'Payment' : 'Account'
   const setters: Record<string, React.Dispatch<React.SetStateAction<any[]>>> = {
     invoices: setInvoices,
     bills: setVendorBills,
     'credit-notes': setCredits,
     'debit-notes': setDebits,
+    payments: setPayments,
+    accounts: setAccounts,
   }
 
   const filteredRecords = useMemo(() => {
     return activeRecords.filter((record) => {
-      const reference = record.invoiceNumber || record.billNumber || record.noteNumber
-      const partner = record.customerName || record.supplierName || record.partnerName
-      const haystack = `${reference} ${partner} ${record.reason || ''}`.toLowerCase()
+      const reference = record.invoiceNumber || record.billNumber || record.noteNumber || record.paymentNumber
+      const partner = record.customerName || record.supplierName || record.partnerName || record.documentName
+      const account = `${record.accountNumber || ''} ${record.bank || ''} ${record.name || ''}`
+      const haystack = `${reference || ''} ${partner || ''} ${record.reason || ''} ${account}`.toLowerCase()
       return haystack.includes(search.toLowerCase()) && (status === 'all' || record.status === status)
     })
   }, [activeRecords, search, status])
 
   const openCreate = () => {
-    const prefix = activeTab === 'invoices' ? 'INV' : activeTab === 'bills' ? 'BILL' : activeTab === 'credit-notes' ? 'CN' : 'DN'
+    const prefix = activeTab === 'invoices' ? 'INV' : activeTab === 'bills' ? 'BILL' : activeTab === 'credit-notes' ? 'CN' : activeTab === 'debit-notes' ? 'DN' : activeTab === 'payments' ? 'PAY' : 'ACC'
     setModalRecord({
       id: `${activeTab}-${Date.now()}`,
       invoiceNumber: `${prefix}-${Date.now().toString().slice(-5)}`,
       billNumber: `${prefix}-${Date.now().toString().slice(-5)}`,
       noteNumber: `${prefix}-${Date.now().toString().slice(-5)}`,
-      customerId: '',  // FIX #2: Use customerId instead of customerName
-      supplierId: '',  // FIX #2: Use supplierId instead of supplierName
-      partnerId: '',   // FIX #2: Use partnerId instead of partnerName
+      salesOrderId: '',
+      purchaseOrderId: '',
+      documentType: 'invoice',
+      documentId: '',
       invoiceDate: new Date().toISOString().slice(0, 10),
       billDate: new Date().toISOString().slice(0, 10),
       noteDate: new Date().toISOString().slice(0, 10),
+      paymentDate: new Date().toISOString().slice(0, 10),
+      paymentMethod: 'cash',
       dueDate: '',
-      totalAmountBeforeTax: 0,
-      totalTax: 0,
+      netAmount: 0,
+      subtotal: 0,
+      taxAmount: 0,
       totalAmount: 0,
-      paidAmount: 0,
       status: 'draft',
+      accountNumber: '',
+      bank: '',
+      name: '',
+      balance: 0,
+      paymentAccount: '',
+      targetAccount: '',
+      referenceNumber: '',
       reason: '',
-      description: '',
+      notes: '',
     })
     setModalOpen(true)
   }
@@ -307,51 +365,56 @@ const AccountingModule: React.FC = () => {
         ? '/accounting/bills'
         : activeTab === 'credit-notes'
           ? '/accounting/credit-notes'
-          : '/accounting/debit-notes'
+          : activeTab === 'debit-notes'
+            ? '/accounting/debit-notes'
+            : activeTab === 'payments'
+              ? '/accounting/payments'
+              : '/accounting/accounts'
 
     const payload = activeTab === 'invoices' ? {
       invoice_number: record.invoiceNumber,
-      customer_id: record.customerId,  // FIX #2: Use customerId directly (no lookup needed)
-      sales_order_id: salesOrderOptions.find(s => s.label === record.salesOrderNumber)?.value || record.salesOrderNumber,
+      sales_order_id: record.salesOrderId,
       invoice_date: record.invoiceDate,
       due_date: record.dueDate,
-      total_amount_before_tax: record.totalAmountBeforeTax,
-      total_tax: record.totalTax,
+      net_amount: record.netAmount,
+      tax_amount: record.taxAmount,
       total_amount: record.totalAmount,
-      paid_amount: record.paidAmount,
       status: record.status,
-      payment_terms: record.paymentTerms,
-      description: record.description,
+      warranty_orders_id: record.warrantyOrderId || null,
+      notes: record.notes,
     } : activeTab === 'bills' ? {
       bill_number: record.billNumber,
-      supplier_id: record.supplierId,  // FIX #2: Use supplierId directly (no lookup needed)
-      purchase_order_id: purchaseOrderOptions.find(p => p.label === record.purchaseOrderNumber)?.value || record.purchaseOrderNumber,
+      purchase_order_id: record.purchaseOrderId,
       bill_date: record.billDate,
       due_date: record.dueDate,
-      total_amount_before_tax: record.totalAmountBeforeTax,
-      total_tax: record.totalTax,
+      subtotal: record.subtotal,
+      tax_amount: record.taxAmount,
       total_amount: record.totalAmount,
-      paid_amount: record.paidAmount,
       status: record.status,
       notes: record.notes,
     } : activeTab === 'credit-notes' ? {
-      credit_note_number: record.noteNumber,
-      customer_id: record.partnerId,  // FIX #2: Use partnerId directly (no lookup needed)
       invoice_id: record.referenceDocument,
       reason: record.reason,
-      credit_date: record.noteDate,
-      status: record.status,
       total_amount: record.totalAmount,
-      description: record.description,
-    } : {
-      debit_note_number: record.noteNumber,
-      supplier_id: record.partnerId,  // FIX #2: Use partnerId directly (no lookup needed)
+    } : activeTab === 'debit-notes' ? {
       bill_id: record.referenceDocument,
       reason: record.reason,
-      debit_date: record.noteDate,
-      status: record.status,
       total_amount: record.totalAmount,
-      description: record.description,
+    } : activeTab === 'payments' ? {
+      invoice_id: invoices.some((invoice) => invoice.id === record.documentId) ? record.documentId : null,
+      vendor_bill_id: vendorBills.some((bill) => bill.id === record.documentId) ? record.documentId : null,
+      payment_date: record.paymentDate,
+      payment_method: record.paymentMethod,
+      amount: record.amount,
+      payment_account: record.paymentMethod === 'cash' ? null : record.paymentAccount || null,
+      target_account: record.paymentMethod === 'cash' ? null : record.targetAccount || null,
+      reference_number: record.referenceNumber,
+      notes: record.notes,
+    } : {
+      account_number: record.accountNumber,
+      bank: record.bank,
+      name: record.name,
+      balance: record.balance,
     }
 
     try {
@@ -374,13 +437,20 @@ const AccountingModule: React.FC = () => {
   }
 
   const advanceRecord = async (record: any) => {
-    const nextStatus = activeTab.includes('notes') && record.status === 'draft' ? 'posted' : flow[record.status]
+    const statusFlow = activeTab === 'bills'
+      ? { draft: 'posted', posted: 'paid', overdue: 'paid' } as Record<string, string>
+      : activeTab === 'invoices'
+        ? flow
+        : {}
+    const nextStatus = statusFlow[record.status]
     if (!nextStatus) return
     const pathMap: Record<string, string> = {
       invoices: '/accounting/invoices',
       bills: '/accounting/bills',
       'credit-notes': '/accounting/credit-notes',
       'debit-notes': '/accounting/debit-notes',
+      payments: '/accounting/payments',
+      accounts: '/accounting/accounts',
     }
     const path = pathMap[activeTab]
     try {
@@ -398,6 +468,8 @@ const AccountingModule: React.FC = () => {
       bills: '/accounting/bills',
       'credit-notes': '/accounting/credit-notes',
       'debit-notes': '/accounting/debit-notes',
+      payments: '/accounting/payments',
+      accounts: '/accounting/accounts',
     }
     const path = pathMap[activeTab]
     const recordName = record.invoice_number || record.bill_number || record.note_number || 'this record'
@@ -425,8 +497,8 @@ const AccountingModule: React.FC = () => {
           setModalOpen(true)
         }}
         onDelete={() => deleteRecord(record)}
-        onAdvance={(flow[record.status] || (activeTab.includes('notes') && record.status === 'draft')) ? () => advanceRecord(record) : undefined}
-        advanceLabel={activeTab.includes('notes') ? 'Post' : 'Pay'}
+        onAdvance={(['invoices', 'bills'].includes(activeTab) && (activeTab === 'bills' ? ['draft', 'posted', 'overdue'] : ['draft', 'sent', 'overdue']).includes(record.status)) ? () => advanceRecord(record) : undefined}
+        advanceLabel={record.status === 'draft' ? (activeTab === 'bills' ? 'Post' : 'Send') : 'Pay'}
       />
     </div>
   )
@@ -472,6 +544,8 @@ const AccountingModule: React.FC = () => {
           { id: 'bills', label: 'Vendor Bills', count: vendorBills.length },
           { id: 'credit-notes', label: 'Credit Notes', count: credits.length },
           { id: 'debit-notes', label: 'Debit Notes', count: debits.length },
+          { id: 'payments', label: 'Payments', count: payments.length },
+          { id: 'accounts', label: 'Accounts', count: accounts.length },
         ]}
       />
 
@@ -490,22 +564,22 @@ const AccountingModule: React.FC = () => {
           <table className="w-full min-w-[900px]">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Reference</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Partner</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Amount</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Account Number' : 'Reference'}</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Bank' : 'Partner'}</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Account Name' : 'Date'}</th>
+                {activeTab !== 'accounts' && <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>}
+                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Balance' : 'Amount'}</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredRecords.map((record) => (
                 <tr key={record.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.invoiceNumber || record.billNumber || record.noteNumber}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{record.customerName || record.supplierName || record.partnerName}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{record.invoiceDate || record.billDate || record.noteDate}</td>
-                  <td className="px-4 py-3"><StatusBadge status={record.status} /></td>
-                  <td className="px-4 py-3 text-right text-sm font-semibold">{formatCurrency(record.totalAmount || record.total)}</td>
+                  <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.accountNumber || record.invoiceNumber || record.billNumber || record.noteNumber || record.paymentNumber}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'accounts' ? (record.bank || '-') : (record.customerName || record.supplierName || record.partnerName || record.documentName)}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'accounts' ? record.name : (record.invoiceDate || record.billDate || record.noteDate || record.paymentDate)}</td>
+                  {activeTab !== 'accounts' && <td className="px-4 py-3"><StatusBadge status={record.status} /></td>}
+                  <td className="px-4 py-3 text-right text-sm font-semibold">{formatCurrency(activeTab === 'accounts' ? record.balance : (record.totalAmount || record.total || record.amount))}</td>
                   <td className="px-4 py-3">{renderActions(record)}</td>
                 </tr>
               ))}
@@ -518,9 +592,9 @@ const AccountingModule: React.FC = () => {
           groupBy={(record) => record.status}
           renderCard={(record) => (
             <div key={record.id} className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
-              <p className="font-bold text-blue-700">{record.invoiceNumber || record.billNumber || record.noteNumber}</p>
-              <p className="mt-1 text-sm text-gray-600">{record.customerName || record.supplierName || record.partnerName}</p>
-              <p className="mt-2 text-sm font-semibold">{formatCurrency(record.totalAmount || record.total)}</p>
+              <p className="font-bold text-blue-700">{record.invoiceNumber || record.billNumber || record.noteNumber || record.paymentNumber}</p>
+              <p className="mt-1 text-sm text-gray-600">{activeTab === 'accounts' ? `${record.bank || '-'} - ${record.name}` : (record.customerName || record.supplierName || record.partnerName || record.documentName)}</p>
+              <p className="mt-2 text-sm font-semibold">{formatCurrency(activeTab === 'accounts' ? record.balance : (record.totalAmount || record.total || record.amount))}</p>
               <div className="mt-3">{renderActions(record)}</div>
             </div>
           )}

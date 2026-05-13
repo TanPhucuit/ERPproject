@@ -412,7 +412,7 @@ CREATE TABLE payments (
   CHECK ((invoice_id IS NOT NULL AND vendor_bill_id IS NULL) OR (invoice_id IS NULL AND vendor_bill_id IS NOT NULL)),
   CHECK (
     (payment_method = 'cash' AND payment_account IS NULL AND target_account IS NULL)
-    OR (payment_method <> 'cash' AND (payment_account IS NOT NULL OR target_account IS NOT NULL))
+    OR (payment_method <> 'cash' AND payment_account IS NOT NULL AND target_account IS NOT NULL)
   )
 );
 
@@ -507,9 +507,12 @@ RETURNS TRIGGER AS $$
 DECLARE
   lead_row leads%ROWTYPE;
   customer_id_val UUID;
+  sales_order_id_val UUID;
 BEGIN
   IF NEW.status = 'accepted' AND OLD.status IS DISTINCT FROM NEW.status THEN
-    IF NEW.customer_id IS NULL AND NEW.lead_id IS NOT NULL THEN
+    customer_id_val := NEW.customer_id;
+
+    IF customer_id_val IS NULL AND NEW.lead_id IS NOT NULL THEN
       SELECT * INTO lead_row FROM leads WHERE id = NEW.lead_id;
       SELECT id INTO customer_id_val FROM customers WHERE email = lead_row.email LIMIT 1;
       IF customer_id_val IS NULL THEN
@@ -518,12 +521,91 @@ BEGIN
         RETURNING id INTO customer_id_val;
       END IF;
       UPDATE quotations SET customer_id = customer_id_val WHERE id = NEW.id;
-      NEW.customer_id = customer_id_val;
     END IF;
-    UPDATE leads SET status = 'won', probability = 100, updated_at = NOW() WHERE id = NEW.lead_id;
+
+    IF NEW.lead_id IS NOT NULL THEN
+      UPDATE leads SET status = 'won', probability = 100, updated_at = NOW() WHERE id = NEW.lead_id;
+    END IF;
+
+    IF customer_id_val IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM sales_orders WHERE quotation_id = NEW.id) THEN
+      INSERT INTO sales_orders (quotation_id, customer_id, order_date, status, notes)
+      VALUES (NEW.id, customer_id_val, CURRENT_DATE, 'draft', 'Auto-created from accepted quotation.')
+      RETURNING id INTO sales_order_id_val;
+
+      INSERT INTO sales_order_items (sales_order_id, product_id, quantity, unit_price)
+      SELECT sales_order_id_val, product_id, quantity, unit_price
+      FROM quotation_items
+      WHERE quotation_id = NEW.id;
+    END IF;
   ELSIF NEW.status IN ('rejected','expired') AND OLD.status IS DISTINCT FROM NEW.status THEN
     UPDATE leads SET status = 'lost', probability = 0, updated_at = NOW() WHERE id = NEW.lead_id;
   END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION reserve_stock_for_sales_order_item()
+RETURNS TRIGGER AS $$
+DECLARE
+  remaining_qty NUMERIC(14,2);
+  allocate_qty NUMERIC(14,2);
+  bin_row RECORD;
+  delivery_order_id_val UUID;
+BEGIN
+  remaining_qty := NEW.quantity;
+
+  SELECT id INTO delivery_order_id_val
+  FROM delivery_orders
+  WHERE sales_order_id = NEW.sales_order_id
+    AND status IN ('draft','ready')
+  ORDER BY created_at
+  LIMIT 1;
+
+  IF delivery_order_id_val IS NULL THEN
+    INSERT INTO delivery_orders (sales_order_id, delivery_date, status, notes)
+    VALUES (NEW.sales_order_id, CURRENT_DATE, 'draft', 'Auto-created for reserved sales order stock.')
+    RETURNING id INTO delivery_order_id_val;
+  END IF;
+
+  FOR bin_row IN
+    SELECT
+      sib.id,
+      sib.bin_location_id,
+      sib.available,
+      bl.warehouse_id
+    FROM stock_in_bins sib
+    JOIN bin_locations bl ON bl.id = sib.bin_location_id
+    WHERE sib.product_id = NEW.product_id
+      AND sib.available > 0
+    ORDER BY sib.available DESC, sib.quantity DESC
+  LOOP
+    EXIT WHEN remaining_qty <= 0;
+    allocate_qty := LEAST(remaining_qty, bin_row.available);
+
+    UPDATE stock_in_bins
+    SET available = available - allocate_qty
+    WHERE id = bin_row.id;
+
+    INSERT INTO delivery_order_items (delivery_order_id, product_id, bin_location_id, quantity_requested)
+    VALUES (delivery_order_id_val, NEW.product_id, bin_row.bin_location_id, allocate_qty);
+
+    UPDATE stock_levels
+    SET quantity_on_hand = quantity_on_hand + allocate_qty,
+        available = GREATEST(available - allocate_qty, 0),
+        reorder_status = CASE WHEN GREATEST(available - allocate_qty, 0) <= 0 THEN 'out'
+                              WHEN GREATEST(available - allocate_qty, 0) < 10 THEN 'low'
+                              ELSE 'normal' END
+    WHERE product_id = NEW.product_id
+      AND warehouse_id = bin_row.warehouse_id;
+
+    remaining_qty := remaining_qty - allocate_qty;
+  END LOOP;
+
+  IF remaining_qty > 0 THEN
+    RAISE EXCEPTION 'Insufficient available stock for product %. Missing quantity: %', NEW.product_id, remaining_qty;
+  END IF;
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -610,23 +692,44 @@ RETURNS TRIGGER AS $$
 DECLARE
   target_warehouse UUID;
   source_warehouse UUID;
+  source_quantity NUMERIC(14,2);
+  source_available NUMERIC(14,2);
+  source_new_quantity NUMERIC(14,2);
 BEGIN
   SELECT warehouse_id INTO target_warehouse FROM bin_locations WHERE id = NEW.target_bin_location_id;
 
   IF NEW.src_bin_location_id IS NULL THEN
+    SELECT COALESCE(new_quantity, 0)
+    INTO source_new_quantity
+    FROM stock_levels
+    WHERE product_id = NEW.product_id AND warehouse_id = target_warehouse;
+
+    IF source_new_quantity < NEW.quantity THEN
+      RAISE EXCEPTION 'Insufficient new quantity for product %. Available new quantity: %, requested: %',
+        NEW.product_id, COALESCE(source_new_quantity, 0), NEW.quantity;
+    END IF;
+
     UPDATE stock_levels
     SET new_quantity = GREATEST(new_quantity - NEW.quantity, 0),
-        quantity_on_hand = quantity_on_hand + NEW.quantity,
         available = available + NEW.quantity
     WHERE product_id = NEW.product_id AND warehouse_id = target_warehouse;
   ELSE
     SELECT warehouse_id INTO source_warehouse FROM bin_locations WHERE id = NEW.src_bin_location_id;
+    SELECT quantity, available
+    INTO source_quantity, source_available
+    FROM stock_in_bins
+    WHERE product_id = NEW.product_id AND bin_location_id = NEW.src_bin_location_id;
+
+    IF COALESCE(source_available, 0) < NEW.quantity OR COALESCE(source_quantity, 0) < NEW.quantity THEN
+      RAISE EXCEPTION 'Insufficient bin stock for product %. Available: %, quantity: %, requested: %',
+        NEW.product_id, COALESCE(source_available, 0), COALESCE(source_quantity, 0), NEW.quantity;
+    END IF;
+
     UPDATE stock_in_bins
     SET quantity = GREATEST(quantity - NEW.quantity, 0), available = GREATEST(available - NEW.quantity, 0)
     WHERE product_id = NEW.product_id AND bin_location_id = NEW.src_bin_location_id;
     UPDATE stock_levels
-    SET quantity_on_hand = GREATEST(quantity_on_hand - NEW.quantity, 0),
-        available = GREATEST(available - NEW.quantity, 0),
+    SET available = GREATEST(available - NEW.quantity, 0),
         total_quantity = GREATEST(total_quantity - NEW.quantity, 0)
     WHERE product_id = NEW.product_id AND warehouse_id = source_warehouse;
   END IF;
@@ -637,12 +740,17 @@ BEGIN
   SET quantity = stock_in_bins.quantity + EXCLUDED.quantity,
       available = stock_in_bins.available + EXCLUDED.available;
 
-  INSERT INTO stock_levels (product_id, warehouse_id, quantity_on_hand, total_quantity, available)
-  VALUES (NEW.product_id, target_warehouse, NEW.quantity, NEW.quantity, NEW.quantity)
-  ON CONFLICT (product_id, warehouse_id) DO UPDATE
-  SET quantity_on_hand = stock_levels.quantity_on_hand + EXCLUDED.quantity_on_hand,
-      total_quantity = stock_levels.total_quantity + EXCLUDED.total_quantity,
-      available = stock_levels.available + EXCLUDED.available;
+  IF NEW.src_bin_location_id IS NULL THEN
+    INSERT INTO stock_levels (product_id, warehouse_id, quantity_on_hand, total_quantity, available, new_quantity)
+    VALUES (NEW.product_id, target_warehouse, 0, NEW.quantity, NEW.quantity, 0)
+    ON CONFLICT (product_id, warehouse_id) DO NOTHING;
+  ELSE
+    INSERT INTO stock_levels (product_id, warehouse_id, quantity_on_hand, total_quantity, available, new_quantity)
+    VALUES (NEW.product_id, target_warehouse, 0, NEW.quantity, NEW.quantity, 0)
+    ON CONFLICT (product_id, warehouse_id) DO UPDATE
+    SET total_quantity = stock_levels.total_quantity + EXCLUDED.total_quantity,
+        available = stock_levels.available + EXCLUDED.available;
+  END IF;
 
   RETURN NEW;
 END;
@@ -659,13 +767,11 @@ BEGIN
     FOR row_item IN SELECT * FROM delivery_order_items WHERE delivery_order_id = NEW.id LOOP
       SELECT warehouse_id INTO wh FROM bin_locations WHERE id = row_item.bin_location_id;
       UPDATE stock_in_bins
-      SET quantity = GREATEST(quantity - row_item.quantity_requested, 0),
-          available = GREATEST(available - row_item.quantity_requested, 0)
+      SET quantity = GREATEST(quantity - row_item.quantity_requested, 0)
       WHERE product_id = row_item.product_id AND bin_location_id = row_item.bin_location_id;
       UPDATE stock_levels
       SET quantity_on_hand = GREATEST(quantity_on_hand - row_item.quantity_requested, 0),
-          total_quantity = GREATEST(total_quantity - row_item.quantity_requested, 0),
-          available = GREATEST(available - row_item.quantity_requested, 0)
+          total_quantity = GREATEST(total_quantity - row_item.quantity_requested, 0)
       WHERE product_id = row_item.product_id AND warehouse_id = wh;
     END LOOP;
   END IF;
@@ -721,6 +827,7 @@ CREATE TRIGGER set_vendor_bill_number BEFORE INSERT ON vendor_bills FOR EACH ROW
 CREATE TRIGGER before_quotation_item_calc BEFORE INSERT OR UPDATE ON quotation_items FOR EACH ROW EXECUTE FUNCTION before_quotation_item_calc();
 CREATE TRIGGER recalc_quotation_total_after_item AFTER INSERT OR UPDATE OR DELETE ON quotation_items FOR EACH ROW EXECUTE FUNCTION recalc_quotation_total();
 CREATE TRIGGER quotation_acceptance AFTER UPDATE OF status ON quotations FOR EACH ROW EXECUTE FUNCTION accept_quotation_to_customer();
+CREATE TRIGGER reserve_stock_after_sales_order_item AFTER INSERT ON sales_order_items FOR EACH ROW EXECUTE FUNCTION reserve_stock_for_sales_order_item();
 CREATE TRIGGER auto_quotation_after_lead AFTER INSERT ON leads FOR EACH ROW EXECUTE FUNCTION create_auto_quotation_for_lead();
 CREATE TRIGGER apply_payment_after_insert AFTER INSERT ON payments FOR EACH ROW EXECUTE FUNCTION apply_payment_effects();
 CREATE TRIGGER apply_receipt_after_complete AFTER UPDATE OF status ON receipts FOR EACH ROW EXECUTE FUNCTION apply_receipt_to_new_quantity();

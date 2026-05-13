@@ -68,7 +68,7 @@ INSERT INTO stock_in_bins (product_id, bin_location_id, quantity, available) VAL
 ON CONFLICT (product_id, bin_location_id) DO UPDATE SET quantity = EXCLUDED.quantity, available = EXCLUDED.available;
 
 INSERT INTO stock_levels (product_id, warehouse_id, quantity_on_hand, total_quantity, available, new_quantity, reorder_status)
-SELECT product_id, warehouse_id, SUM(quantity), SUM(quantity), SUM(available), 0,
+SELECT product_id, warehouse_id, 0, SUM(quantity), SUM(available), 0,
        CASE WHEN SUM(available) < 10 THEN 'low' ELSE 'normal' END
 FROM stock_in_bins sib
 JOIN bin_locations bl ON bl.id = sib.bin_location_id
@@ -154,16 +154,19 @@ INSERT INTO sales_order_items (sales_order_id, product_id, quantity, unit_price)
   ('00000000-0000-0000-0000-000000001102','00000000-0000-0000-0000-000000000407',10,720000),
   ('00000000-0000-0000-0000-000000001102','00000000-0000-0000-0000-000000000408',20,390000);
 
-INSERT INTO delivery_orders (id, sales_order_id, delivery_date, status, tracking_number, notes) VALUES
-  ('00000000-0000-0000-0000-000000001201','00000000-0000-0000-0000-000000001101',CURRENT_DATE - 380,'delivered','TRK-HOTEL-001','Delivered more than one year ago for expired warranty scenario.'),
-  ('00000000-0000-0000-0000-000000001202','00000000-0000-0000-0000-000000001102',CURRENT_DATE + 2,'ready','TRK-OFFICE-002','Ready for warehouse picking.')
-ON CONFLICT (id) DO NOTHING;
+UPDATE delivery_orders
+SET delivery_date = CURRENT_DATE - 380,
+    status = 'delivered',
+    tracking_number = 'TRK-HOTEL-001',
+    notes = 'Delivered more than one year ago for expired warranty scenario.'
+WHERE sales_order_id = '00000000-0000-0000-0000-000000001101';
 
-INSERT INTO delivery_order_items (delivery_order_id, product_id, bin_location_id, quantity_requested) VALUES
-  ('00000000-0000-0000-0000-000000001201','00000000-0000-0000-0000-000000000401','00000000-0000-0000-0000-000000000511',2),
-  ('00000000-0000-0000-0000-000000001201','00000000-0000-0000-0000-000000000406','00000000-0000-0000-0000-000000000521',5),
-  ('00000000-0000-0000-0000-000000001202','00000000-0000-0000-0000-000000000407','00000000-0000-0000-0000-000000000522',10),
-  ('00000000-0000-0000-0000-000000001202','00000000-0000-0000-0000-000000000408','00000000-0000-0000-0000-000000000523',20);
+UPDATE delivery_orders
+SET delivery_date = CURRENT_DATE + 2,
+    status = 'ready',
+    tracking_number = 'TRK-OFFICE-002',
+    notes = 'Ready for warehouse picking.'
+WHERE sales_order_id = '00000000-0000-0000-0000-000000001102';
 
 INSERT INTO warranty_orders (id, sales_order_id, date, note) VALUES
   ('00000000-0000-0000-0000-000000001301','00000000-0000-0000-0000-000000001101',CURRENT_DATE - 10,'Expired warranty check for hotel smart lock.'),
@@ -224,9 +227,9 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Payments. Triggers update balances/statuses.
 INSERT INTO payments (id, invoice_id, vendor_bill_id, payment_date, payment_method, amount, payment_account, target_account, reference_number, notes) VALUES
-  ('00000000-0000-0000-0000-000000002101','00000000-0000-0000-0000-000000001401',NULL,CURRENT_DATE - 5,'bank_transfer',15000000,NULL,'00000000-0000-0000-0000-000000000202','CUST-TRF-001','Partial bank receipt from Liam Hotel.'),
+  ('00000000-0000-0000-0000-000000002101','00000000-0000-0000-0000-000000001401',NULL,CURRENT_DATE - 5,'bank_transfer',15000000,'00000000-0000-0000-0000-000000000203','00000000-0000-0000-0000-000000000202','CUST-TRF-001','Partial bank receipt from Liam Hotel.'),
   ('00000000-0000-0000-0000-000000002102','00000000-0000-0000-0000-000000001402',NULL,CURRENT_DATE,'cash',2000000,NULL,NULL,'CASH-REC-001','Cash deposit from Grace Office.'),
-  ('00000000-0000-0000-0000-000000002103',NULL,'00000000-0000-0000-0000-000000001902',CURRENT_DATE - 7,'bank_transfer',56430000,'00000000-0000-0000-0000-000000000202',NULL,'SUP-PAY-001','Vendor payment to SecureVision Factory.')
+  ('00000000-0000-0000-0000-000000002103',NULL,'00000000-0000-0000-0000-000000001902',CURRENT_DATE - 7,'bank_transfer',56430000,'00000000-0000-0000-0000-000000000202','00000000-0000-0000-0000-000000000203','SUP-PAY-001','Vendor payment to SecureVision Factory.')
 ON CONFLICT (id) DO NOTHING;
 
 -- Transfer received camera stock from "new" quantity into a physical bin.

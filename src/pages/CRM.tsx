@@ -24,30 +24,19 @@ import { useUIStore } from '../stores/uiStore'
 
 // ========== CONSTANTS ==========
 const leadStages = [
-  { value: 'new', label: 'Mới tiếp nhận', color: 'yellow' },
-  { value: 'site_survey', label: 'Khảo sát', color: 'blue' },
-  { value: 'proposition', label: 'Báo giá', color: 'purple' },
-  { value: 'won', label: 'Đã ký', color: 'green' },
-  { value: 'lost', label: 'Mất khách', color: 'red' },
+  { value: 'new', label: 'New', color: 'yellow' },
+  { value: 'quoted', label: 'Quoted', color: 'purple' },
+  { value: 'won', label: 'Won', color: 'green' },
+  { value: 'lost', label: 'Lost', color: 'red' },
 ]
-const nextLeadStage: Record<string, string> = {
-  new: 'site_survey',
-  site_survey: 'proposition',
-  proposition: 'won',
-}
 const leadSources = [
   { value: 'website', label: 'Website' },
-  { value: 'referral', label: 'Giới thiệu' },
-  { value: 'showroom', label: 'Showroom' },
-  { value: 'architect', label: 'Kiến trúc sư' },
-  { value: 'cold_call', label: 'Cold Call' },
-  { value: 'social_media', label: 'Mạng xã hội' },
-  { value: 'auto_request', label: 'Yêu cầu tự động' },
-]
-const leadRatings = [
-  { value: 'hot', label: 'Hot', color: 'text-red-500' },
-  { value: 'warm', label: 'Warm', color: 'text-orange-500' },
-  { value: 'cold', label: 'Cold', color: 'text-blue-500' },
+  { value: 'referral', label: 'Referral' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'email', label: 'Email' },
+  { value: 'event', label: 'Event' },
+  { value: 'auto_request', label: 'Auto Request' },
+  { value: 'other', label: 'Other' },
 ]
 const activityIcons: Record<string, React.ReactNode> = {
   Call: <PhoneCall size={14} className="text-blue-500" />,
@@ -101,10 +90,7 @@ interface LeadFormData {
   owner_name: string
   stage: string
   source: string
-  lead_rating: string
-  estimated_value: number
   probability_percent: number
-  expected_close_date: string
   notes: string
   customer_type: string
   // Bỏ phần sản phẩm và thông tin tài chính khỏi Lead
@@ -122,7 +108,7 @@ const LeadModal: React.FC<{
   onSave: (data: LeadFormData, autoDetectedCustomer: any | null) => void
   errorMessage?: string | null
 }> = ({ isOpen, record, users, existingCustomer, onClose, onSave, errorMessage }) => {
-  const [form, setForm] = useState<LeadFormData>({
+  const blankLead: LeadFormData = {
     company_name: '',
     contact_person_name: '',
     contact_person_phone: '',
@@ -133,51 +119,22 @@ const LeadModal: React.FC<{
     owner_name: '',
     stage: 'new',
     source: 'website',
-    lead_rating: 'warm',
-    estimated_value: 0,
     probability_percent: 10,
-    expected_close_date: '',
     notes: '',
     customer_type: 'B2C',
-  })
+  }
+  const [form, setForm] = useState<LeadFormData>(blankLead)
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [customerType, setCustomerType] = useState<'B2C' | 'B2B'>('B2C')
   const [autoDetected, setAutoDetected] = useState<any | null>(null)
 
   useEffect(() => {
-    if (record) {
-      setForm({ ...record })
-      setCustomerType((record.customer_type as 'B2C' | 'B2B') || 'B2C')
-    } else {
-      setForm({
-        company_name: '',
-        contact_person_name: '',
-        contact_person_phone: '',
-        contact_person_email: '',
-        company_address: '',
-        company_tax_id: '',
-        owner_id: '',
-        owner_name: '',
-        stage: 'new',
-        source: 'website',
-        lead_rating: 'warm',
-        estimated_value: 0,
-        probability_percent: 10,
-        expected_close_date: '',
-        notes: '',
-        customer_type: 'B2C',
-      })
-      setCustomerType('B2C')
-    }
+    setForm(record ? { ...blankLead, ...record } : blankLead)
     setErrors({})
     setAutoDetected(null)
   }, [record, isOpen])
 
-  // Auto-fill when existingCustomer prop arrives from parent
   useEffect(() => {
-    if (existingCustomer && form.company_name) {
-      setAutoDetected(existingCustomer)
-    }
+    if (existingCustomer && form.company_name) setAutoDetected(existingCustomer)
   }, [existingCustomer, form.company_name])
 
   const updateField = (key: keyof LeadFormData, value: any) => {
@@ -187,29 +144,23 @@ const LeadModal: React.FC<{
 
   const handleSave = () => {
     const errs: Record<string, string> = {}
-    if (!form.company_name.trim()) errs.company_name = 'Tên khách hàng là bắt buộc'
-    if (!form.contact_person_email.trim()) errs.contact_person_email = 'Email là bắt buộc'
+    if (!form.company_name.trim()) errs.company_name = 'Customer or company name is required'
+    if (!form.contact_person_email.trim()) errs.contact_person_email = 'Email is required'
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
     onSave(form, autoDetected)
   }
 
   const isAutoRequest = form.source === 'auto_request'
-
-  const salesPersonOptions = [
-    ...users.map(u => ({ value: u.id, label: `${u.full_name} (${u.role})` })),
-  ]
+  const salesPersonOptions = users.map(u => ({ value: u.id, label: `${u.full_name || u.fullName} (${u.role})` }))
 
   if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto">
       <div className="w-full max-w-3xl bg-white shadow-xl rounded-lg mt-4 mb-8">
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-          <h2 className="text-xl font-bold text-gray-900">
-            {record?.id ? 'Sửa Lead' : 'Tạo Lead mới'}
-          </h2>
+          <h2 className="text-xl font-bold text-gray-900">{record?.id ? 'Edit Lead' : 'Create Lead'}</h2>
           <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800">
             <X size={20} />
           </button>
@@ -217,203 +168,95 @@ const LeadModal: React.FC<{
 
         {errorMessage && (
           <div className="mx-6 mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3">
-            <p className="text-sm font-semibold text-red-800">Lỗi: {errorMessage}</p>
+            <p className="text-sm font-semibold text-red-800">Error: {errorMessage}</p>
           </div>
         )}
 
         <div className="max-h-[80vh] overflow-y-auto p-6 space-y-6">
-          {/* Lead Number + Source */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Mã Lead</label>
-              <input
-                type="text"
-                value={form.lead_number || '(sẽ tạo tự động)'}
-                readOnly
-                className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500"
-              />
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Lead #</label>
+              <input type="text" value={form.lead_number || '(auto)'} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500" />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Nguồn Lead</label>
-              <select
-                value={form.source}
-                onChange={e => updateField('source', e.target.value)}
-                className={`w-full rounded-md border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none ${isAutoRequest ? 'border-yellow-400 bg-yellow-50' : 'border-gray-300'}`}
-              >
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Source</label>
+              <select value={form.source} onChange={e => updateField('source', e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
                 {leadSources.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
           </div>
+
           {isAutoRequest && (
             <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
-              Lead này sẽ <strong>tự động tạo một báo giá mẫu</strong> ngay sau khi được tạo.
+              Auto request leads create a draft sample quotation after save.
             </div>
           )}
 
-          {/* Customer Auto-Detection */}
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <h3 className="mb-3 text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2">
-              <User size={16} />
-              Thông tin Khách hàng Tiềm năng
-              {autoDetected && (
-                <span className="text-xs font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
-                  ✓ Đã tìm thấy khách hàng — sẽ liên kết khi thắng
-                </span>
-              )}
-            </h3>
+            <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-800">Lead Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="md:col-span-2">
-                <label className="mb-1 block text-sm font-semibold text-gray-700">
-                  Tên Công ty / Khách hàng <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={form.company_name}
-                  onChange={e => { updateField('company_name', e.target.value); setAutoDetected(null) }}
-                  placeholder="Nhập tên công ty hoặc khách hàng"
-                  className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${errors.company_name ? 'border-red-400' : 'border-gray-300'}`}
-                />
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Customer / Company Name *</label>
+                <input type="text" value={form.company_name} onChange={e => updateField('company_name', e.target.value)} className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${errors.company_name ? 'border-red-400' : 'border-gray-300'}`} />
                 {errors.company_name && <p className="mt-1 text-xs text-red-600">{errors.company_name}</p>}
-                {autoDetected && (
-                  <p className="mt-1 text-xs text-green-600">
-                    Phát hiện: {autoDetected.name} ({autoDetected.customer_type}) — sẽ cập nhật khi lead thắng.
-                  </p>
-                )}
-                {!autoDetected && form.company_name && (
-                  <p className="mt-1 text-xs text-blue-600">Khách hàng mới — sẽ được tạo khi lead thắng.</p>
-                )}
               </div>
-
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Người liên hệ</label>
-                <input type="text" value={form.contact_person_name}
-                  onChange={e => updateField('contact_person_name', e.target.value)}
-                  placeholder="Tên người liên hệ"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Contact Name</label>
+                <input type="text" value={form.contact_person_name} onChange={e => updateField('contact_person_name', e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
-
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">
-                  Email <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  value={form.contact_person_email}
-                  onChange={e => { updateField('contact_person_email', e.target.value); setAutoDetected(null) }}
-                  className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${errors.contact_person_email ? 'border-red-400' : 'border-gray-300'}`}
-                  placeholder="email@example.com"
-                />
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Email *</label>
+                <input type="email" value={form.contact_person_email} onChange={e => updateField('contact_person_email', e.target.value)} className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${errors.contact_person_email ? 'border-red-400' : 'border-gray-300'}`} />
                 {errors.contact_person_email && <p className="mt-1 text-xs text-red-600">{errors.contact_person_email}</p>}
-                {autoDetected && (
-                  <p className="mt-1 text-xs text-green-600">Liên kết với: {autoDetected.name}</p>
-                )}
               </div>
-
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Số điện thoại</label>
-                <input type="text" value={form.contact_person_phone}
-                  onChange={e => updateField('contact_person_phone', e.target.value)}
-                  placeholder="+84..."
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Phone</label>
+                <input type="text" value={form.contact_person_phone} onChange={e => updateField('contact_person_phone', e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
-
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Loại khách hàng</label>
-                <div className="flex gap-3 mt-1">
-                  {(['B2C', 'B2B'] as const).map(t => (
-                    <label key={t} className={`flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer text-sm ${customerType === t ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}`}>
-                      <input type="radio" name="ct" value={t} checked={customerType === t}
-                        onChange={() => { setCustomerType(t); updateField('customer_type', t) }}
-                        className="accent-blue-600" />
-                      {t === 'B2C' ? 'Cá nhân' : 'Doanh nghiệp'}
-                    </label>
-                  ))}
-                </div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Tax ID</label>
+                <input type="text" value={form.company_tax_id} onChange={e => updateField('company_tax_id', e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
-
               <div className="md:col-span-2">
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Địa chỉ</label>
-                <input type="text" value={form.company_address}
-                  onChange={e => updateField('company_address', e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Mã số thuế</label>
-                <input type="text" value={form.company_tax_id}
-                  onChange={e => updateField('company_tax_id', e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Address</label>
+                <input type="text" value={form.company_address} onChange={e => updateField('company_address', e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
               </div>
             </div>
           </div>
 
-          {/* Lead Info */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Giá trị Dự kiến (VNĐ)</label>
-              <input type="number" min={0} value={form.estimated_value}
-                onChange={e => updateField('estimated_value', Number(e.target.value))}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Xác suất Thắng (%)</label>
-              <input type="number" min={0} max={100} value={form.probability_percent}
-                onChange={e => updateField('probability_percent', Number(e.target.value))}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Đánh giá Lead</label>
-              <select value={form.lead_rating}
-                onChange={e => updateField('lead_rating', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
-                {leadRatings.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Status</label>
+              <select value={form.stage} onChange={e => updateField('stage', e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
+                {leadStages.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Ngày dự kiến chốt</label>
-              <input type="date" value={form.expected_close_date}
-                onChange={e => updateField('expected_close_date', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Probability (%)</label>
+              <input type="number" min={0} max={100} value={form.probability_percent} onChange={e => updateField('probability_percent', Number(e.target.value))} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
             </div>
             <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Nhân viên Kinh doanh</label>
-              <select
-                value={form.owner_id}
-                onChange={e => updateField('owner_id', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
-                disabled={isAutoRequest}
-              >
-                <option value="">-- Chọn nhân viên --</option>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Sales Owner</label>
+              <select value={form.owner_id} onChange={e => updateField('owner_id', e.target.value)} disabled={isAutoRequest} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:bg-gray-50">
+                <option value="">-- Select salesperson --</option>
                 {salesPersonOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Ghi chú</label>
-              <textarea value={form.notes}
-                onChange={e => updateField('notes', e.target.value)}
-                rows={3}
-                placeholder="Ghi chú về nhu cầu, thông tin thêm..."
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
+              <textarea value={form.notes} onChange={e => updateField('notes', e.target.value)} rows={3} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
             </div>
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
-          <button onClick={onClose}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">
-            Hủy
-          </button>
-          <button onClick={handleSave}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-            {record?.id ? 'Cập nhật Lead' : 'Tạo Lead'}
-          </button>
+          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">Cancel</button>
+          <button onClick={handleSave} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">{record?.id ? 'Update Lead' : 'Create Lead'}</button>
         </div>
       </div>
     </div>
   )
 }
-
 // ========== QUOTATION MODAL ==========
 const QuotationModal: React.FC<{
   isOpen: boolean
@@ -769,11 +612,6 @@ const CRMModule: React.FC = () => {
 
   useEffect(() => { loadAll() }, [])
 
-  const stageLabel = (stage: any) => {
-    if (!stage) return 'Mới'
-    return stage.display_name || stage.name || stage
-  }
-
   const stageName = (leadOrStage: any) => {
     if (!leadOrStage) return 'new'
     if (typeof leadOrStage === 'object') {
@@ -806,10 +644,7 @@ const CRMModule: React.FC = () => {
       owner_name: lead.owner?.full_name || '',
       stage: stageName(lead),
       source: lead.source || 'website',
-      lead_rating: lead.lead_rating || 'warm',
-      estimated_value: lead.estimated_value || 0,
       probability_percent: lead.probability_percent || 10,
-      expected_close_date: lead.expected_close_date || '',
       notes: lead.notes || '',
       customer_type: lead.customer_type || 'B2C',
     })
@@ -837,7 +672,6 @@ const CRMModule: React.FC = () => {
       const payload = {
         ...formData,
         owner_id: isAutoRequest ? null : (formData.owner_id || null),
-        expected_close_date: formData.expected_close_date || null,
       }
 
       let savedLead: any
@@ -903,20 +737,6 @@ const CRMModule: React.FC = () => {
     }
   }
 
-  const advanceLead = async (lead: any) => {
-    const currentStage = stageName(lead)
-    const next = nextLeadStage[currentStage]
-    if (!next) return
-
-    try {
-      await erpApi.put(`/crm/leads/${lead.id}`, { stage: next })
-      await loadAll()
-      showNotification('success', `Lead chuyển sang: ${stageLabel(leadStages.find(s => s.value === next))}`)
-    } catch (e: any) {
-      showNotification('error', `Cập nhật trạng thái thất bại: ${e.message}`)
-    }
-  }
-
   const deleteLead = async (lead: any) => {
     if (!window.confirm(`Xóa lead "${lead.company_name}"?`)) return
     try {
@@ -948,17 +768,10 @@ const CRMModule: React.FC = () => {
       <RecordActions
         onEdit={() => openEditLead(lead)}
         onDelete={() => deleteLead(lead)}
-        onAdvance={nextLeadStage[stageName(lead)] ? () => advanceLead(lead) : undefined}
-        advanceLabel="Chuyển tiếp"
       />
     </div>
   )
 
-  const ratingColor = (r: string) => {
-    if (r === 'hot') return 'text-red-500'
-    if (r === 'warm') return 'text-orange-500'
-    return 'text-blue-400'
-  }
 
   return (
     <div className="space-y-6">
@@ -1010,7 +823,6 @@ const CRMModule: React.FC = () => {
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Mã Lead</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Khách hàng</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Liên hệ</th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Giá trị</th>
                     <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Xác suất</th>
                     <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Trạng thái</th>
                     <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Hành động</th>
@@ -1025,17 +837,11 @@ const CRMModule: React.FC = () => {
                       </td>
                       <td className="px-4 py-3 text-sm">
                         <p className="font-semibold text-gray-900">{lead.company_name}</p>
-                        <p className={`text-xs font-semibold ${ratingColor(lead.lead_rating)}`}>
-                          {lead.lead_rating === 'hot' ? '🔥' : lead.lead_rating === 'warm' ? '☀️' : '❄️'} {lead.lead_rating}
-                          {lead.is_auto_request && <span className="ml-1 text-yellow-600">📋</span>}
-                        </p>
+                        {lead.is_auto_request && <p className="text-xs font-semibold text-yellow-700">Auto request</p>}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
                         <p>{lead.contact_person_name}</p>
                         <p className="text-xs text-gray-400">{lead.contact_person_email}</p>
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm font-semibold text-gray-900">
-                        {formatCurrency(lead.estimated_value || 0)}
                       </td>
                       <td className="px-4 py-3 text-center text-sm text-gray-700">
                         {lead.probability_percent || 10}%
@@ -1068,10 +874,7 @@ const CRMModule: React.FC = () => {
                     <StatusBadge status={stageName(lead)} />
                   </div>
                   <p className="text-sm text-gray-600">{lead.contact_person_name} • {lead.contact_person_email}</p>
-                  <div className="mt-2 flex items-center justify-between">
-                    <p className="text-sm font-bold text-blue-700">{formatCurrency(lead.estimated_value || 0)}</p>
-                    <span className={`text-xs font-semibold ${ratingColor(lead.lead_rating)}`}>{lead.probability_percent || 10}%</span>
-                  </div>
+                  <p className="mt-2 text-xs font-semibold text-blue-700">Probability {lead.probability_percent || 10}%</p>
                   {lead.is_auto_request && (
                     <span className="mt-1 inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-semibold text-yellow-800">
                       📋 Yêu cầu báo giá
@@ -1146,3 +949,6 @@ const CRMModule: React.FC = () => {
 }
 
 export default CRMModule
+
+
+

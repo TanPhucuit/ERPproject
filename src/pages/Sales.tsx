@@ -52,7 +52,6 @@ interface FormRecord {
   valid_until_date?: string
   order_date?: string
   required_delivery_date?: string
-  sales_person_id?: string
   lines: OrderLine[]
   // Only editable field the user inputs
   tax_percent: number
@@ -219,13 +218,12 @@ const SalesModal: React.FC<{
   record: FormRecord | null
   customers: any[]
   leads: any[]
-  users: any[]
   products: any[]
   quotations: any[]
   onClose: () => void
   onSave: (data: FormRecord) => void
   errorMessage?: string | null
-}> = ({ isOpen, activeTab, record, customers, leads, users, products, quotations, onClose, onSave, errorMessage }) => {
+}> = ({ isOpen, activeTab, record, customers, leads, products, quotations, onClose, onSave, errorMessage }) => {
   const isOrder = activeTab === 'orders'
   const showCost = isOrder
 
@@ -237,7 +235,6 @@ const SalesModal: React.FC<{
     order_date: new Date().toISOString().slice(0, 10),
     valid_until_date: '',
     required_delivery_date: '',
-    sales_person_id: '',
     lines: [],
     tax_percent: 10,
     subtotal: 0, tax_amount: 0, total_amount: 0,
@@ -275,7 +272,6 @@ const SalesModal: React.FC<{
         order_date: new Date().toISOString().slice(0, 10),
         valid_until_date: '',
         required_delivery_date: '',
-        sales_person_id: '',
         lines: [],
         tax_percent: 10,
         subtotal: 0, tax_amount: 0, total_amount: 0,
@@ -317,7 +313,6 @@ const SalesModal: React.FC<{
   const leadOptions = leads
     .filter(l => !['won'].includes(l.stage_name || l.stage || l.status))
     .map(l => ({ value: l.id, label: `${l.lead_number || ''} - ${l.company_name}` }))
-  const salesPersonOptions = users.filter(u => ['Sales_Manager', 'user', 'CEO'].includes(u.role)).map(u => ({ value: u.id, label: u.full_name }))
   const quotationOptions = quotations.filter(q => ['sent', 'accepted', 'won'].includes(q.status)).map(q => ({ value: q.id, label: `${q.quotation_number} - ${q.customer?.name || ''}` }))
 
   if (!isOpen) return null
@@ -406,16 +401,6 @@ const SalesModal: React.FC<{
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
             </div>
 
-            {isOrder && (
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Sales Person</label>
-                <select value={form.sales_person_id || ''} onChange={e => updateField('sales_person_id', e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
-                  <option value="">-- Chọn Sales Person --</option>
-                  {salesPersonOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-            )}
           </div>
 
           {/* Product Lines */}
@@ -522,7 +507,6 @@ const SalesModule: React.FC = () => {
   const [orders, setOrders] = useState<any[]>([])
   const [quotations, setQuotations] = useState<any[]>([])
   const [customers, setCustomers] = useState<any[]>([])
-  const [users, setUsers] = useState<any[]>([])
   const [leads, setLeads] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -538,21 +522,19 @@ const SalesModule: React.FC = () => {
       erpApi.get<any[]>('/sales-orders?limit=100'),
       erpApi.get<any[]>('/sales-orders/quotations?limit=100'),
       erpApi.get<any[]>('/customers?limit=1000'),
-      erpApi.get<any[]>('/users?limit=100'),
       erpApi.get<any[]>('/crm/leads?limit=100'),
       erpApi.get<any[]>('/products?limit=1000'),
     ])
-      .then(([orderData, quoteData, custData, userData, leadData, prodData]) => {
+      .then(([orderData, quoteData, custData, leadData, prodData]) => {
         setLoadError(null)
         setOrders(orderData)
         setQuotations(quoteData)
         setCustomers(custData)
-        setUsers(userData)
         setLeads(leadData)
         setProducts(prodData)
       })
       .catch(e => {
-        setOrders([]); setQuotations([]); setCustomers([]); setUsers([]); setLeads([]); setProducts([])
+        setOrders([]); setQuotations([]); setCustomers([]); setLeads([]); setProducts([])
         setLoadError(e.message)
       })
   }
@@ -603,7 +585,6 @@ const SalesModule: React.FC = () => {
       order_date: record.order_date,
       valid_until_date: record.valid_until_date,
       required_delivery_date: record.required_delivery_date,
-      sales_person_id: record.sales_person_id,
       lines,
       tax_percent,
       subtotal, tax_amount, total_amount, total_cost, estimated_profit, profit_margin_percent,
@@ -628,7 +609,6 @@ const SalesModule: React.FC = () => {
       order_date: formData.order_date,
       valid_until_date: formData.valid_until_date,
       required_delivery_date: formData.required_delivery_date,
-      sales_person_id: formData.sales_person_id || null,
       // Only editable financial field
       tax_percent: formData.tax_percent,
       status: formData.status,
@@ -847,7 +827,6 @@ const SalesModule: React.FC = () => {
         record={modalRecord}
         customers={customers}
         leads={leads}
-        users={users}
         products={products}
         quotations={quotations}
         onClose={() => { setModalOpen(false); setModalRecord(null) }}
@@ -859,3 +838,4 @@ const SalesModule: React.FC = () => {
 }
 
 export default SalesModule
+
