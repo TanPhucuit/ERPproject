@@ -65,31 +65,38 @@ const calcPOTotal = (lines: POLine[]) => {
 }
 
 // ========== RFQ LINES EDITOR ==========
+const getSupplierProductLabel = (item: any) =>
+  `${item.supplierName || item.supplier_name || 'Supplier'} - ${formatCurrency(item.price || 0)}`
+
 const RFQLinesEditor: React.FC<{
   lines: RFQLine[]
   onLinesChange: (lines: RFQLine[]) => void
+  products: any[]
   supplierProducts: any[]
   suppliers: any[]
-}> = ({ lines, onLinesChange, supplierProducts }) => {
+}> = ({ lines, onLinesChange, products, supplierProducts }) => {
   const [search, setSearch] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
 
-  const filteredProducts = supplierProducts.filter(p =>
-    !lines.some(l => l.supplier_products_id === p.id) &&
-    ((p.productName || p.product_name || '').toLowerCase().includes(search.toLowerCase()) ||
-     (p.supplierName || p.supplier_name || '').toLowerCase().includes(search.toLowerCase()) ||
-     (p.sku || '').toLowerCase().includes(search.toLowerCase()))
+  const productsWithSuppliers = products.filter(product =>
+    supplierProducts.some(sp => sp.product_id === product.id) &&
+    !lines.some(line => line.product_id === product.id) &&
+    `${product.name || product.product_name || ''} ${product.sku || ''}`.toLowerCase().includes(search.toLowerCase())
   )
 
-  const addProduct = (supplierProduct: any) => {
+  const supplierOptionsForProduct = (productId: string) =>
+    supplierProducts.filter(item => item.product_id === productId)
+
+  const addProduct = (product: any) => {
+    const firstSupplierProduct = supplierOptionsForProduct(product.id)[0]
     const newLine: RFQLine = {
       id: `rfq-${Date.now()}-${Math.random()}`,
-      product_id: supplierProduct.product_id || '',
-      supplier_products_id: supplierProduct.id,
-      supplier_name: supplierProduct.supplierName || supplierProduct.supplier_name,
-      product_name: supplierProduct.sku,
-      product_sku: supplierProduct.sku,
-      estimated_unit_price: supplierProduct.price || 0,
+      product_id: product.id,
+      supplier_products_id: firstSupplierProduct?.id,
+      supplier_name: firstSupplierProduct?.supplierName || firstSupplierProduct?.supplier_name,
+      product_name: product.name || product.product_name,
+      product_sku: product.sku,
+      estimated_unit_price: firstSupplierProduct?.price || 0,
       quantity_required: 1,
       required_delivery_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
     }
@@ -99,7 +106,19 @@ const RFQLinesEditor: React.FC<{
   }
 
   const updateLine = (id: string, key: keyof RFQLine, value: any) => {
-    onLinesChange(lines.map(l => l.id === id ? { ...l, [key]: value } : l))
+    onLinesChange(lines.map(l => {
+      if (l.id !== id) return l
+      if (key === 'supplier_products_id') {
+        const selectedSupplierProduct = supplierProducts.find(item => item.id === value)
+        return {
+          ...l,
+          supplier_products_id: value,
+          supplier_name: selectedSupplierProduct?.supplierName || selectedSupplierProduct?.supplier_name || '',
+          estimated_unit_price: selectedSupplierProduct?.price || 0,
+        }
+      }
+      return { ...l, [key]: value }
+    }))
   }
 
   const removeLine = (id: string) => {
@@ -121,16 +140,16 @@ const RFQLinesEditor: React.FC<{
             className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none"
           />
         </div>
-        {showDropdown && filteredProducts.length > 0 && (
+        {showDropdown && productsWithSuppliers.length > 0 && (
           <div className="absolute z-20 mt-1 w-full max-w-lg rounded-md border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
-            {filteredProducts.slice(0, 10).map(p => (
+            {productsWithSuppliers.slice(0, 10).map(p => (
               <button key={p.id} onClick={() => addProduct(p)}
                 className="w-full px-4 py-2 text-left text-sm hover:bg-blue-50 flex justify-between items-center">
                 <div>
-                  <span className="font-medium text-gray-900">{p.productName || p.product_name}</span>
-                  <p className="text-xs text-gray-500">{p.supplierName || p.supplier_name}</p>
+                  <span className="font-medium text-gray-900">{p.name || p.product_name}</span>
+                  <p className="text-xs text-gray-500">{supplierOptionsForProduct(p.id).length} suppliers available</p>
                 </div>
-                <span className="text-xs text-gray-500">{p.sku} - {formatCurrency(p.price || 0)}</span>
+                <span className="text-xs text-gray-500">{p.sku}</span>
               </button>
             ))}
           </div>
@@ -146,7 +165,7 @@ const RFQLinesEditor: React.FC<{
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1">
                   <p className="font-bold text-gray-900">{line.product_name}</p>
-                  <p className="text-xs text-gray-500">{line.supplier_name} - {line.product_sku}</p>
+                  <p className="text-xs text-gray-500">{line.product_sku}</p>
                 </div>
                 <button onClick={() => removeLine(line.id)} className="text-red-500 hover:bg-red-50 p-1 rounded">
                   <Trash2 size={16} />
@@ -154,7 +173,18 @@ const RFQLinesEditor: React.FC<{
               </div>
 
               {/* Line Details */}
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-5 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Supplier</label>
+                  <select value={line.supplier_products_id || ''}
+                    onChange={e => updateLine(line.id, 'supplier_products_id', e.target.value)}
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-sm">
+                    <option value="">Select supplier...</option>
+                    {supplierOptionsForProduct(line.product_id).map(item => (
+                      <option key={item.id} value={item.id}>{getSupplierProductLabel(item)}</option>
+                    ))}
+                  </select>
+                </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-700">Qty Required</label>
                   <input type="number" min={1} value={line.quantity_required}
@@ -163,9 +193,8 @@ const RFQLinesEditor: React.FC<{
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-700">Supplier Price</label>
-                  <input type="number" min={0} step={0.01} value={line.estimated_unit_price || 0}
-                    onChange={e => updateLine(line.id, 'estimated_unit_price', Number(e.target.value))}
-                    className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+                  <input type="text" value={formatCurrency(line.estimated_unit_price || 0)} readOnly
+                    className="w-full rounded border border-gray-300 bg-gray-100 px-2 py-1 text-sm font-semibold" />
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-700">Delivery Date</label>
@@ -341,9 +370,10 @@ const RFQModal: React.FC<{
   record: any
   suppliers: any[]
   supplierProducts: any[]
+  products: any[]
   onClose: () => void
   onSave: (data: any) => void
-}> = ({ isOpen, record, suppliers, supplierProducts, onClose, onSave }) => {
+}> = ({ isOpen, record, suppliers, supplierProducts, products, onClose, onSave }) => {
   const [form, setForm] = useState<any>({
     rfqNumber: '',
     issuedDate: new Date().toISOString().slice(0, 10),
@@ -385,6 +415,10 @@ const RFQModal: React.FC<{
   const handleSave = () => {
     if ((form.lines || []).length === 0) {
       alert('RFQ must have at least 1 product line')
+      return
+    }
+    if ((form.lines || []).some((line: RFQLine) => !line.supplier_products_id)) {
+      alert('Please select a supplier for every RFQ product line')
       return
     }
     const totalEstimatedCost = calcRFQSubtotal(form.lines || [], form.quotations || {})
@@ -431,6 +465,7 @@ const RFQModal: React.FC<{
             <RFQLinesEditor
               lines={form.lines || []}
               onLinesChange={lines => setForm({ ...form, lines })}
+              products={products}
               supplierProducts={supplierProducts}
               suppliers={suppliers}
             />
@@ -628,6 +663,7 @@ const PurchaseModule: React.FC = () => {
   const [rfqs, setRfqs] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [supplierProducts, setSupplierProducts] = useState<any[]>([])
+  const [products, setProducts] = useState<any[]>([])
   const [rfqList, setRfqList] = useState<any[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -692,9 +728,9 @@ const PurchaseModule: React.FC = () => {
               id: item.id,
               product_id: item.supplier_product?.product_id || '',
               supplier_products_id: item.supplier_products_id,
-              supplier_name: item.supplier_product?.supplier?.name || '',
-              product_name: item.supplier_product?.sku || '',
-              product_sku: item.supplier_product?.sku || '',
+              supplier_name: item.supplier_product?.supplier?.supplier_name || item.supplier_product?.supplier?.name || '',
+              product_name: item.supplier_product?.product?.product_name || item.supplier_product?.sku || '',
+              product_sku: item.supplier_product?.product?.sku || item.supplier_product?.sku || '',
               estimated_unit_price: item.supplier_product?.price || 0,
               quantity_required: item.quantity,
             })),
@@ -718,6 +754,11 @@ const PurchaseModule: React.FC = () => {
       .get<any[]>('/supplier-products?limit=1000')
       .then(setSupplierProducts)
       .catch(() => setSupplierProducts([]))
+
+    erpApi
+      .get<any[]>('/products?limit=1000')
+      .then(setProducts)
+      .catch(() => setProducts([]))
   }, [])
 
   const activeRecords = activeTab === 'purchase-orders' ? purchaseOrders : rfqs
@@ -944,6 +985,7 @@ const PurchaseModule: React.FC = () => {
         record={modalRecord}
         suppliers={suppliers}
         supplierProducts={supplierProducts}
+        products={products}
         onClose={() => setModalOpen(false)}
         onSave={saveRecord}
       />

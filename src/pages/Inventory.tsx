@@ -70,6 +70,246 @@ const transferFieldsBase: FormField[] = [
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
+const TransferModal: React.FC<{
+  isOpen: boolean
+  record: any
+  deliveries: any[]
+  warehouses: any[]
+  binLocations: any[]
+  binStock: any[]
+  products: any[]
+  onClose: () => void
+  onSave: (record: any) => void
+}> = ({ isOpen, record, deliveries, warehouses, binLocations, binStock, products, onClose, onSave }) => {
+  const [form, setForm] = useState<any>({})
+
+  useEffect(() => {
+    if (!isOpen) return
+    setForm({
+      transferType: record?.transferType || 'internal',
+      deliveryOrderId: record?.deliveryOrderId || '',
+      sourceBinLocationId: record?.sourceBinLocationId || '',
+      destBinLocationId: record?.destBinLocationId || '',
+      productId: record?.productId || '',
+      quantity: record?.quantity || 1,
+      notes: record?.notes || '',
+      deliveryLines: record?.deliveryLines || [],
+    })
+  }, [record, isOpen])
+
+  const selectedDelivery = deliveries.find((delivery) => delivery.id === form.deliveryOrderId)
+  const orderLines = (selectedDelivery?.sales_order?.items || []).map((item: any) => ({
+    id: item.id,
+    product_id: item.product_id,
+    product_name: item.product?.product_name || item.product_name || item.product_id,
+    product_sku: item.product?.sku || '',
+    quantity: item.quantity || 1,
+  }))
+
+  useEffect(() => {
+    if (!selectedDelivery || form.transferType !== 'customer_delivery') return
+    const nextLines = orderLines.map((line: any) => {
+      const existing = (form.deliveryLines || []).find((item: any) => item.product_id === line.product_id)
+      const existingItem = (selectedDelivery.items || []).find((item: any) => item.product_id === line.product_id)
+      const binId = existing?.bin_location_id || existingItem?.bin_location_id || ''
+      const bin = binLocations.find((item) => item.id === binId)
+      return {
+        ...line,
+        warehouse_id: existing?.warehouse_id || bin?.warehouse_id || '',
+        bin_location_id: binId,
+      }
+    })
+    setForm((current: any) => ({ ...current, deliveryLines: nextLines }))
+  }, [form.deliveryOrderId, form.transferType])
+
+  if (!isOpen) return null
+
+  const updateDeliveryLine = (productId: string, key: string, value: string) => {
+    setForm((current: any) => ({
+      ...current,
+      deliveryLines: (current.deliveryLines || []).map((line: any) => {
+        if (line.product_id !== productId) return line
+        const next = { ...line, [key]: value }
+        if (key === 'warehouse_id') next.bin_location_id = ''
+        return next
+      }),
+    }))
+  }
+
+  const binOptionsForLine = (line: any) => {
+    const availableBinIds = new Set(
+      binStock
+        .filter((row) => row.product_id === line.product_id && Number(row.available ?? 0) >= Number(line.quantity || 0))
+        .map((row) => row.bin_location_id)
+    )
+    return binLocations
+      .filter((bin) => (!line.warehouse_id || bin.warehouse_id === line.warehouse_id) && availableBinIds.has(bin.id))
+      .map((bin) => {
+        const stockRow = binStock.find((row) => row.product_id === line.product_id && row.bin_location_id === bin.id)
+        return { ...bin, available: stockRow?.available ?? 0 }
+      })
+  }
+
+  const internalProduct = products.find((product) => product.id === form.productId)
+
+  const handleSave = () => {
+    if (form.transferType === 'customer_delivery') {
+      if (!form.deliveryOrderId) {
+        alert('Please select a delivery order.')
+        return
+      }
+      if ((form.deliveryLines || []).some((line: any) => !line.bin_location_id)) {
+        alert('Please select warehouse and bin for every delivery product.')
+        return
+      }
+      onSave({
+        ...record,
+        ...form,
+        transfer_type: 'customer_delivery',
+        delivery_order_id: form.deliveryOrderId,
+        lines: (form.deliveryLines || []).map((line: any) => ({
+          product_id: line.product_id,
+          bin_location_id: line.bin_location_id,
+          quantity: line.quantity,
+        })),
+      })
+      return
+    }
+
+    onSave({
+      ...record,
+      ...form,
+      productId: form.productId,
+      quantity: form.quantity,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
+      <div className="mt-4 mb-8 w-full max-w-5xl rounded-md bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <h2 className="text-xl font-bold text-gray-900">Create Stock Transfer</h2>
+          <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100">x</button>
+        </div>
+        <div className="max-h-[75vh] space-y-5 overflow-y-auto p-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Transfer Type</label>
+              <select value={form.transferType || 'internal'} onChange={(event) => setForm({ ...form, transferType: event.target.value })}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                <option value="internal">Transfer between bins</option>
+                <option value="customer_delivery">Ship to customer</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
+              <input value={form.notes || ''} onChange={(event) => setForm({ ...form, notes: event.target.value })}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          {form.transferType === 'customer_delivery' ? (
+            <>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Delivery Order</label>
+                <select value={form.deliveryOrderId || ''} onChange={(event) => setForm({ ...form, deliveryOrderId: event.target.value })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                  <option value="">Select delivery order...</option>
+                  {deliveries.map((delivery) => (
+                    <option key={delivery.id} value={delivery.id}>
+                      {(delivery.delivery_order_number || delivery.reference || delivery.id?.slice(0, 8))} - {delivery.sales_order?.order_number || delivery.sales_order?.sales_order_number || delivery.sales_order_id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-3">
+                {(form.deliveryLines || []).map((line: any) => (
+                  <div key={line.product_id} className="rounded-md border border-gray-200 bg-gray-50 p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-gray-900">{line.product_name}</p>
+                        <p className="text-xs text-gray-500">{line.product_sku} - Qty {line.quantity}</p>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700">Warehouse</label>
+                        <select value={line.warehouse_id || ''} onChange={(event) => updateDeliveryLine(line.product_id, 'warehouse_id', event.target.value)}
+                          className="w-full rounded border border-gray-300 px-2 py-1 text-sm">
+                          <option value="">Select warehouse...</option>
+                          {warehouses.map((warehouse) => (
+                            <option key={warehouse.id} value={warehouse.id}>{warehouse.name || warehouse.warehouse_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700">Bin Location</label>
+                        <select value={line.bin_location_id || ''} onChange={(event) => updateDeliveryLine(line.product_id, 'bin_location_id', event.target.value)}
+                          className="w-full rounded border border-gray-300 px-2 py-1 text-sm">
+                          <option value="">Select bin...</option>
+                          {binOptionsForLine(line).map((bin) => (
+                            <option key={bin.id} value={bin.id}>{bin.location_code || bin.bin_code} - available {bin.available}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Product</label>
+                <select value={form.productId || ''} onChange={(event) => setForm({ ...form, productId: event.target.value })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                  <option value="">Select product...</option>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>{product.name || product.product_name} ({product.sku})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Quantity</label>
+                <input type="number" min={1} value={form.quantity || 1} onChange={(event) => setForm({ ...form, quantity: Number(event.target.value) })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Source Bin</label>
+                <select value={form.sourceBinLocationId || ''} onChange={(event) => setForm({ ...form, sourceBinLocationId: event.target.value })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                  <option value="new">New stock</option>
+                  {binStock.filter((row) => !form.productId || row.product_id === form.productId).map((row) => (
+                    <option key={`${row.product_id}-${row.bin_location_id}`} value={row.bin_location_id}>
+                      {row.binCode} - {row.productName} - available {row.available}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Destination Bin</label>
+                <select value={form.destBinLocationId || ''} onChange={(event) => setForm({ ...form, destBinLocationId: event.target.value })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                  <option value="">Select destination bin...</option>
+                  {binLocations.map((bin) => (
+                    <option key={bin.id} value={bin.id}>{bin.location_code || bin.bin_code} - {bin.warehouseName}</option>
+                  ))}
+                </select>
+              </div>
+              {internalProduct && <p className="text-sm text-gray-500 md:col-span-2">Selected product: {internalProduct.name || internalProduct.product_name}</p>}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
+          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">Cancel</button>
+          <button onClick={handleSave} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Save Transfer</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const flow: Record<string, string> = {
   delivering: 'delivered',
 }
@@ -411,10 +651,21 @@ const InventoryModule: React.FC = () => {
         return
       }
       if (activeTab === 'transfers' && record.sourceBinLocationId !== 'new') {
+        if (record.transfer_type === 'customer_delivery') {
+          const missingStock = (record.lines || []).find((line: any) => {
+            const sourceBin = binStock.find((row) => row.product_id === line.product_id && row.bin_location_id === line.bin_location_id)
+            return !sourceBin || Number(sourceBin.available ?? 0) < Number(line.quantity || 0)
+          })
+          if (missingStock) {
+            showNotification('error', 'Selected bin does not have enough available stock for this delivery.')
+            return
+          }
+        } else {
         const sourceBin = binStock.find((row) => row.product_id === record.productId && row.bin_location_id === record.sourceBinLocationId)
         if (!sourceBin || Number(sourceBin.available ?? 0) < Number(record.quantity || 0)) {
           showNotification('error', 'Selected source bin does not have enough available stock for this transfer.')
           return
+        }
         }
       }
       const payload = activeTab === 'deliveries'
@@ -433,7 +684,15 @@ const InventoryModule: React.FC = () => {
             notes: record.notes || null,
           }
         : activeTab === 'transfers'
-          ? {
+          ? record.transfer_type === 'customer_delivery'
+            ? {
+              transfer_type: 'customer_delivery',
+              delivery_order_id: record.delivery_order_id,
+              lines: record.lines || [],
+              status: 'delivering',
+              notes: record.notes || null,
+            }
+            : {
             product_id: record.productId,
             src_bin_location_id: record.sourceBinLocationId,
             target_bin_location_id: record.destBinLocationId,
@@ -637,14 +896,28 @@ const InventoryModule: React.FC = () => {
         />
       )}
 
-      <RecordModal
-        isOpen={modalOpen}
-        title={`${modalRecord && activeRecords.some((item) => item.id === modalRecord.id) ? 'Edit' : 'Create'} ${activeTitle}`}
-        record={modalRecord}
-        fields={activeFields}
-        onClose={() => setModalOpen(false)}
-        onSave={saveRecord}
-      />
+      {activeTab === 'transfers' ? (
+        <TransferModal
+          isOpen={modalOpen}
+          record={modalRecord}
+          deliveries={deliveries}
+          warehouses={warehouses}
+          binLocations={binLocations}
+          binStock={binStock}
+          products={products}
+          onClose={() => setModalOpen(false)}
+          onSave={saveRecord}
+        />
+      ) : (
+        <RecordModal
+          isOpen={modalOpen}
+          title={`${modalRecord && activeRecords.some((item) => item.id === modalRecord.id) ? 'Edit' : 'Create'} ${activeTitle}`}
+          record={modalRecord}
+          fields={activeFields}
+          onClose={() => setModalOpen(false)}
+          onSave={saveRecord}
+        />
+      )}
     </div>
   )
 }

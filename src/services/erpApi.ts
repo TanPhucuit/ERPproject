@@ -257,7 +257,7 @@ const selectQuotation = '*, customer:customers(*), lead:leads(*), items:quotatio
 const selectSalesOrder = '*, customer:customers(*), quotation:quotations(*), items:sales_order_items(*, product:products(*))'
 const selectInvoice = '*, sales_order:sales_orders(*, customer:customers(*), items:sales_order_items(*, product:products(*))), warranty_order:warranty_orders(*)'
 const selectVendorBill = '*, purchase_order:purchase_orders(*, supplier:suppliers!purchase_orders_vendor_id_fkey(*))'
-const selectRfq = '*, items:rfq_items(*, supplier_product:supplier_products(*, supplier:suppliers(*)))'
+const selectRfq = '*, items:rfq_items(*, supplier_product:supplier_products(*, supplier:suppliers(*), product:products(*)))'
 const selectPurchaseOrder = '*, supplier:suppliers!purchase_orders_vendor_id_fkey(*), items:purchase_order_items(*, supplier_product:supplier_products(*, supplier:suppliers(*)))'
 
 const getSingle = async (table: string, id: string, columns = '*') => {
@@ -278,6 +278,52 @@ const findDefaultCustomer = async () => {
   const { data, error } = await supabase.from('customers').select('id').order('created_at', { ascending: true }).limit(1).maybeSingle()
   if (error) throw error
   return data?.id || null
+}
+
+const ensureSalesOrderInvoiceAndDelivery = async (orderId: string) => {
+  const order: any = await getSingle('sales_orders', orderId, selectSalesOrder)
+  const lines = (order?.items || []).map(mapSalesOrderItem)
+  const netAmount = lines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0)
+
+  const { data: existingInvoice, error: invoiceLookupError } = await supabase
+    .from('invoices')
+    .select('id')
+    .eq('sales_order_id', orderId)
+    .maybeSingle()
+  if (invoiceLookupError) throw invoiceLookupError
+  if (!existingInvoice?.id) {
+    const { error: invoiceCreateError } = await supabase
+      .from('invoices')
+      .insert({
+        sales_order_id: orderId,
+        issue_date: today(),
+        due_date: addDays(30),
+        status: 'sent',
+        net_amount: netAmount,
+        tax_amount: 0,
+        total_amount: netAmount,
+        notes: 'Auto-created from accepted quotation.',
+      })
+    if (invoiceCreateError) throw invoiceCreateError
+  }
+
+  const { data: existingDelivery, error: deliveryLookupError } = await supabase
+    .from('delivery_orders')
+    .select('id')
+    .eq('sales_order_id', orderId)
+    .maybeSingle()
+  if (deliveryLookupError) throw deliveryLookupError
+  if (!existingDelivery?.id) {
+    const { error: deliveryCreateError } = await supabase
+      .from('delivery_orders')
+      .insert({
+        sales_order_id: orderId,
+        delivery_date: today(),
+        status: 'ready',
+        notes: 'Auto-created from accepted quotation.',
+      })
+    if (deliveryCreateError) throw deliveryCreateError
+  }
 }
 
 const getResource = async <T>(path: string): Promise<T> => {
@@ -342,8 +388,8 @@ const getResource = async <T>(path: string): Promise<T> => {
       ...row,
       supplierName: row.supplier?.supplier_name,
       supplier_name: row.supplier?.supplier_name,
-      productName: row.sku,
-      product_name: row.sku,
+      productName: row.product?.product_name || row.sku,
+      product_name: row.product?.product_name || row.sku,
       productSku: row.product?.sku,
       name: `${row.supplier?.supplier_name || 'Supplier'} - ${row.sku}`,
     })) as T
@@ -402,7 +448,7 @@ const getResource = async <T>(path: string): Promise<T> => {
 
   if (pathname === '/inventory/delivery-orders') {
     const { data, error } = await applyLimit(
-      supabase.from('delivery_orders').select('*, sales_order:sales_orders(*, customer:customers(*)), items:delivery_order_items(*, product:products(*), bin_location:bin_locations(*))').order('created_at', { ascending: false }),
+      supabase.from('delivery_orders').select('*, sales_order:sales_orders(*, customer:customers(*), items:sales_order_items(*, product:products(*))), items:delivery_order_items(*, product:products(*), bin_location:bin_locations(*, warehouse:warehouses(*)))').order('created_at', { ascending: false }),
       searchParams
     )
     if (error) throw error
@@ -662,7 +708,10 @@ const applyAcceptedQuotationWorkflow = async (quotationId: string) => {
     .eq('quotation_id', quotationId)
     .maybeSingle()
   if (orderLookupError) throw orderLookupError
-  if (existingOrder?.id) return
+  if (existingOrder?.id) {
+    await ensureSalesOrderInvoiceAndDelivery(existingOrder.id)
+    return
+  }
 
   const { data: order, error: orderCreateError } = await supabase
     .from('sales_orders')
@@ -687,6 +736,7 @@ const applyAcceptedQuotationWorkflow = async (quotationId: string) => {
     const { error: lineInsertError } = await supabase.from('sales_order_items').insert(lines)
     if (lineInsertError) throw lineInsertError
   }
+  await ensureSalesOrderInvoiceAndDelivery(order.id)
 }
 
 const writeQuotation = async <T>(body: any, id?: string): Promise<T> => {
@@ -879,6 +929,40 @@ const writePurchaseOrder = async <T>(body: any, id?: string): Promise<T> => {
   return mapPurchaseOrder(await getSingle('purchase_orders', data.id, selectPurchaseOrder)) as T
 }
 
+const writeStockTransfer = async <T>(body: any, id?: string): Promise<T> => {
+  if (body.transfer_type === 'customer_delivery' || body.delivery_order_id || body.deliveryOrderId) {
+    const deliveryOrderId = body.delivery_order_id || body.deliveryOrderId
+    const lines = (body.lines || []).map((line: any) => ({
+      delivery_order_id: deliveryOrderId,
+      product_id: line.product_id,
+      bin_location_id: line.bin_location_id || line.sourceBinLocationId,
+      quantity_requested: toNumber(line.quantity_requested ?? line.quantity, 1),
+    })).filter((line: any) => isUuid(line.product_id) && isUuid(line.bin_location_id))
+
+    if (!isUuid(deliveryOrderId)) throw new Error('Delivery order is required.')
+    if (lines.length === 0) throw new Error('At least one delivery line with bin location is required.')
+
+    await replaceChildren('delivery_order_items', 'delivery_order_id', deliveryOrderId, lines)
+    const { data, error } = await supabase
+      .from('delivery_orders')
+      .update({ status: deliveryStatus(body.status || 'delivering'), notes: body.notes || body.note || null })
+      .eq('id', deliveryOrderId)
+      .select('*, sales_order:sales_orders(*, customer:customers(*), items:sales_order_items(*, product:products(*))), items:delivery_order_items(*, product:products(*), bin_location:bin_locations(*, warehouse:warehouses(*)))')
+      .single()
+    if (error) throw error
+    return data as T
+  }
+
+  return writeSimple<T>('stock_transfers', body, id, (value) => ({
+    product_id: value.product_id || value.productId || value.lines?.[0]?.product_id,
+    src_bin_location_id: [value.src_bin_location_id, value.from_bin_location_id, value.sourceBinLocationId, value.lines?.[0]?.from_bin_location_id]
+      .find((candidate) => candidate && candidate !== 'new') || null,
+    target_bin_location_id: value.target_bin_location_id || value.to_bin_location_id || value.destBinLocationId || value.lines?.[0]?.to_bin_location_id,
+    quantity: toNumber(value.quantity),
+    note: value.note || value.notes || null,
+  }))
+}
+
 const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<T> => {
   const paymentMethod = body.payment_method || 'cash'
   if (paymentMethod !== 'cash' && (!body.payment_account || !body.target_account)) {
@@ -991,14 +1075,7 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
     }))
   }
   if (pathname === '/inventory/stock-transfers' || pathname.startsWith('/inventory/stock-transfers/')) {
-    return writeSimple<T>('stock_transfers', body, id, (value) => ({
-      product_id: value.product_id || value.productId || value.lines?.[0]?.product_id,
-      src_bin_location_id: [value.src_bin_location_id, value.from_bin_location_id, value.sourceBinLocationId, value.lines?.[0]?.from_bin_location_id]
-        .find((candidate) => candidate && candidate !== 'new') || null,
-      target_bin_location_id: value.target_bin_location_id || value.to_bin_location_id || value.destBinLocationId || value.lines?.[0]?.to_bin_location_id,
-      quantity: toNumber(value.quantity),
-      note: value.note || value.notes || null,
-    }))
+    return writeStockTransfer<T>(body, id)
   }
   if (pathname === '/inventory/delivery-orders' || pathname.startsWith('/inventory/delivery-orders/')) {
     return writeSimple<T>('delivery_orders', body, id, (value) => ({ sales_order_id: value.sales_order_id, delivery_date: value.delivery_date || today(), status: deliveryStatus(value.status), tracking_number: value.tracking_number || null, notes: value.notes || null }))
