@@ -364,6 +364,8 @@ const flow: Record<string, string> = {
   sent: 'received',
 }
 
+void POLinesEditor
+
 // ========== RFQ CUSTOM MODAL ==========
 const RFQModal: React.FC<{
   isOpen: boolean
@@ -508,14 +510,15 @@ const RFQModal: React.FC<{
 const POModal: React.FC<{
   isOpen: boolean
   record: any
-  suppliers: any[]
   supplierProducts: any[]
+  rfqs: any[]
   onClose: () => void
   onSave: (data: any) => void
-}> = ({ isOpen, record, suppliers, supplierProducts, onClose, onSave }) => {
+}> = ({ isOpen, record, supplierProducts, rfqs, onClose, onSave }) => {
   const [form, setForm] = useState<any>({
     poNumber: '',
     supplierId: '',
+    rfqId: '',
     orderDate: new Date().toISOString().slice(0, 10),
     requiredDeliveryDate: '',
     actualDeliveryDate: '',
@@ -530,11 +533,12 @@ const POModal: React.FC<{
 
   useEffect(() => {
     if (record) {
-      setForm(record)
+      setForm({ ...record, rfqId: record.rfqId || record.rfq_id || record.rfqNumber || '' })
     } else {
       setForm({
         poNumber: `PO-${Date.now().toString().slice(-5)}`,
         supplierId: '',
+        rfqId: '',
         orderDate: new Date().toISOString().slice(0, 10),
         requiredDeliveryDate: '',
         actualDeliveryDate: '',
@@ -549,9 +553,71 @@ const POModal: React.FC<{
     }
   }, [record, isOpen])
 
+  const selectedRfq = rfqs.find((rfq) => rfq.id === form.rfqId)
+  const rfqSupplierOptions = useMemo(() => {
+    const supplierMap = new Map<string, string>()
+    ;(selectedRfq?.lines || []).forEach((line: any) => {
+      const supplierProduct = supplierProducts.find((item) => item.id === line.supplier_products_id)
+      const supplierId = supplierProduct?.supplier_id
+      if (supplierId) supplierMap.set(supplierId, supplierProduct?.supplierName || supplierProduct?.supplier_name || line.supplier_name || 'Supplier')
+    })
+    return Array.from(supplierMap.entries()).map(([value, label]) => ({ value, label }))
+  }, [selectedRfq, supplierProducts])
+
+  const linesFromRfq = (rfq: any, supplierId: string) => {
+    return (rfq?.lines || []).filter((line: any) => {
+      const supplierProduct = supplierProducts.find((item) => item.id === line.supplier_products_id)
+      return supplierProduct?.supplier_id === supplierId
+    }).map((line: any) => {
+      const supplierProduct = supplierProducts.find((item) => item.id === line.supplier_products_id)
+      const quantity = Number(line.quantity_required || line.quantity || 1)
+      const unitPrice = Number(supplierProduct?.price || line.estimated_unit_price || 0)
+      return {
+        id: line.id || `po-${line.supplier_products_id}`,
+        product_id: line.product_id || supplierProduct?.product_id || '',
+        supplier_products_id: line.supplier_products_id,
+        supplier_name: supplierProduct?.supplierName || supplierProduct?.supplier_name || line.supplier_name,
+        product_name: line.product_name || supplierProduct?.productName || supplierProduct?.product_name || supplierProduct?.sku || '',
+        product_sku: line.product_sku || supplierProduct?.productSku || supplierProduct?.sku || '',
+        quantity_ordered: quantity,
+        unit_price: unitPrice,
+        line_total: quantity * unitPrice,
+      }
+    })
+  }
+
+  const selectRfq = (rfqId: string) => {
+    const rfq = rfqs.find((item) => item.id === rfqId)
+    const firstSupplierProductId = rfq?.lines?.[0]?.supplier_products_id
+    const firstSupplierProduct = supplierProducts.find((item) => item.id === firstSupplierProductId)
+    const supplierId = firstSupplierProduct?.supplier_id || ''
+    setForm({
+      ...form,
+      rfqId,
+      supplierId,
+      lines: supplierId ? linesFromRfq(rfq, supplierId) : [],
+    })
+  }
+
+  const selectSupplier = (supplierId: string) => {
+    setForm({
+      ...form,
+      supplierId,
+      lines: linesFromRfq(selectedRfq, supplierId),
+    })
+  }
+
   const handleSave = () => {
+    if (!form.rfqId) {
+      alert('Purchase Order must be created from an RFQ')
+      return
+    }
+    if (!form.supplierId) {
+      alert('Please select a supplier from the RFQ')
+      return
+    }
     if (form.lines.length === 0) {
-      alert('PO must have at least 1 product line')
+      alert('RFQ supplier must have at least 1 product line')
       return
     }
     const subtotal = calcPOTotal(form.lines)
@@ -580,13 +646,25 @@ const POModal: React.FC<{
                 className="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm" />
             </div>
             <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">RFQ</label>
+              <select value={form.rfqId || ''}
+                onChange={e => selectRfq(e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                <option value="">Select RFQ...</option>
+                {rfqs.map((rfq) => (
+                  <option key={rfq.id} value={rfq.id}>{rfq.rfqNumber || rfq.rfq_number || rfq.id?.slice(0, 8)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">Supplier</label>
               <select value={form.supplierId}
-                onChange={e => setForm({ ...form, supplierId: e.target.value })}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
-                <option value="">Select supplier...</option>
-                {suppliers.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                onChange={e => selectSupplier(e.target.value)}
+                disabled={!form.rfqId}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100">
+                <option value="">Select supplier from RFQ...</option>
+                {rfqSupplierOptions.map(s => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
                 ))}
               </select>
             </div>
@@ -607,11 +685,39 @@ const POModal: React.FC<{
           {/* Product Lines */}
           <div>
             <h3 className="mb-2 text-sm font-bold text-gray-800 uppercase tracking-wide">📦 Products ({form.lines.length})</h3>
-            <POLinesEditor
-              lines={form.lines}
-              onLinesChange={lines => setForm({ ...form, lines })}
-              supplierProducts={supplierProducts.filter((item) => !form.supplierId || item.supplier_id === form.supplierId)}
-            />
+            <div className="rounded-lg border border-gray-200">
+              {form.lines.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Product</th>
+                        <th className="px-3 py-2 text-center font-semibold text-gray-700">Qty</th>
+                        <th className="px-3 py-2 text-right font-semibold text-gray-700">Supplier Price</th>
+                        <th className="px-3 py-2 text-right font-semibold text-gray-700">Line Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {form.lines.map((line: POLine) => (
+                        <tr key={line.id}>
+                          <td className="px-3 py-2">
+                            <p className="font-semibold text-gray-900">{line.product_name}</p>
+                            <p className="text-xs text-gray-500">{line.product_sku}</p>
+                          </td>
+                          <td className="px-3 py-2 text-center">{line.quantity_ordered}</td>
+                          <td className="px-3 py-2 text-right">{formatCurrency(line.unit_price)}</td>
+                          <td className="px-3 py-2 text-right font-semibold text-blue-700">{formatCurrency(line.line_total || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="p-6 text-center text-sm text-gray-500">
+                  Select an RFQ and supplier to load RFQ products.
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Summary */}
@@ -692,6 +798,7 @@ const PurchaseModule: React.FC = () => {
             receivedAmount: po.received_amount,
             notes: po.notes,
             rfqNumber: po.rfq_id,
+            rfqId: po.rfq_id,
             lines: (po.items || []).map((item: any) => ({
               id: item.id,
               product_id: item.supplier_product?.product_id || item.product_id,
@@ -789,7 +896,7 @@ const PurchaseModule: React.FC = () => {
       ? {
           purchase_order_number: record.poNumber,
           supplier_id: record.supplierId,
-          rfq_id: rfqOptions.find(r => r.label === record.rfqNumber)?.value || record.rfqNumber,
+          rfq_id: record.rfqId || rfqOptions.find(r => r.label === record.rfqNumber)?.value || record.rfqNumber,
           order_date: record.orderDate,
           required_delivery_date: record.requiredDeliveryDate,
           actual_delivery_date: record.actualDeliveryDate,
@@ -980,8 +1087,8 @@ const PurchaseModule: React.FC = () => {
       <POModal
         isOpen={modalOpen && activeTab === 'purchase-orders'}
         record={modalRecord}
-        suppliers={suppliers}
         supplierProducts={supplierProducts}
+        rfqs={rfqs}
         onClose={() => setModalOpen(false)}
         onSave={saveRecord}
       />

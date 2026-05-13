@@ -91,7 +91,7 @@ const TransferModal: React.FC<{
     setForm({
       transferType: record?.transferType || 'internal',
       deliveryOrderId: record?.deliveryOrderId || '',
-      sourceBinLocationId: record?.sourceBinLocationId || '',
+      sourceBinLocationId: record?.sourceBinLocationId || 'new',
       destBinLocationId: record?.destBinLocationId || '',
       productId: record?.productId || '',
       quantity: record?.quantity || 1,
@@ -508,10 +508,10 @@ const InventoryModule: React.FC = () => {
   }
   const activeRecords = activeTab === 'stock'
     ? stock
-    : activeTab === 'bin-stock'
-      ? binStock
-      : activeTab === 'deliveries'
-        ? deliveries.filter((delivery) => delivery.status !== 'delivered')
+      : activeTab === 'bin-stock'
+        ? binStock
+        : activeTab === 'deliveries'
+        ? deliveries
         : activeTab === 'receipts'
           ? receipts
           : activeTab === 'transfers'
@@ -646,7 +646,7 @@ const InventoryModule: React.FC = () => {
       transferDate: new Date().toISOString().slice(0, 10),
       sourceWarehouseId: '',
       destWarehouseId: '',
-      sourceBinLocationId: '',
+      sourceBinLocationId: activeTab === 'transfers' ? 'new' : '',
       destBinLocationId: '',
       productId: '',
       quantity: 1,
