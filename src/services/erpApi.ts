@@ -1105,7 +1105,7 @@ const writePurchaseOrder = async <T>(body: any, id?: string): Promise<T> => {
     if ('notes' in body) payload.notes = body.notes || null
   }
   if (!id && !payload.vendor_id) throw new Error('Supplier is required.')
-  if (body.order_number || body.purchase_order_number || body.poNumber) Object.assign(payload, { order_number: body.order_number || body.purchase_order_number || body.poNumber })
+  if (id && (body.order_number || body.purchase_order_number || body.poNumber)) Object.assign(payload, { order_number: body.order_number || body.purchase_order_number || body.poNumber })
   const { data, error } = id
     ? await supabase.from('purchase_orders').update(payload).eq('id', id).select().single()
     : await supabase.from('purchase_orders').insert(payload).select().single()

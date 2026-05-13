@@ -564,6 +564,8 @@ const POModal: React.FC<{
     return Array.from(supplierMap.entries()).map(([value, label]) => ({ value, label }))
   }, [selectedRfq, supplierProducts])
 
+  const mappedSupplierName = rfqSupplierOptions[0]?.label || ''
+
   const linesFromRfq = (rfq: any, supplierId: string) => {
     return (rfq?.lines || []).filter((line: any) => {
       const supplierProduct = supplierProducts.find((item) => item.id === line.supplier_products_id)
@@ -596,14 +598,6 @@ const POModal: React.FC<{
       rfqId,
       supplierId,
       lines: supplierId ? linesFromRfq(rfq, supplierId) : [],
-    })
-  }
-
-  const selectSupplier = (supplierId: string) => {
-    setForm({
-      ...form,
-      supplierId,
-      lines: linesFromRfq(selectedRfq, supplierId),
     })
   }
 
@@ -658,15 +652,8 @@ const POModal: React.FC<{
             </div>
             <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">Supplier</label>
-              <select value={form.supplierId}
-                onChange={e => selectSupplier(e.target.value)}
-                disabled={!form.rfqId}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100">
-                <option value="">Select supplier from RFQ...</option>
-                {rfqSupplierOptions.map(s => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
+              <input value={mappedSupplierName} readOnly
+                className="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">PO Date</label>
@@ -894,7 +881,6 @@ const PurchaseModule: React.FC = () => {
     const path = isPO ? '/purchase/purchase-orders' : '/purchase/rfqs'
     const payload = isPO
       ? {
-          purchase_order_number: record.poNumber,
           supplier_id: record.supplierId,
           rfq_id: record.rfqId || rfqOptions.find(r => r.label === record.rfqNumber)?.value || record.rfqNumber,
           order_date: record.orderDate,
