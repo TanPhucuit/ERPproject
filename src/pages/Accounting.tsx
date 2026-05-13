@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Download } from 'lucide-react'
+import { Download, Trash2 } from 'lucide-react'
 import { erpApi } from '../services/erpApi'
 import { exportInvoiceToPDF } from '../services/pdfExportService'
 import {
@@ -92,7 +92,6 @@ const paymentFieldsBase: FormField[] = [
   { name: 'amount', label: 'Amount', type: 'number', required: true },
   { name: 'paymentAccount', label: 'Source Account', type: 'select', options: [] },
   { name: 'targetAccount', label: 'Target Account', type: 'select', options: [] },
-  { name: 'referenceNumber', label: 'Reference Number', type: 'text' },
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
@@ -104,10 +103,13 @@ const normalizeInvoice = (invoice: any) => ({
   invoiceDate: invoice.issue_date,
   dueDate: invoice.due_date,
   netAmount: invoice.net_amount,
+  subtotal: invoice.subtotal || invoice.net_amount,
   taxAmount: invoice.tax_amount,
   totalAmount: invoice.total_amount,
   warrantyOrderId: invoice.warranty_orders_id,
   notes: invoice.notes,
+  lines: invoice.lines || invoice.items || [],
+  items: invoice.items || invoice.lines || [],
 })
 
 const normalizeBill = (bill: any) => ({
@@ -144,7 +146,6 @@ const normalizePayment = (payment: any) => ({
   paymentMethod: payment.payment_method,
   paymentAccount: payment.payment_account,
   targetAccount: payment.target_account,
-  referenceNumber: payment.reference_number,
   status: 'posted',
 })
 
@@ -172,72 +173,30 @@ const AccountingModule: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false)
   const [modalRecord, setModalRecord] = useState<any>(null)
 
+  const loadAccounting = async () => {
+    try {
+      const [invoiceData, billData, creditData, debitData, accountData, paymentData] = await Promise.all([
+        erpApi.get<any[]>('/accounting/invoices?limit=100'),
+        erpApi.get<any[]>('/accounting/bills?limit=100'),
+        erpApi.get<any[]>('/accounting/credit-notes?limit=100'),
+        erpApi.get<any[]>('/accounting/debit-notes?limit=100'),
+        erpApi.get<any[]>('/accounting/accounts'),
+        erpApi.get<any[]>('/accounting/payments?limit=100'),
+      ])
+      setLoadError(null)
+      setInvoices(invoiceData.map(normalizeInvoice))
+      setVendorBills(billData.map(normalizeBill))
+      setCredits(creditData.map((note) => normalizeNote(note, true)))
+      setDebits(debitData.map((note) => normalizeNote(note, false)))
+      setAccounts(accountData.map(normalizeAccount))
+      setPayments(paymentData.map(normalizePayment))
+    } catch (error: any) {
+      setLoadError(error.message)
+    }
+  }
+
   useEffect(() => {
-    erpApi
-      .get<any[]>('/accounting/invoices?limit=100')
-      .then((records) => {
-        setLoadError(null)
-        setInvoices(records.map(normalizeInvoice))
-      })
-      .catch((error) => {
-        setInvoices([])
-        setLoadError(error.message)
-      })
-
-    erpApi
-      .get<any[]>('/accounting/bills?limit=100')
-      .then((records) => {
-        setLoadError(null)
-        setVendorBills(records.map(normalizeBill))  // FIX #3: Use normalizeBill function
-      })
-      .catch((error) => {
-        setVendorBills([])
-        setLoadError(error.message)
-      })
-
-    erpApi
-      .get<any[]>('/accounting/credit-notes?limit=100')
-      .then((records) => {
-        setLoadError(null)
-        setCredits(records.map((note) => normalizeNote(note, true)))
-      })
-      .catch((error) => {
-        setCredits([])
-        setLoadError(error.message)
-      })
-
-    erpApi
-      .get<any[]>('/accounting/debit-notes?limit=100')
-      .then((records) => {
-        setLoadError(null)
-        setDebits(records.map((note) => normalizeNote(note, false)))  // FIX #3: Use normalizeNote
-      })
-      .catch((error) => {
-        setDebits([])
-        setLoadError(error.message)
-      })
-
-    erpApi
-      .get<any[]>('/accounting/accounts')
-      .then((records) => {
-        setLoadError(null)
-        setAccounts(records.map(normalizeAccount))
-      })
-      .catch((error) => {
-        setAccounts([])
-        setLoadError(error.message)
-      })
-
-    erpApi
-      .get<any[]>('/accounting/payments?limit=100')
-      .then((records) => {
-        setLoadError(null)
-        setPayments(records.map(normalizePayment))
-      })
-      .catch((error) => {
-        setPayments([])
-        setLoadError(error.message)
-      })
+    loadAccounting()
   }, [])
 
   useEffect(() => {
@@ -342,7 +301,6 @@ const AccountingModule: React.FC = () => {
       balance: 0,
       paymentAccount: '',
       targetAccount: '',
-      referenceNumber: '',
       reason: '',
       notes: '',
     })
@@ -399,7 +357,6 @@ const AccountingModule: React.FC = () => {
       amount: record.amount,
       payment_account: record.paymentMethod === 'cash' ? null : record.paymentAccount || null,
       target_account: record.paymentMethod === 'cash' ? null : record.targetAccount || null,
-      reference_number: record.referenceNumber,
       notes: record.notes,
     } : {
       account_number: record.accountNumber,
@@ -418,6 +375,12 @@ const AccountingModule: React.FC = () => {
       }
     } catch (error: any) {
       showNotification('error', `Accounting save failed: ${error.message}`)
+      return
+    }
+    if (activeTab === 'payments') {
+      await loadAccounting()
+      setModalOpen(false)
+      showNotification('success', 'Payment posted and document status updated.')
       return
     }
     setters[activeTab]((current) => {
@@ -444,7 +407,6 @@ const AccountingModule: React.FC = () => {
       amount: record.totalAmount || record.total_amount || record.total || 0,
       paymentAccount: '',
       targetAccount: '',
-      referenceNumber: '',
       notes: `Payment for ${record.invoiceNumber || record.billNumber || record.noteNumber || record.id}`,
     })
     setModalOpen(true)
@@ -484,14 +446,20 @@ const AccountingModule: React.FC = () => {
           Pay
         </button>
       )}
-      <RecordActions
-        onEdit={() => {
-          setModalRecord(record)
-          setModalOpen(true)
-        }}
-        onDelete={() => deleteRecord(record)}
-        onAdvance={undefined}
-      />
+      {activeTab === 'invoices' ? (
+        <button onClick={() => deleteRecord(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Delete">
+          <Trash2 size={16} />
+        </button>
+      ) : (
+        <RecordActions
+          onEdit={() => {
+            setModalRecord(record)
+            setModalOpen(true)
+          }}
+          onDelete={() => deleteRecord(record)}
+          onAdvance={undefined}
+        />
+      )}
     </div>
   )
 

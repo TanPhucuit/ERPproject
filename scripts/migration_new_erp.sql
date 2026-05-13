@@ -538,7 +538,7 @@ BEGIN
       FROM quotation_items
       WHERE quotation_id = NEW.id;
     END IF;
-  ELSIF NEW.status IN ('rejected','expired') AND OLD.status IS DISTINCT FROM NEW.status THEN
+  ELSIF NEW.status = 'rejected' AND OLD.status IS DISTINCT FROM NEW.status THEN
     UPDATE leads SET status = 'lost', probability = 0, updated_at = NOW() WHERE id = NEW.lead_id;
   END IF;
   RETURN NEW;

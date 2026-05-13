@@ -21,6 +21,7 @@ interface RFQLine {
   supplier_name?: string
   product_name: string
   product_sku: string
+  estimated_unit_price?: number
   quantity_required: number
   required_delivery_date?: string
   notes?: string
@@ -55,7 +56,7 @@ interface POLine {
 const calcRFQSubtotal = (lines: RFQLine[], quotations: Record<string, RFQSupplierQuotation[]>) => {
   return lines.reduce((sum, line) => {
     const selectedQuote = quotations[line.id]?.find(q => q.is_selected)
-    return sum + ((selectedQuote?.quoted_price || 0) * line.quantity_required)
+    return sum + ((selectedQuote?.quoted_price || line.estimated_unit_price || 0) * line.quantity_required)
   }, 0)
 }
 
@@ -66,12 +67,10 @@ const calcPOTotal = (lines: POLine[]) => {
 // ========== RFQ LINES EDITOR ==========
 const RFQLinesEditor: React.FC<{
   lines: RFQLine[]
-  quotations: Record<string, RFQSupplierQuotation[]>
   onLinesChange: (lines: RFQLine[]) => void
-  onQuotationsChange: (quotations: Record<string, RFQSupplierQuotation[]>) => void
   supplierProducts: any[]
   suppliers: any[]
-}> = ({ lines, quotations, onLinesChange, onQuotationsChange, supplierProducts }) => {
+}> = ({ lines, onLinesChange, supplierProducts }) => {
   const [search, setSearch] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
 
@@ -90,6 +89,7 @@ const RFQLinesEditor: React.FC<{
       supplier_name: supplierProduct.supplierName || supplierProduct.supplier_name,
       product_name: supplierProduct.sku,
       product_sku: supplierProduct.sku,
+      estimated_unit_price: supplierProduct.price || 0,
       quantity_required: 1,
       required_delivery_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
     }
@@ -104,30 +104,6 @@ const RFQLinesEditor: React.FC<{
 
   const removeLine = (id: string) => {
     onLinesChange(lines.filter(l => l.id !== id))
-    const newQuotations = { ...quotations }
-    delete newQuotations[id]
-    onQuotationsChange(newQuotations)
-  }
-
-  const toggleSupplierSelection = (lineId: string, supplierId: string) => {
-    const lineQuotes = quotations[lineId] || []
-    onQuotationsChange({
-      ...quotations,
-      [lineId]: lineQuotes.map(q => ({
-        ...q,
-        is_selected: q.supplier_id === supplierId ? !q.is_selected : false,
-      })),
-    })
-  }
-
-  const updateQuotation = (lineId: string, supplierId: string, key: string, value: any) => {
-    const lineQuotes = quotations[lineId] || []
-    onQuotationsChange({
-      ...quotations,
-      [lineId]: lineQuotes.map(q =>
-        q.supplier_id === supplierId ? { ...q, [key]: value } : q
-      ),
-    })
   }
 
   return (
@@ -178,11 +154,17 @@ const RFQLinesEditor: React.FC<{
               </div>
 
               {/* Line Details */}
-              <div className="grid grid-cols-3 gap-3 mb-3">
+              <div className="grid grid-cols-4 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-gray-700">Qty Required</label>
                   <input type="number" min={1} value={line.quantity_required}
                     onChange={e => updateLine(line.id, 'quantity_required', Number(e.target.value))}
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">Supplier Price</label>
+                  <input type="number" min={0} step={0.01} value={line.estimated_unit_price || 0}
+                    onChange={e => updateLine(line.id, 'estimated_unit_price', Number(e.target.value))}
                     className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
                 </div>
                 <div>
@@ -198,30 +180,6 @@ const RFQLinesEditor: React.FC<{
                     placeholder="Optional notes"
                     className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
                 </div>
-              </div>
-
-              {/* Supplier Quotations */}
-              <div className="bg-white rounded border border-gray-200 p-3">
-                <p className="text-xs font-semibold text-gray-700 mb-2">Supplier Quotations:</p>
-                {quotations[line.id]?.length > 0 ? (
-                  <div className="space-y-2">
-                    {quotations[line.id]!.map((quote, idx) => (
-                      <div key={idx} className="flex items-center gap-2 p-2 border border-gray-100 rounded">
-                        <input type="checkbox" checked={quote.is_selected}
-                          onChange={() => toggleSupplierSelection(line.id, quote.supplier_id)}
-                          className="w-4 h-4" />
-                        <span className="text-sm font-medium flex-1">{quote.supplier_name}</span>
-                        <input type="number" min={0} value={quote.quoted_price}
-                          onChange={e => updateQuotation(line.id, quote.supplier_id, 'quoted_price', Number(e.target.value))}
-                          placeholder="Price"
-                          className="w-24 rounded border border-gray-300 px-2 py-1 text-sm" />
-                        <span className="text-sm text-gray-600">{formatCurrency(quote.quoted_price * line.quantity_required)}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-gray-500">Add suppliers by editing RFQ after creation.</p>
-                )}
               </div>
             </div>
           ))}
@@ -472,9 +430,7 @@ const RFQModal: React.FC<{
             <h3 className="mb-2 text-sm font-bold text-gray-800 uppercase tracking-wide">Products ({(form.lines || []).length})</h3>
             <RFQLinesEditor
               lines={form.lines || []}
-              quotations={form.quotations || {}}
               onLinesChange={lines => setForm({ ...form, lines })}
-              onQuotationsChange={quotations => setForm({ ...form, quotations })}
               supplierProducts={supplierProducts}
               suppliers={suppliers}
             />
@@ -488,26 +444,14 @@ const RFQModal: React.FC<{
             </div>
           </div>
 
-          {/* Status & Notes */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Status</label>
-              <select value={form.status}
-                onChange={e => setForm({ ...form, status: e.target.value })}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
-                <option value="sent">Sent</option>
-                <option value="closed">Closed</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </div>
-            <div>
+          {/* Notes */}
+          <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
               <textarea value={form.notes}
                 onChange={e => setForm({ ...form, notes: e.target.value })}
                 rows={2}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
                 placeholder="RFQ notes..." />
-            </div>
           </div>
         </div>
 
@@ -653,26 +597,14 @@ const POModal: React.FC<{
             </div>
           </div>
 
-          {/* Status & Notes */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Status</label>
-              <select value={form.status}
-                onChange={e => setForm({ ...form, status: e.target.value })}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
-                <option value="sent">Sent</option>
-                <option value="received">Received</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </div>
-            <div>
+          {/* Notes */}
+          <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
               <textarea value={form.notes}
                 onChange={e => setForm({ ...form, notes: e.target.value })}
                 rows={2}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
                 placeholder="PO notes..." />
-            </div>
           </div>
         </div>
 
@@ -728,7 +660,7 @@ const PurchaseModule: React.FC = () => {
               id: item.id,
               product_id: item.supplier_product?.product_id || item.product_id,
               supplier_products_id: item.supplier_products_id,
-              supplier_name: po.supplier?.name,
+              supplier_name: item.supplier_product?.supplier?.name || po.supplier?.name,
               product_name: item.supplier_product?.sku || '',
               product_sku: item.supplier_product?.sku || item.supplier_product?.product?.sku || '',
               quantity_ordered: item.quantity,
@@ -755,6 +687,17 @@ const PurchaseModule: React.FC = () => {
             closingDate: rfq.closing_date,
             totalEstimatedCost: rfq.total_estimated_cost || 0,
             notes: rfq.notes,
+            supplierName: rfq.supplier_name,
+            lines: (rfq.items || []).map((item: any) => ({
+              id: item.id,
+              product_id: item.supplier_product?.product_id || '',
+              supplier_products_id: item.supplier_products_id,
+              supplier_name: item.supplier_product?.supplier?.name || '',
+              product_name: item.supplier_product?.sku || '',
+              product_sku: item.supplier_product?.sku || '',
+              estimated_unit_price: item.supplier_product?.price || 0,
+              quantity_required: item.quantity,
+            })),
           }))
         )
         setRfqList(records)
@@ -792,22 +735,7 @@ const PurchaseModule: React.FC = () => {
   }, [activeRecords, search, status])
 
   const openCreate = () => {
-    const isPO = activeTab === 'purchase-orders'
-    setModalRecord({
-      id: `${activeTab}-${Date.now()}`,
-      [isPO ? 'poNumber' : 'rfqNumber']: `${isPO ? 'PO' : 'RFQ'}-${Date.now().toString().slice(-5)}`,
-      supplierId: '',
-      orderDate: new Date().toISOString().slice(0, 10),
-      issuedDate: new Date().toISOString().slice(0, 10),
-      requiredDeliveryDate: '',
-      closingDate: '',
-      totalAmountBeforeTax: 0,
-      totalTax: 0,
-      totalAmount: 0,
-      totalEstimatedCost: 0,
-      receivedAmount: 0,
-      status: 'sent',
-    })
+    setModalRecord(null)
     setModalOpen(true)
   }
 
@@ -837,7 +765,6 @@ const PurchaseModule: React.FC = () => {
           issued_date: record.issuedDate,
           closing_date: record.closingDate,
           total_estimated_cost: record.totalEstimatedCost,
-          status: record.status,
           notes: record.notes,
           lines: (record.lines || []).map((line: any) => ({
             ...line,
@@ -979,7 +906,7 @@ const PurchaseModule: React.FC = () => {
                   <td className="px-4 py-3 text-sm text-gray-600">{record.notes || 'Device replenishment'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{record.orderDate || record.issuedDate || record.closingDate}</td>
                   <td className="px-4 py-3"><StatusBadge status={record.status} /></td>
-                  <td className="px-4 py-3 text-right text-sm font-semibold">{formatCurrency(record.total || record.targetPrice)}</td>
+                  <td className="px-4 py-3 text-right text-sm font-semibold">{formatCurrency(record.totalAmount || record.totalEstimatedCost || record.total_amount || record.total_estimated_cost || 0)}</td>
                   <td className="px-4 py-3">{renderActions(record)}</td>
                 </tr>
               ))}
@@ -994,7 +921,7 @@ const PurchaseModule: React.FC = () => {
             <div key={record.id} className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
               <p className="font-bold text-blue-700">{record.poNumber || record.rfqNumber}</p>
               <p className="mt-1 text-sm text-gray-600">{record.supplierName}</p>
-              <p className="mt-2 text-sm font-semibold">{formatCurrency(record.total || record.targetPrice)}</p>
+              <p className="mt-2 text-sm font-semibold">{formatCurrency(record.totalAmount || record.totalEstimatedCost || record.total_amount || record.total_estimated_cost || 0)}</p>
               <div className="mt-3">{renderActions(record)}</div>
             </div>
           )}

@@ -88,7 +88,6 @@ interface LeadFormData {
   company_tax_id: string
   owner_id: string
   owner_name: string
-  stage: string
   source: string
   probability_percent: number
   notes: string
@@ -117,7 +116,6 @@ const LeadModal: React.FC<{
     company_tax_id: '',
     owner_id: '',
     owner_name: '',
-    stage: 'new',
     source: 'website',
     probability_percent: 10,
     notes: '',
@@ -225,12 +223,6 @@ const LeadModal: React.FC<{
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Status</label>
-              <select value={form.stage} onChange={e => updateField('stage', e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
-                {leadStages.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-            </div>
             <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">Probability (%)</label>
               <input type="number" min={0} max={100} value={form.probability_percent} onChange={e => updateField('probability_percent', Number(e.target.value))} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
@@ -645,7 +637,6 @@ const CRMModule: React.FC = () => {
       company_tax_id: lead.company_tax_id || '',
       owner_id: lead.owner_id || '',
       owner_name: lead.owner?.full_name || '',
-      stage: stageName(lead),
       source: lead.source || 'website',
       probability_percent: lead.probability_percent || 10,
       notes: lead.notes || '',
@@ -672,8 +663,9 @@ const CRMModule: React.FC = () => {
       }
 
       const isAutoRequest = formData.source === 'auto_request'
+      const { stage, status, ...leadPayload } = formData as LeadFormData & { stage?: string; status?: string }
       const payload = {
-        ...formData,
+        ...leadPayload,
         owner_id: isAutoRequest ? null : (formData.owner_id || null),
       }
 

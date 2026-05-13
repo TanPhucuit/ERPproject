@@ -155,6 +155,28 @@ const mapSalesOrder = (order: any) => {
   }
 }
 
+const mapInvoice = (invoice: any) => {
+  const order = invoice?.sales_order
+  const orderLines = (order?.items || order?.sales_order_items || []).map(mapSalesOrderItem)
+  const calculatedSubtotal = orderLines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0)
+  const taxAmount = toNumber(invoice?.tax_amount)
+  const netAmount = toNumber(invoice?.net_amount, calculatedSubtotal)
+  const totalAmount = toNumber(invoice?.total_amount, netAmount + taxAmount)
+  return {
+    ...invoice,
+    customer_id: order?.customer_id,
+    customer: order?.customer ? mapCustomer(order.customer) : undefined,
+    customer_name: order?.customer ? mapCustomer(order.customer).name : '',
+    sales_order_number: order?.order_number,
+    lines: orderLines,
+    items: orderLines,
+    subtotal: netAmount || calculatedSubtotal,
+    net_amount: netAmount || calculatedSubtotal,
+    tax_amount: taxAmount,
+    total_amount: totalAmount || calculatedSubtotal + taxAmount,
+  }
+}
+
 const mapStock = (row: any) => ({
   ...row,
   product_name: productName(row?.product),
@@ -176,12 +198,67 @@ const mapBinStock = (row: any) => ({
   occupancyQuantity: row?.quantity,
 })
 
+const supplierProductName = (supplierProduct: any) => supplierProduct?.sku || supplierProduct?.product?.sku || ''
+
+const mapRfqItem = (item: any) => ({
+  ...item,
+  product_id: item?.supplier_product?.product_id || '',
+  product_name: supplierProductName(item?.supplier_product),
+  product_sku: supplierProductName(item?.supplier_product),
+  supplier_name: item?.supplier_product?.supplier?.supplier_name || '',
+  estimated_unit_price: toNumber(item?.supplier_product?.price),
+  quantity_required: toNumber(item?.quantity, 1),
+  line_total: toNumber(item?.quantity, 1) * toNumber(item?.supplier_product?.price),
+})
+
+const mapRfq = (rfq: any) => {
+  const lines = (rfq?.items || rfq?.rfq_items || []).map(mapRfqItem)
+  const supplierNames = Array.from(new Set(lines.map((line: any) => line.supplier_name).filter(Boolean)))
+  return {
+    ...rfq,
+    rfq_number: rfq?.rfq_number || rfq?.id?.slice(0, 8),
+    issued_date: rfq?.issue_date,
+    closing_date: rfq?.deadline,
+    supplier_name: supplierNames.join(', '),
+    total_estimated_cost: lines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0),
+    lines,
+    rfq_lines: lines,
+  }
+}
+
+const mapPurchaseOrderItem = (item: any) => ({
+  ...item,
+  product_id: item?.supplier_product?.product_id || '',
+  product_name: supplierProductName(item?.supplier_product),
+  product_sku: supplierProductName(item?.supplier_product),
+  supplier_name: item?.supplier_product?.supplier?.supplier_name || '',
+  quantity_ordered: toNumber(item?.quantity, 1),
+  line_total: toNumber(item?.quantity, 1) * toNumber(item?.unit_price),
+})
+
+const mapPurchaseOrder = (po: any) => {
+  const lines = (po?.items || po?.purchase_order_items || []).map(mapPurchaseOrderItem)
+  return {
+    ...po,
+    purchase_order_number: po?.order_number,
+    supplier_id: po?.vendor_id,
+    supplier: po?.supplier ? mapSupplier(po.supplier) : undefined,
+    supplier_name: po?.supplier?.supplier_name || '',
+    required_delivery_date: po?.expected_arrival_date,
+    total_amount: lines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0),
+    lines,
+    purchase_order_lines: lines,
+  }
+}
+
 const selectProduct = '*, category:product_categories(*)'
 const selectLead = '*, assigned_to:users(*)'
 const selectQuotation = '*, customer:customers(*), lead:leads(*), items:quotation_items(*, product:products(*))'
 const selectSalesOrder = '*, customer:customers(*), quotation:quotations(*), items:sales_order_items(*, product:products(*))'
-const selectInvoice = '*, sales_order:sales_orders(*, customer:customers(*)), warranty_order:warranty_orders(*)'
+const selectInvoice = '*, sales_order:sales_orders(*, customer:customers(*), items:sales_order_items(*, product:products(*))), warranty_order:warranty_orders(*)'
 const selectVendorBill = '*, purchase_order:purchase_orders(*, supplier:suppliers!purchase_orders_vendor_id_fkey(*))'
+const selectRfq = '*, items:rfq_items(*, supplier_product:supplier_products(*, supplier:suppliers(*)))'
+const selectPurchaseOrder = '*, supplier:suppliers!purchase_orders_vendor_id_fkey(*), items:purchase_order_items(*, supplier_product:supplier_products(*, supplier:suppliers(*)))'
 
 const getSingle = async (table: string, id: string, columns = '*') => {
   const { data, error } = await supabase.from(table).select(columns).eq('id', id).single()
@@ -377,26 +454,26 @@ const getResource = async <T>(path: string): Promise<T> => {
 
   if (pathname === '/purchase/rfqs') {
     const { data, error } = await applyLimit(
-      supabase.from('rfqs').select('*, items:rfq_items(*, supplier_product:supplier_products(*, supplier:suppliers(*), product:products(*)))').order('created_at', { ascending: false }),
+      supabase.from('rfqs').select(selectRfq).order('created_at', { ascending: false }),
       searchParams
     )
     if (error) throw error
-    return (data || []).map((r: any) => ({ ...r, rfq_number: r.id?.slice(0, 8), issued_date: r.issue_date, closing_date: r.deadline })) as T
+    return (data || []).map(mapRfq) as T
+  }
+  if (pathname.startsWith('/purchase/rfqs/')) {
+    return mapRfq(await getSingle('rfqs', pathname.split('/').pop()!, selectRfq)) as T
   }
 
   if (pathname === '/purchase/purchase-orders') {
     const { data, error } = await applyLimit(
-      supabase.from('purchase_orders').select('*, supplier:suppliers!purchase_orders_vendor_id_fkey(*), items:purchase_order_items(*, supplier_product:supplier_products(*, product:products(*)))').order('order_date', { ascending: false }),
+      supabase.from('purchase_orders').select(selectPurchaseOrder).order('order_date', { ascending: false }),
       searchParams
     )
     if (error) throw error
-    return (data || []).map((po: any) => ({
-      ...po,
-      purchase_order_number: po.order_number,
-      supplier_id: po.vendor_id,
-      supplier: po.supplier ? mapSupplier(po.supplier) : undefined,
-      total_amount: (po.items || []).reduce((sum: number, item: any) => sum + toNumber(item.quantity) * toNumber(item.unit_price), 0),
-    })) as T
+    return (data || []).map(mapPurchaseOrder) as T
+  }
+  if (pathname.startsWith('/purchase/purchase-orders/')) {
+    return mapPurchaseOrder(await getSingle('purchase_orders', pathname.split('/').pop()!, selectPurchaseOrder)) as T
   }
 
   if (pathname === '/inventory/goods-receipts') {
@@ -411,7 +488,10 @@ const getResource = async <T>(path: string): Promise<T> => {
       searchParams
     )
     if (error) throw error
-    return (data || []).map((i: any) => ({ ...i, customer_id: i.sales_order?.customer_id, customer: i.sales_order?.customer })) as T
+    return (data || []).map(mapInvoice) as T
+  }
+  if (pathname.startsWith('/accounting/invoices/')) {
+    return mapInvoice(await getSingle('invoices', pathname.split('/').pop()!, selectInvoice)) as T
   }
 
   if (pathname === '/accounting/bills') {
@@ -466,18 +546,19 @@ const normalizeLeadPayload = (body: any) => {
   const contactName = body.contact_person_name || `${body.first_name || ''} ${body.last_name || ''}`.trim()
   const parts = contactName.split(/\s+/).filter(Boolean)
   const source = ['referral','auto_request','website','phone','email','event','other'].includes(body.source) ? body.source : 'other'
-  const status = ['new','quoted','won','lost'].includes(body.status || body.stage) ? (body.status || body.stage) : 'new'
-  return {
+  const status = body.status || body.stage
+  const payload: any = {
     first_name: body.first_name || parts[0] || body.company_name || 'Lead',
     last_name: body.last_name || parts.slice(1).join(' ') || '-',
     email: body.email || body.contact_person_email,
     phone: body.phone || body.contact_person_phone || null,
     company: body.company || body.company_name || null,
     source,
-    status,
     probability: toNumber(body.probability ?? body.probability_percent, 10),
     assigned_to_id: body.assigned_to_id || body.owner_id || null,
   }
+  if (['new','quoted','won','lost'].includes(status)) payload.status = status
+  return payload
 }
 
 const normalizeProductPayload = (body: any) => ({
@@ -720,10 +801,17 @@ const writeSalesOrder = async <T>(body: any, id?: string): Promise<T> => {
 }
 
 const writeRfq = async <T>(body: any, id?: string): Promise<T> => {
-  const payload = {
-    issue_date: body.issue_date || body.issuedDate || today(),
-    deadline: body.deadline || body.closingDate || null,
-    status: rfqStatus(body.status),
+  const payload: any = id
+    ? {}
+    : {
+        issue_date: body.issue_date || body.issuedDate || today(),
+        deadline: body.deadline || body.closingDate || null,
+        status: rfqStatus(body.status),
+      }
+  if (id) {
+    if ('issue_date' in body || 'issuedDate' in body) payload.issue_date = body.issue_date || body.issuedDate || today()
+    if ('deadline' in body || 'closingDate' in body) payload.deadline = body.deadline || body.closingDate || null
+    if ('status' in body) payload.status = rfqStatus(body.status)
   }
   const { data, error } = id
     ? await supabase.from('rfqs').update(payload).eq('id', id).select().single()
@@ -734,16 +822,31 @@ const writeRfq = async <T>(body: any, id?: string): Promise<T> => {
     supplier_products_id: line.supplier_products_id || line.supplier_product_id || line.product_id,
     quantity: toNumber(line.quantity ?? line.quantity_required, 1),
   })).filter((line: any) => isUuid(line.supplier_products_id))
+  if (lines.length === 0) throw new Error('RFQ must have at least one supplier product line.')
   await replaceChildren('rfq_items', 'rfq_id', data.id, lines)
-  return data as T
+  return mapRfq(await getSingle('rfqs', data.id, selectRfq)) as T
 }
 
 const writePurchaseOrder = async <T>(body: any, id?: string): Promise<T> => {
+  let vendorId = body.vendor_id || body.supplier_id || body.supplierId || null
+  if (!vendorId && Array.isArray(body.lines) && body.lines.length > 0) {
+    const sourceLine = body.lines.find((line: any) => isUuid(line.supplier_products_id || line.supplier_product_id))
+    const supplierProductId = sourceLine?.supplier_products_id || sourceLine?.supplier_product_id
+    if (supplierProductId) {
+      const { data: supplierProduct, error: supplierProductError } = await supabase
+        .from('supplier_products')
+        .select('supplier_id')
+        .eq('id', supplierProductId)
+        .single()
+      if (supplierProductError) throw supplierProductError
+      vendorId = supplierProduct?.supplier_id || null
+    }
+  }
   const payload: any = id
     ? {}
     : {
         rfq_id: isUuid(body.rfq_id) ? body.rfq_id : null,
-        vendor_id: body.vendor_id || body.supplier_id || body.supplierId,
+        vendor_id: vendorId,
         order_date: body.order_date || body.orderDate || today(),
         expected_arrival_date: body.expected_arrival_date || body.requiredDeliveryDate || null,
         status: purchaseOrderStatus(body.status),
@@ -751,7 +854,7 @@ const writePurchaseOrder = async <T>(body: any, id?: string): Promise<T> => {
       }
   if (id) {
     if ('rfq_id' in body) payload.rfq_id = isUuid(body.rfq_id) ? body.rfq_id : null
-    if ('vendor_id' in body || 'supplier_id' in body || 'supplierId' in body) payload.vendor_id = body.vendor_id || body.supplier_id || body.supplierId
+    if ('vendor_id' in body || 'supplier_id' in body || 'supplierId' in body) payload.vendor_id = vendorId
     if ('order_date' in body || 'orderDate' in body) payload.order_date = body.order_date || body.orderDate || today()
     if ('expected_arrival_date' in body || 'requiredDeliveryDate' in body) payload.expected_arrival_date = body.expected_arrival_date || body.requiredDeliveryDate || null
     if ('status' in body) payload.status = purchaseOrderStatus(body.status)
@@ -770,9 +873,10 @@ const writePurchaseOrder = async <T>(body: any, id?: string): Promise<T> => {
       quantity: toNumber(line.quantity ?? line.quantity_ordered, 1),
       unit_price: toNumber(line.unit_price),
     })).filter((line: any) => isUuid(line.supplier_products_id))
+    if (lines.length === 0) throw new Error('Purchase order must have at least one supplier product line.')
     await replaceChildren('purchase_order_items', 'purchase_order_id', data.id, lines)
   }
-  return data as T
+  return mapPurchaseOrder(await getSingle('purchase_orders', data.id, selectPurchaseOrder)) as T
 }
 
 const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<T> => {
@@ -788,7 +892,7 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<
     amount: toNumber(body.amount),
     payment_account: paymentMethod === 'cash' ? null : body.payment_account,
     target_account: paymentMethod === 'cash' ? null : body.target_account,
-    reference_number: body.reference_number || null,
+    reference_number: null,
     notes: body.notes || null,
   }
   const { data, error } = await supabase.from('payments').insert(payload).select().single()
@@ -901,18 +1005,33 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
   }
 
   if (pathname === '/accounting/invoices' || pathname.startsWith('/accounting/invoices/')) {
-    return writeSimple<T>('invoices', body, id, (value) => ({
+    const value = body
+    let netAmount = toNumber(value.net_amount ?? value.subtotal ?? value.total_amount_before_tax ?? value.netAmount)
+    const taxAmount = toNumber(value.tax_amount ?? value.total_tax ?? value.taxAmount)
+    let totalAmount = toNumber(value.total_amount ?? value.totalAmount)
+    if (value.sales_order_id && (!netAmount || !totalAmount)) {
+      const order: any = await getSingle('sales_orders', value.sales_order_id, selectSalesOrder)
+      const orderLines = (order?.items || []).map(mapSalesOrderItem)
+      netAmount = orderLines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0)
+      totalAmount = netAmount + taxAmount
+    }
+    const payload = {
       sales_order_id: value.sales_order_id,
       invoice_number: value.invoice_number || value.invoiceNumber || '',
       issue_date: value.issue_date || value.invoice_date || today(),
       due_date: value.due_date || null,
       status: invoiceStatus(value.status),
-      total_amount: toNumber(value.total_amount),
-      tax_amount: toNumber(value.tax_amount ?? value.total_tax),
-      net_amount: toNumber(value.net_amount ?? value.subtotal ?? value.total_amount_before_tax ?? value.total_amount),
-      warranty_orders_id: value.warranty_orders_id || null,
+      total_amount: totalAmount,
+      tax_amount: taxAmount,
+      net_amount: netAmount || totalAmount,
+      warranty_orders_id: value.warranty_orders_id || value.warrantyOrderId || null,
       notes: value.notes || value.description || null,
-    }))
+    }
+    const { data, error } = id
+      ? await supabase.from('invoices').update(payload).eq('id', id).select().single()
+      : await supabase.from('invoices').insert(payload).select().single()
+    if (error) throw error
+    return mapInvoice(await getSingle('invoices', data.id, selectInvoice)) as T
   }
   if (pathname === '/accounting/bills' || pathname.startsWith('/accounting/bills/')) {
     return writeSimple<T>('vendor_bills', body, id, (value) => ({

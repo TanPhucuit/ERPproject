@@ -23,6 +23,30 @@ ALTER TABLE quotations
   CHECK (status IN ('sent','accepted','rejected'));
 ALTER TABLE quotations ALTER COLUMN status SET DEFAULT 'sent';
 
+-- Keep one active quotation per lead before creating the unique index.
+-- Priority: accepted quotation first, otherwise the newest sent quotation.
+WITH ranked AS (
+  SELECT
+    id,
+    ROW_NUMBER() OVER (
+      PARTITION BY lead_id
+      ORDER BY
+        CASE status WHEN 'accepted' THEN 1 WHEN 'sent' THEN 2 ELSE 3 END,
+        created_at DESC,
+        id DESC
+    ) AS rn
+  FROM quotations
+  WHERE lead_id IS NOT NULL
+    AND status <> 'rejected'
+)
+UPDATE quotations q
+SET
+  status = 'rejected',
+  notes = CONCAT_WS(E'\n', NULLIF(q.notes, ''), 'Auto-rejected by patch because this lead already has another active quotation.')
+FROM ranked r
+WHERE q.id = r.id
+  AND r.rn > 1;
+
 DROP INDEX IF EXISTS uniq_quotations_one_open_per_lead;
 CREATE UNIQUE INDEX uniq_quotations_one_open_per_lead
 ON quotations(lead_id)
