@@ -846,13 +846,20 @@ const PurchaseModule: React.FC = () => {
     const path = activeTab === 'purchase-orders' ? '/purchase/purchase-orders' : '/purchase/rfqs'
     try {
       await erpApi.put(`${path}/${record.id}`, { ...record, status: nextStatus })
-      if (activeTab === 'purchase-orders' && nextStatus === 'received') {
-        await erpApi.post('/inventory/goods-receipts', {
-          purchase_order_id: record.id,
-          receipt_date: new Date().toISOString().slice(0, 10),
-          status: 'completed',
-          notes: `Auto receipt from ${record.poNumber || record.purchase_order_number || 'purchase order'}`,
-        })
+      if (activeTab === 'rfqs' && nextStatus === 'closed') {
+        const records = await erpApi.get<any[]>('/purchase/purchase-orders?limit=100')
+        setPurchaseOrders(records.map((po) => ({
+          ...po,
+          poNumber: po.purchase_order_number,
+          supplierId: po.supplier_id,
+          supplierName: po.supplier?.name || po.supplier_id,
+          orderDate: po.order_date,
+          requiredDeliveryDate: po.required_delivery_date,
+          totalAmount: po.total_amount || 0,
+          notes: po.notes,
+          rfqNumber: po.rfq_id,
+          lines: po.items || [],
+        })))
       }
       setActiveRecords((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
       showNotification('success', `${title} moved to ${nextStatus}.`)

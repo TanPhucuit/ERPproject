@@ -459,7 +459,7 @@ CREATE TABLE receipts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   purchase_order_id UUID NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
   receipt_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('completed','cancelled')),
+  status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready','delivering','received','completed','cancelled')),
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -653,14 +653,18 @@ BEGIN
     SELECT COALESCE(SUM(amount), 0) INTO paid_total FROM payments WHERE invoice_id = NEW.invoice_id;
     SELECT total_amount INTO doc_total FROM invoices WHERE id = NEW.invoice_id;
     UPDATE invoices SET status = CASE WHEN paid_total >= doc_total THEN 'paid' ELSE 'partial_paid' END WHERE id = NEW.invoice_id;
-    IF paid_total >= doc_total THEN
-      UPDATE delivery_orders d SET status = 'delivering' FROM invoices i WHERE i.id = NEW.invoice_id AND d.sales_order_id = i.sales_order_id AND d.status = 'ready';
-      UPDATE sales_orders so SET status = 'delivering' FROM invoices i WHERE i.id = NEW.invoice_id AND so.id = i.sales_order_id AND so.status = 'ready';
-    END IF;
   ELSE
     SELECT COALESCE(SUM(amount), 0) INTO paid_total FROM payments WHERE vendor_bill_id = NEW.vendor_bill_id;
     SELECT total INTO doc_total FROM vendor_bills WHERE id = NEW.vendor_bill_id;
     UPDATE vendor_bills SET status = CASE WHEN paid_total >= doc_total THEN 'paid' ELSE 'partial_paid' END WHERE id = NEW.vendor_bill_id;
+    IF paid_total >= doc_total THEN
+      UPDATE receipts r
+      SET status = 'delivering'
+      FROM vendor_bills vb
+      WHERE vb.id = NEW.vendor_bill_id
+        AND r.purchase_order_id = vb.purchase_order_id
+        AND r.status = 'ready';
+    END IF;
   END IF;
 
   RETURN NEW;
@@ -674,7 +678,7 @@ DECLARE
   product_id_val UUID;
   warehouse_id_val UUID;
 BEGIN
-  IF NEW.status = 'completed' AND OLD.status IS DISTINCT FROM NEW.status THEN
+  IF NEW.status IN ('received', 'completed') AND OLD.status IS DISTINCT FROM NEW.status THEN
     SELECT id INTO warehouse_id_val FROM warehouses WHERE is_active = TRUE ORDER BY created_at LIMIT 1;
     FOR row_item IN
       SELECT poi.* FROM purchase_order_items poi WHERE poi.purchase_order_id = NEW.purchase_order_id
@@ -762,22 +766,9 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION deduct_stock_on_delivery()
 RETURNS TRIGGER AS $$
-DECLARE
-  row_item RECORD;
-  wh UUID;
 BEGIN
   IF NEW.status = 'delivered' AND OLD.status IS DISTINCT FROM NEW.status THEN
     UPDATE sales_orders SET status = 'delivered' WHERE id = NEW.sales_order_id;
-    FOR row_item IN SELECT * FROM delivery_order_items WHERE delivery_order_id = NEW.id LOOP
-      SELECT warehouse_id INTO wh FROM bin_locations WHERE id = row_item.bin_location_id;
-      UPDATE stock_in_bins
-      SET quantity = GREATEST(quantity - row_item.quantity_requested, 0)
-      WHERE product_id = row_item.product_id AND bin_location_id = row_item.bin_location_id;
-      UPDATE stock_levels
-      SET quantity_on_hand = GREATEST(quantity_on_hand - row_item.quantity_requested, 0),
-          total_quantity = GREATEST(total_quantity - row_item.quantity_requested, 0)
-      WHERE product_id = row_item.product_id AND warehouse_id = wh;
-    END LOOP;
   END IF;
   RETURN NEW;
 END;

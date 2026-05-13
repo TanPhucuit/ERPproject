@@ -33,7 +33,9 @@ const movementFieldsBase: FormField[] = [
     label: 'Status',
     type: 'select',
     options: [
-      { value: 'completed', label: 'Completed' },
+      { value: 'ready', label: 'Ready' },
+      { value: 'delivering', label: 'Delivering' },
+      { value: 'received', label: 'Received' },
       { value: 'cancelled', label: 'Cancelled' },
     ],
   },
@@ -77,10 +79,11 @@ const TransferModal: React.FC<{
   warehouses: any[]
   binLocations: any[]
   binStock: any[]
+  stockLevels: any[]
   products: any[]
   onClose: () => void
   onSave: (record: any) => void
-}> = ({ isOpen, record, deliveries, warehouses, binLocations, binStock, products, onClose, onSave }) => {
+}> = ({ isOpen, record, deliveries, warehouses, binLocations, binStock, stockLevels, products, onClose, onSave }) => {
   const [form, setForm] = useState<any>({})
 
   useEffect(() => {
@@ -98,6 +101,7 @@ const TransferModal: React.FC<{
   }, [record, isOpen])
 
   const selectedDelivery = deliveries.find((delivery) => delivery.id === form.deliveryOrderId)
+  const deliveryOptions = deliveries.filter((delivery) => !['delivered', 'delivering'].includes(delivery.status))
   const orderLines = (selectedDelivery?.sales_order?.items || []).map((item: any) => ({
     id: item.id,
     product_id: item.product_id,
@@ -151,6 +155,20 @@ const TransferModal: React.FC<{
   }
 
   const internalProduct = products.find((product) => product.id === form.productId)
+  const newStockProductOptions = stockLevels
+    .filter((row) => Number(row.newQuantity ?? row.new_quantity ?? 0) > 0)
+    .map((row) => ({
+      product: products.find((product) => product.id === row.product_id) || row.product,
+      warehouse_id: row.warehouse_id,
+      warehouse_name: row.warehouseName || row.warehouse?.warehouse_name,
+      new_quantity: Number(row.newQuantity ?? row.new_quantity ?? 0),
+    }))
+    .filter((row) => row.product?.id)
+  const isNewStockTransfer = form.sourceBinLocationId === 'new'
+  const selectedNewStock = newStockProductOptions.find((row) => row.product.id === form.productId)
+  const destinationBins = isNewStockTransfer && selectedNewStock?.warehouse_id
+    ? binLocations.filter((bin) => bin.warehouse_id === selectedNewStock.warehouse_id)
+    : binLocations
 
   const handleSave = () => {
     if (form.transferType === 'customer_delivery') {
@@ -180,7 +198,7 @@ const TransferModal: React.FC<{
       ...record,
       ...form,
       productId: form.productId,
-      quantity: form.quantity,
+      quantity: isNewStockTransfer ? Math.min(Number(form.quantity || 1), selectedNewStock?.new_quantity || Number(form.quantity || 1)) : form.quantity,
     })
   }
 
@@ -215,7 +233,7 @@ const TransferModal: React.FC<{
                 <select value={form.deliveryOrderId || ''} onChange={(event) => setForm({ ...form, deliveryOrderId: event.target.value })}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
                   <option value="">Select delivery order...</option>
-                  {deliveries.map((delivery) => (
+                  {deliveryOptions.map((delivery) => (
                     <option key={delivery.id} value={delivery.id}>
                       {(delivery.delivery_order_number || delivery.reference || delivery.id?.slice(0, 8))} - {delivery.sales_order?.order_number || delivery.sales_order?.sales_order_number || delivery.sales_order_id}
                     </option>
@@ -265,15 +283,22 @@ const TransferModal: React.FC<{
                 <select value={form.productId || ''} onChange={(event) => setForm({ ...form, productId: event.target.value })}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
                   <option value="">Select product...</option>
-                  {products.map((product) => (
-                    <option key={product.id} value={product.id}>{product.name || product.product_name} ({product.sku})</option>
-                  ))}
+                  {isNewStockTransfer
+                    ? newStockProductOptions.map((row) => (
+                      <option key={`${row.product.id}-${row.warehouse_id}`} value={row.product.id}>
+                        {row.product.name || row.product.product_name} ({row.product.sku}) - new {row.new_quantity} - {row.warehouse_name}
+                      </option>
+                    ))
+                    : products.map((product) => (
+                      <option key={product.id} value={product.id}>{product.name || product.product_name} ({product.sku})</option>
+                    ))}
                 </select>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-semibold text-gray-700">Quantity</label>
-                <input type="number" min={1} value={form.quantity || 1} onChange={(event) => setForm({ ...form, quantity: Number(event.target.value) })}
+                <input type="number" min={1} max={isNewStockTransfer ? selectedNewStock?.new_quantity : undefined} value={form.quantity || 1} onChange={(event) => setForm({ ...form, quantity: Number(event.target.value) })}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+                {isNewStockTransfer && selectedNewStock && <p className="mt-1 text-xs text-gray-500">New quantity available: {selectedNewStock.new_quantity}</p>}
               </div>
               <div>
                 <label className="mb-1 block text-sm font-semibold text-gray-700">Source Bin</label>
@@ -292,7 +317,7 @@ const TransferModal: React.FC<{
                 <select value={form.destBinLocationId || ''} onChange={(event) => setForm({ ...form, destBinLocationId: event.target.value })}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
                   <option value="">Select destination bin...</option>
-                  {binLocations.map((bin) => (
+                  {destinationBins.map((bin) => (
                     <option key={bin.id} value={bin.id}>{bin.location_code || bin.bin_code} - {bin.warehouseName}</option>
                   ))}
                 </select>
@@ -486,7 +511,7 @@ const InventoryModule: React.FC = () => {
     : activeTab === 'bin-stock'
       ? binStock
       : activeTab === 'deliveries'
-        ? deliveries
+        ? deliveries.filter((delivery) => delivery.status !== 'delivered')
         : activeTab === 'receipts'
           ? receipts
           : activeTab === 'transfers'
@@ -625,7 +650,7 @@ const InventoryModule: React.FC = () => {
       destBinLocationId: '',
       productId: '',
       quantity: 1,
-      status: activeTab === 'receipts' ? 'completed' : activeTab === 'deliveries' ? 'ready' : undefined,
+      status: activeTab === 'receipts' ? 'ready' : activeTab === 'deliveries' ? 'ready' : undefined,
     })
     setModalOpen(true)
   }
@@ -668,6 +693,13 @@ const InventoryModule: React.FC = () => {
         }
         }
       }
+      if (activeTab === 'transfers' && record.sourceBinLocationId === 'new') {
+        const selectedStock = stock.find((row) => row.product_id === record.productId && Number(row.newQuantity ?? row.new_quantity ?? 0) > 0)
+        if (!selectedStock || Number(selectedStock.newQuantity ?? selectedStock.new_quantity ?? 0) < Number(record.quantity || 0)) {
+          showNotification('error', 'Selected product does not have enough new supplier stock to transfer.')
+          return
+        }
+      }
       const payload = activeTab === 'deliveries'
         ? {
             sales_order_id: record.salesOrderId || selectedInvoice?.sales_order_id,
@@ -680,7 +712,7 @@ const InventoryModule: React.FC = () => {
           ? {
             purchase_order_id: record.purchaseOrderId,
             receipt_date: record.scheduledDate,
-            status: record.status || 'completed',
+            status: record.status || 'ready',
             notes: record.notes || null,
           }
         : activeTab === 'transfers'
@@ -701,6 +733,45 @@ const InventoryModule: React.FC = () => {
           }
           : record
       const saved = await (isExisting ? erpApi.put<any>(`${path}/${record.id}`, payload) : erpApi.post<any>(path, payload))
+      if (activeTab === 'transfers' && record.transfer_type === 'customer_delivery') {
+        setDeliveries((current) => current.map((delivery) => (
+          delivery.id === record.delivery_order_id ? { ...delivery, ...saved, status: 'delivering' } : delivery
+        )))
+        setBinStock((current) => current.map((row) => {
+          const shippedLine = (record.lines || []).find((line: any) => line.product_id === row.product_id && line.bin_location_id === row.bin_location_id)
+          if (!shippedLine) return row
+          return {
+            ...row,
+            quantity: Math.max(Number(row.quantity || 0) - Number(shippedLine.quantity || 0), 0),
+            available: Math.max(Number(row.available || 0) - Number(shippedLine.quantity || 0), 0),
+            occupancyQuantity: Math.max(Number(row.occupancyQuantity || row.quantity || 0) - Number(shippedLine.quantity || 0), 0),
+          }
+        }))
+        showNotification('success', 'Delivery order moved to delivering and stock was deducted from selected bins.')
+        setModalOpen(false)
+        return
+      }
+      if (activeTab === 'transfers' && record.sourceBinLocationId === 'new') {
+        setStock((current) => current.map((row) => (
+          row.product_id === record.productId
+            ? { ...row, newQuantity: Math.max(Number(row.newQuantity ?? row.new_quantity ?? 0) - Number(record.quantity || 0), 0), new_quantity: Math.max(Number(row.newQuantity ?? row.new_quantity ?? 0) - Number(record.quantity || 0), 0) }
+            : row
+        )))
+        setBinStock((current) => {
+          const existing = current.find((row) => row.product_id === record.productId && row.bin_location_id === record.destBinLocationId)
+          if (existing) {
+            return current.map((row) => row.product_id === record.productId && row.bin_location_id === record.destBinLocationId
+              ? {
+                ...row,
+                quantity: Number(row.quantity || 0) + Number(record.quantity || 0),
+                available: Number(row.available || 0) + Number(record.quantity || 0),
+                occupancyQuantity: Number(row.occupancyQuantity || row.quantity || 0) + Number(record.quantity || 0),
+              }
+              : row)
+          }
+          return current
+        })
+      }
       activeSetters[activeTab]((current) => {
         const normalized = { ...record, ...saved }
         const exists = current.some((item) => item.id === record.id)
@@ -904,6 +975,7 @@ const InventoryModule: React.FC = () => {
           warehouses={warehouses}
           binLocations={binLocations}
           binStock={binStock}
+          stockLevels={stock}
           products={products}
           onClose={() => setModalOpen(false)}
           onSave={saveRecord}

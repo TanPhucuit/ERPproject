@@ -67,6 +67,20 @@ interface FormRecord {
   notes: string
 }
 
+interface WarrantyLine {
+  id: string
+  product_id: string
+  product_name: string
+  product_sku: string
+  quantity: number
+  max_quantity: number
+  repair_fee: number
+  warranty_period: number
+  warranty_status: 'in_warranty' | 'expired'
+  warranty_until: string
+  line_total: number
+}
+
 // ========== LINES EDITOR COMPONENT ==========
 const LinesEditor: React.FC<{
   lines: OrderLine[]
@@ -500,12 +514,210 @@ const SalesModal: React.FC<{
   )
 }
 
+const WarrantySalesModal: React.FC<{
+  isOpen: boolean
+  deliveredOrders: any[]
+  deliveries: any[]
+  onClose: () => void
+  onSave: (data: any) => void
+}> = ({ isOpen, deliveredOrders, deliveries, onClose, onSave }) => {
+  const [salesOrderId, setSalesOrderId] = useState('')
+  const [lines, setLines] = useState<WarrantyLine[]>([])
+  const [notes, setNotes] = useState('')
+
+  const selectedOrder = deliveredOrders.find((order) => order.id === salesOrderId)
+  const deliveredDate = deliveries
+    .filter((delivery) => delivery.sales_order_id === salesOrderId && delivery.status === 'delivered')
+    .map((delivery) => delivery.delivery_date)
+    .sort()
+    .pop()
+
+  useEffect(() => {
+    setLines([])
+  }, [salesOrderId])
+
+  if (!isOpen) return null
+
+  const orderLineOptions = (selectedOrder?.lines || []).filter((line: any) => !lines.some((item) => item.product_id === line.product_id))
+
+  const addLine = (productId: string) => {
+    const sourceLine = (selectedOrder?.lines || []).find((line: any) => line.product_id === productId)
+    if (!sourceLine || !deliveredDate) return
+    const product = sourceLine.product || {}
+    const warrantyUntilDate = new Date(deliveredDate)
+    warrantyUntilDate.setDate(warrantyUntilDate.getDate() + Number(product.warranty_period || 365))
+    const warrantyUntil = warrantyUntilDate.toISOString().slice(0, 10)
+    const inWarranty = new Date() <= warrantyUntilDate
+    const quantity = 1
+    setLines((current) => [...current, {
+      id: `warranty-${Date.now()}-${Math.random()}`,
+      product_id: sourceLine.product_id,
+      product_name: sourceLine.product_name || product.product_name || product.name,
+      product_sku: sourceLine.product_sku || product.sku || '',
+      quantity,
+      max_quantity: Number(sourceLine.quantity || 1),
+      repair_fee: Number(product.repair_fee || 0),
+      warranty_period: Number(product.warranty_period || 365),
+      warranty_status: inWarranty ? 'in_warranty' : 'expired',
+      warranty_until: warrantyUntil,
+      line_total: inWarranty ? 0 : Number(product.repair_fee || 0) * quantity,
+    }])
+  }
+
+  const updateLineQuantity = (lineId: string, quantity: number) => {
+    setLines((current) => current.map((line) => {
+      if (line.id !== lineId) return line
+      const nextQuantity = Math.max(1, Math.min(quantity, line.max_quantity))
+      return {
+        ...line,
+        quantity: nextQuantity,
+        line_total: line.warranty_status === 'in_warranty' ? 0 : line.repair_fee * nextQuantity,
+      }
+    }))
+  }
+
+  const handleSave = () => {
+    if (!salesOrderId || lines.length === 0) return
+    onSave({
+      sales_order_id: salesOrderId,
+      notes,
+      lines: lines.map((line) => ({
+        product_id: line.product_id,
+        quantity: line.quantity,
+      })),
+    })
+  }
+
+  const total = lines.reduce((sum, line) => sum + line.line_total, 0)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
+      <div className="mt-4 mb-8 w-full max-w-5xl rounded-lg bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <h2 className="text-xl font-bold text-gray-900">Create Warranty Sales Order</h2>
+          <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100"><X size={20} /></button>
+        </div>
+        <div className="max-h-[75vh] space-y-6 overflow-y-auto p-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Delivered Sales Order</label>
+              <select value={salesOrderId} onChange={(event) => setSalesOrderId(event.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                <option value="">Select delivered sales order...</option>
+                {deliveredOrders.map((order) => (
+                  <option key={order.id} value={order.id}>
+                    {order.sales_order_number || order.order_number} - {order.customer_name || order.customer?.name || 'Customer'}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Delivered Date</label>
+              <input value={deliveredDate || ''} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          {selectedOrder && (
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Product</label>
+              <select value="" onChange={(event) => addLine(event.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                <option value="">Add product from this sales order...</option>
+                {orderLineOptions.map((line: any) => (
+                  <option key={line.product_id} value={line.product_id}>
+                    {line.product_name} ({line.product_sku}) - delivered qty {line.quantity}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {lines.length > 0 && (
+            <div className="overflow-x-auto rounded-md border border-gray-200">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-700">Product</th>
+                    <th className="px-3 py-2 text-center font-semibold text-gray-700">Qty</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-700">Repair Fee</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-700">Warranty</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-700">Amount</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {lines.map((line) => (
+                    <tr key={line.id}>
+                      <td className="px-3 py-2">
+                        <p className="font-medium text-gray-900">{line.product_name}</p>
+                        <p className="text-xs text-gray-400">{line.product_sku}</p>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input type="number" min={1} max={line.max_quantity} value={line.quantity}
+                          onChange={(event) => updateLineQuantity(line.id, Number(event.target.value))}
+                          className="w-20 rounded border border-gray-300 px-2 py-1 text-center" />
+                      </td>
+                      <td className="px-3 py-2 text-right">{formatCurrency(line.repair_fee)}</td>
+                      <td className="px-3 py-2">
+                        {line.warranty_status === 'in_warranty' ? (
+                          <span className="font-semibold text-green-700">Còn bảo hành đến {line.warranty_until}</span>
+                        ) : (
+                          <span className="font-semibold text-red-700">Hết hạn bảo hành từ {line.warranty_until}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold">
+                        {line.warranty_status === 'in_warranty' ? (
+                          <span className="text-gray-500 line-through">{formatCurrency(line.repair_fee * line.quantity)}</span>
+                        ) : (
+                          <span className="text-blue-700">{formatCurrency(line.line_total)}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button onClick={() => setLines((current) => current.filter((item) => item.id !== line.id))}
+                          className="rounded p-1 text-red-500 hover:bg-red-50">
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-gray-900">Invoice Total</span>
+              <span className="text-lg font-bold text-blue-700">{formatCurrency(total)}</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
+            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
+          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">Cancel</button>
+          <button onClick={handleSave} disabled={!salesOrderId || lines.length === 0}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300">
+            Create Warranty Order
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ========== MAIN SALES MODULE ==========
 const SalesModule: React.FC = () => {
   const showNotification = useUIStore(s => s.showNotification)
-  const [activeTab, setActiveTab] = useState<'orders' | 'quotations'>('orders')
+  const [activeTab, setActiveTab] = useState<'orders' | 'quotations' | 'warranty'>('orders')
   const [orders, setOrders] = useState<any[]>([])
   const [quotations, setQuotations] = useState<any[]>([])
+  const [warrantyOrders, setWarrantyOrders] = useState<any[]>([])
+  const [deliveries, setDeliveries] = useState<any[]>([])
   const [customers, setCustomers] = useState<any[]>([])
   const [leads, setLeads] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
@@ -521,20 +733,24 @@ const SalesModule: React.FC = () => {
     return Promise.all([
       erpApi.get<any[]>('/sales-orders?limit=100'),
       erpApi.get<any[]>('/sales-orders/quotations?limit=100'),
+      erpApi.get<any[]>('/sales/warranty-orders?limit=100'),
+      erpApi.get<any[]>('/inventory/delivery-orders?limit=500'),
       erpApi.get<any[]>('/customers?limit=1000'),
       erpApi.get<any[]>('/crm/leads?limit=100'),
       erpApi.get<any[]>('/products?limit=1000'),
     ])
-      .then(([orderData, quoteData, custData, leadData, prodData]) => {
+      .then(([orderData, quoteData, warrantyData, deliveryData, custData, leadData, prodData]) => {
         setLoadError(null)
         setOrders(orderData)
         setQuotations(quoteData)
+        setWarrantyOrders(warrantyData)
+        setDeliveries(deliveryData)
         setCustomers(custData)
         setLeads(leadData)
         setProducts(prodData)
       })
       .catch(e => {
-        setOrders([]); setQuotations([]); setCustomers([]); setLeads([]); setProducts([])
+        setOrders([]); setQuotations([]); setWarrantyOrders([]); setDeliveries([]); setCustomers([]); setLeads([]); setProducts([])
         setLoadError(e.message)
       })
   }
@@ -543,16 +759,29 @@ const SalesModule: React.FC = () => {
     loadAll()
   }, [])
 
-  const activeRecords = activeTab === 'orders' ? orders : quotations
-  const setActiveRecords = activeTab === 'orders' ? setOrders : setQuotations
+  const activeRecords = activeTab === 'orders' ? orders : activeTab === 'quotations' ? quotations : warrantyOrders
+  const setActiveRecords = activeTab === 'orders' ? setOrders : activeTab === 'quotations' ? setQuotations : setWarrantyOrders
+  const deliveredOrders = useMemo(() => orders.filter((order) => order.status === 'delivered'), [orders])
 
   const filteredRecords = useMemo(() =>
     activeRecords.filter(r => {
-      const haystack = `${r.quotation_number || r.sales_order_number || ''} ${r.customer_name || r.customer?.name || ''} ${r.status}`.toLowerCase()
+      const haystack = `${r.quotation_number || r.sales_order_number || r.warranty_order_number || ''} ${r.customer_name || r.customer?.name || ''} ${r.status}`.toLowerCase()
       return haystack.includes(search.toLowerCase()) && (status === 'all' || r.status === status)
     }), [activeRecords, search, status])
 
   const openCreate = () => { setModalRecord(null); setModalError(null); setModalOpen(true) }
+
+  const handleWarrantySave = async (payload: any) => {
+    try {
+      const created = await erpApi.post<any>('/sales/warranty-orders', payload)
+      setWarrantyOrders((current) => [created, ...current])
+      await loadAll()
+      setModalOpen(false)
+      showNotification('success', 'Warranty sales order and invoice were created.')
+    } catch (e: any) {
+      showNotification('error', `Warranty order failed: ${e.message}`)
+    }
+  }
 
   const openEdit = (record: any) => {
     const lines: OrderLine[] = (record.lines || record.quotation_lines || record.sales_order_lines || []).map((l: any) => ({
@@ -648,8 +877,8 @@ const SalesModule: React.FC = () => {
   }
 
   const deleteRecord = async (record: any) => {
-    const path = activeTab === 'orders' ? '/sales-orders' : '/sales-orders/quotations'
-    if (!window.confirm(`Xóa ${record.quotation_number || record.sales_order_number}?`)) return
+    const path = activeTab === 'orders' ? '/sales-orders' : activeTab === 'quotations' ? '/sales-orders/quotations' : '/sales/warranty-orders'
+    if (!window.confirm(`Xóa ${record.quotation_number || record.sales_order_number || record.warranty_order_number}?`)) return
     try {
       await erpApi.delete(`${path}/${record.id}`)
     } catch (e: any) {
@@ -681,10 +910,16 @@ const SalesModule: React.FC = () => {
 
   const renderActions = (record: any) => (
     <div className="flex items-center gap-1">
-      <RecordActions
-        onEdit={() => openEdit(record)}
-        onDelete={() => deleteRecord(record)}
-      />
+      {activeTab === 'orders' || activeTab === 'warranty' ? (
+        <button onClick={() => deleteRecord(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Delete">
+          <Trash2 size={16} />
+        </button>
+      ) : (
+        <RecordActions
+          onEdit={() => openEdit(record)}
+          onDelete={() => deleteRecord(record)}
+        />
+      )}
       {activeTab === 'quotations' && record.status === 'sent' && (
         <button
           onClick={() => acceptQuotation(record)}
@@ -707,7 +942,7 @@ const SalesModule: React.FC = () => {
     </div>
   )
 
-  const title = activeTab === 'orders' ? 'Sales Order' : 'Quotation'
+  const title = activeTab === 'orders' ? 'Sales Order' : activeTab === 'quotations' ? 'Quotation' : 'Warranty Sales Order'
   const statuses = useMemo(() => Array.from(new Set(activeRecords.map(r => r.status).filter(Boolean))), [activeRecords])
 
   return (
@@ -727,10 +962,11 @@ const SalesModule: React.FC = () => {
 
       <ModuleTabs
         activeTab={activeTab}
-        onChange={tab => { setActiveTab(tab as 'orders' | 'quotations'); setSearch(''); setStatus('all') }}
+        onChange={tab => { setActiveTab(tab as 'orders' | 'quotations' | 'warranty'); setSearch(''); setStatus('all') }}
         tabs={[
           { id: 'orders', label: 'Sales Orders', count: orders.length },
           { id: 'quotations', label: 'Quotations', count: quotations.length },
+          { id: 'warranty', label: 'Warranty Sales Orders', count: warrantyOrders.length },
         ]}
       />
 
@@ -762,13 +998,13 @@ const SalesModule: React.FC = () => {
               {filteredRecords.map(record => (
                 <tr key={record.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm font-semibold text-blue-700">
-                    {record.quotation_number || record.sales_order_number}
+                    {record.quotation_number || record.sales_order_number || record.warranty_order_number}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">
                     {record.customer_name || record.customer?.name}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">
-                    {record.issued_date || record.order_date}
+                    {record.issued_date || record.order_date || record.date}
                   </td>
                   <td className="px-4 py-3"><StatusBadge status={record.status} /></td>
                   <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">
@@ -800,7 +1036,7 @@ const SalesModule: React.FC = () => {
             <div key={record.id} className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-bold text-blue-700">{record.quotation_number || record.sales_order_number}</p>
+                  <p className="font-bold text-blue-700">{record.quotation_number || record.sales_order_number || record.warranty_order_number}</p>
                   <p className="text-sm text-gray-600">{record.customer_name || record.customer?.name}</p>
                 </div>
                 <StatusBadge status={record.status} />
@@ -817,18 +1053,28 @@ const SalesModule: React.FC = () => {
         />
       )}
 
-      <SalesModal
-        isOpen={modalOpen}
-        activeTab={activeTab}
-        record={modalRecord}
-        customers={customers}
-        leads={leads}
-        products={products}
-        quotations={quotations}
-        onClose={() => { setModalOpen(false); setModalRecord(null) }}
-        onSave={handleSave}
-        errorMessage={modalError}
-      />
+      {activeTab === 'warranty' ? (
+        <WarrantySalesModal
+          isOpen={modalOpen}
+          deliveredOrders={deliveredOrders}
+          deliveries={deliveries}
+          onClose={() => { setModalOpen(false); setModalRecord(null) }}
+          onSave={handleWarrantySave}
+        />
+      ) : (
+        <SalesModal
+          isOpen={modalOpen}
+          activeTab={activeTab}
+          record={modalRecord}
+          customers={customers}
+          leads={leads}
+          products={products}
+          quotations={quotations}
+          onClose={() => { setModalOpen(false); setModalRecord(null) }}
+          onSave={handleSave}
+          errorMessage={modalError}
+        />
+      )}
     </div>
   )
 }

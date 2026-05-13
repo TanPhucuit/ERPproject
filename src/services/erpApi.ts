@@ -59,6 +59,9 @@ const invoiceStatus = (value?: string | null) =>
 const billStatus = (value?: string | null) =>
   ['posted', 'partial_paid', 'paid', 'overdue', 'cancelled'].includes(value || '') ? value! : 'posted'
 
+const receiptStatus = (value?: string | null) =>
+  ['ready', 'delivering', 'received', 'completed', 'cancelled'].includes(value || '') ? value! : 'ready'
+
 const rfqStatus = (value?: string | null) =>
   ['sent', 'closed', 'cancelled'].includes(value || '') ? value! : 'sent'
 
@@ -250,6 +253,24 @@ const mapPurchaseOrder = (po: any) => {
     purchase_order_lines: lines,
   }
 }
+
+const mapWarrantyOrder = (order: any) => ({
+  ...order,
+  warranty_order_number: order?.id?.slice(0, 8),
+  sales_order_number: order?.sales_order?.order_number,
+  customer: order?.sales_order?.customer ? mapCustomer(order.sales_order.customer) : undefined,
+  customer_name: order?.sales_order?.customer ? mapCustomer(order.sales_order.customer).name : '',
+  lines: (order?.products || order?.warranty_order_products || []).map((line: any) => ({
+    ...line,
+    product_name: productName(line?.product),
+    product_sku: line?.product?.sku,
+    repair_fee: toNumber(line?.product?.repair_fee),
+    warranty_period: toNumber(line?.product?.warranty_period, 365),
+    line_total: toNumber(line?.repair_fee_amount),
+  })),
+  total_amount: (order?.products || order?.warranty_order_products || []).reduce((sum: number, line: any) => sum + toNumber(line?.repair_fee_amount), 0),
+  status: 'invoiced',
+})
 
 const selectProduct = '*, category:product_categories(*)'
 const selectLead = '*, assigned_to:users(*)'
@@ -578,11 +599,11 @@ const getResource = async <T>(path: string): Promise<T> => {
 
   if (pathname === '/sales/warranty-orders') {
     const { data, error } = await applyLimit(
-      supabase.from('warranty_orders').select('*, sales_order:sales_orders(*), products:warranty_order_products(*, product:products(*))').order('date', { ascending: false }),
+      supabase.from('warranty_orders').select('*, sales_order:sales_orders(*, customer:customers(*)), products:warranty_order_products(*, product:products(*))').order('date', { ascending: false }),
       searchParams
     )
     if (error) throw error
-    return data as T
+    return (data || []).map(mapWarrantyOrder) as T
   }
 
   throw new Error(`Unsupported read path: ${pathname}`)
@@ -850,6 +871,176 @@ const writeSalesOrder = async <T>(body: any, id?: string): Promise<T> => {
   return mapSalesOrder(await getSingle('sales_orders', data.id, selectSalesOrder)) as T
 }
 
+const writeWarrantyOrder = async <T>(body: any, id?: string): Promise<T> => {
+  if (id) throw new Error('Warranty orders cannot be edited after creation.')
+  const salesOrderId = body.sales_order_id || body.salesOrderId
+  if (!isUuid(salesOrderId)) throw new Error('Delivered sales order is required.')
+  const order: any = await getSingle('sales_orders', salesOrderId, selectSalesOrder)
+  if (order.status !== 'delivered') throw new Error('Warranty order can only be created from a delivered sales order.')
+
+  const { data: deliveredOrder, error: deliveryError } = await supabase
+    .from('delivery_orders')
+    .select('delivery_date')
+    .eq('sales_order_id', salesOrderId)
+    .eq('status', 'delivered')
+    .order('delivery_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (deliveryError) throw deliveryError
+  if (!deliveredOrder?.delivery_date) throw new Error('Delivered sales order must have a completed delivery date.')
+
+  const orderLines = (order?.items || []).map(mapSalesOrderItem)
+  const deliveryDate = new Date(deliveredOrder.delivery_date)
+  const warrantyRows = (body.lines || []).map((line: any) => {
+    const sourceLine = orderLines.find((item: any) => item.product_id === line.product_id)
+    if (!sourceLine) throw new Error('Warranty product must belong to the selected sales order.')
+    const quantity = toNumber(line.quantity, 1)
+    if (quantity > toNumber(sourceLine.quantity)) throw new Error(`Warranty quantity for ${sourceLine.product_name} exceeds delivered quantity.`)
+    const product = sourceLine.product || {}
+    const warrantyUntil = new Date(deliveryDate)
+    warrantyUntil.setDate(warrantyUntil.getDate() + toNumber(product.warranty_period, 365))
+    const isInWarranty = new Date(today()) <= warrantyUntil
+    return {
+      product_id: line.product_id,
+      quantity,
+      warranty_status: isInWarranty ? 'in_warranty' : 'expired',
+      repair_fee_amount: isInWarranty ? 0 : toNumber(product.repair_fee) * quantity,
+    }
+  })
+  if (warrantyRows.length === 0) throw new Error('Warranty order must have at least one product.')
+
+  const { data: warrantyOrder, error: warrantyCreateError } = await supabase
+    .from('warranty_orders')
+    .insert({ sales_order_id: salesOrderId, date: body.date || today(), note: body.notes || body.note || null })
+    .select('id')
+    .single()
+  if (warrantyCreateError) throw warrantyCreateError
+
+  const { error: linesCreateError } = await supabase
+    .from('warranty_order_products')
+    .insert(warrantyRows.map((line: any) => ({ ...line, warranty_orders_id: warrantyOrder.id })))
+  if (linesCreateError) throw linesCreateError
+
+  const totalAmount = warrantyRows.reduce((sum: number, line: any) => sum + toNumber(line.repair_fee_amount), 0)
+  const { error: invoiceCreateError } = await supabase
+    .from('invoices')
+    .insert({
+      sales_order_id: salesOrderId,
+      warranty_orders_id: warrantyOrder.id,
+      issue_date: today(),
+      due_date: addDays(30),
+      status: totalAmount > 0 ? 'sent' : 'paid',
+      net_amount: totalAmount,
+      tax_amount: 0,
+      total_amount: totalAmount,
+      notes: 'Auto-created from warranty sales order.',
+    })
+  if (invoiceCreateError) throw invoiceCreateError
+
+  return mapWarrantyOrder(await getSingle(
+    'warranty_orders',
+    warrantyOrder.id,
+    '*, sales_order:sales_orders(*, customer:customers(*)), products:warranty_order_products(*, product:products(*))'
+  )) as T
+}
+
+const ensurePurchaseReceiptAndBill = async (purchaseOrderId: string) => {
+  const purchaseOrder: any = await getSingle('purchase_orders', purchaseOrderId, selectPurchaseOrder)
+  const lines = (purchaseOrder?.items || []).map(mapPurchaseOrderItem)
+  const subtotal = lines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0)
+
+  const { data: existingReceipt, error: receiptLookupError } = await supabase
+    .from('receipts')
+    .select('id')
+    .eq('purchase_order_id', purchaseOrderId)
+    .maybeSingle()
+  if (receiptLookupError) throw receiptLookupError
+  if (!existingReceipt?.id) {
+    const { error: receiptCreateError } = await supabase
+      .from('receipts')
+      .insert({
+        purchase_order_id: purchaseOrderId,
+        receipt_date: today(),
+        status: 'ready',
+        notes: 'Auto-created from awarded RFQ.',
+      })
+    if (receiptCreateError) throw receiptCreateError
+  }
+
+  const { data: existingBill, error: billLookupError } = await supabase
+    .from('vendor_bills')
+    .select('id')
+    .eq('purchase_order_id', purchaseOrderId)
+    .maybeSingle()
+  if (billLookupError) throw billLookupError
+  if (!existingBill?.id) {
+    const { error: billCreateError } = await supabase
+      .from('vendor_bills')
+      .insert({
+        purchase_order_id: purchaseOrderId,
+        issue_date: today(),
+        due_date: addDays(30),
+        status: 'posted',
+        subtotal,
+        tax_amount: 0,
+        total: subtotal,
+        notes: 'Auto-created from awarded RFQ.',
+      })
+    if (billCreateError) throw billCreateError
+  }
+}
+
+const ensurePurchaseOrdersFromRfq = async (rfqId: string) => {
+  const rfq: any = await getSingle('rfqs', rfqId, selectRfq)
+  const linesBySupplier = new Map<string, any[]>()
+  ;(rfq?.items || []).forEach((item: any) => {
+    const supplierId = item?.supplier_product?.supplier_id
+    if (!supplierId) return
+    linesBySupplier.set(supplierId, [...(linesBySupplier.get(supplierId) || []), item])
+  })
+
+  for (const [supplierId, supplierLines] of linesBySupplier.entries()) {
+    const { data: existingOrder, error: existingOrderError } = await supabase
+      .from('purchase_orders')
+      .select('id')
+      .eq('rfq_id', rfqId)
+      .eq('vendor_id', supplierId)
+      .maybeSingle()
+    if (existingOrderError) throw existingOrderError
+
+    let purchaseOrderId = existingOrder?.id
+    if (!purchaseOrderId) {
+      const { data: purchaseOrder, error: purchaseOrderCreateError } = await supabase
+        .from('purchase_orders')
+        .insert({
+          rfq_id: rfqId,
+          vendor_id: supplierId,
+          order_date: today(),
+          expected_arrival_date: rfq.deadline || null,
+          status: 'sent',
+          notes: 'Auto-created from awarded RFQ.',
+        })
+        .select('id')
+        .single()
+      if (purchaseOrderCreateError) throw purchaseOrderCreateError
+      purchaseOrderId = purchaseOrder.id
+
+      const orderLines = supplierLines.map((item: any) => ({
+        purchase_order_id: purchaseOrderId,
+        supplier_products_id: item.supplier_products_id,
+        quantity: toNumber(item.quantity, 1),
+        unit_price: toNumber(item.supplier_product?.price),
+      }))
+      if (orderLines.length > 0) {
+        const { error: orderLineCreateError } = await supabase.from('purchase_order_items').insert(orderLines)
+        if (orderLineCreateError) throw orderLineCreateError
+      }
+    }
+
+    if (purchaseOrderId) await ensurePurchaseReceiptAndBill(purchaseOrderId)
+  }
+}
+
 const writeRfq = async <T>(body: any, id?: string): Promise<T> => {
   const payload: any = id
     ? {}
@@ -874,6 +1065,9 @@ const writeRfq = async <T>(body: any, id?: string): Promise<T> => {
   })).filter((line: any) => isUuid(line.supplier_products_id))
   if (lines.length === 0) throw new Error('RFQ must have at least one supplier product line.')
   await replaceChildren('rfq_items', 'rfq_id', data.id, lines)
+  if (payload.status === 'closed') {
+    await ensurePurchaseOrdersFromRfq(data.id)
+  }
   return mapRfq(await getSingle('rfqs', data.id, selectRfq)) as T
 }
 
@@ -926,6 +1120,9 @@ const writePurchaseOrder = async <T>(body: any, id?: string): Promise<T> => {
     if (lines.length === 0) throw new Error('Purchase order must have at least one supplier product line.')
     await replaceChildren('purchase_order_items', 'purchase_order_id', data.id, lines)
   }
+  if (payload.rfq_id || body.rfq_id) {
+    await ensurePurchaseReceiptAndBill(data.id)
+  }
   return mapPurchaseOrder(await getSingle('purchase_orders', data.id, selectPurchaseOrder)) as T
 }
 
@@ -941,6 +1138,54 @@ const writeStockTransfer = async <T>(body: any, id?: string): Promise<T> => {
 
     if (!isUuid(deliveryOrderId)) throw new Error('Delivery order is required.')
     if (lines.length === 0) throw new Error('At least one delivery line with bin location is required.')
+
+    for (const line of lines) {
+      const { data: sourceBin, error: sourceBinError } = await supabase
+        .from('stock_in_bins')
+        .select('id, quantity, available, bin_location:bin_locations(warehouse_id)')
+        .eq('product_id', line.product_id)
+        .eq('bin_location_id', line.bin_location_id)
+        .single()
+      if (sourceBinError) throw sourceBinError
+      const sourceBinRow: any = sourceBin
+      if (toNumber(sourceBinRow?.quantity) < line.quantity_requested || toNumber(sourceBinRow?.available) < line.quantity_requested) {
+        throw new Error(`Insufficient bin stock for product ${line.product_id}.`)
+      }
+
+      const { error: binUpdateError } = await supabase
+        .from('stock_in_bins')
+        .update({
+          quantity: Math.max(toNumber(sourceBinRow.quantity) - line.quantity_requested, 0),
+          available: Math.max(toNumber(sourceBinRow.available) - line.quantity_requested, 0),
+        })
+        .eq('id', sourceBinRow.id)
+      if (binUpdateError) throw binUpdateError
+
+      const warehouseId = Array.isArray(sourceBinRow.bin_location)
+        ? sourceBinRow.bin_location[0]?.warehouse_id
+        : sourceBinRow.bin_location?.warehouse_id
+      if (warehouseId) {
+        const { data: stockLevel, error: stockLevelError } = await supabase
+          .from('stock_levels')
+          .select('id, total_quantity, available')
+          .eq('product_id', line.product_id)
+          .eq('warehouse_id', warehouseId)
+          .maybeSingle()
+        if (stockLevelError) throw stockLevelError
+        if (stockLevel?.id) {
+          const nextAvailable = Math.max(toNumber(stockLevel.available) - line.quantity_requested, 0)
+          const { error: stockLevelUpdateError } = await supabase
+            .from('stock_levels')
+            .update({
+              total_quantity: Math.max(toNumber(stockLevel.total_quantity) - line.quantity_requested, 0),
+              available: nextAvailable,
+              reorder_status: nextAvailable <= 0 ? 'out' : nextAvailable < 10 ? 'low' : 'normal',
+            })
+            .eq('id', stockLevel.id)
+          if (stockLevelUpdateError) throw stockLevelUpdateError
+        }
+      }
+    }
 
     await replaceChildren('delivery_order_items', 'delivery_order_id', deliveryOrderId, lines)
     const { data, error } = await supabase
@@ -982,18 +1227,36 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<
   const { data, error } = await supabase.from('payments').insert(payload).select().single()
   if (error) throw error
   if (payload.invoice_id) {
-    const { data: invoice } = await supabase.from('invoices').select('sales_order_id,status').eq('id', payload.invoice_id).single()
-    if (invoice?.status === 'paid') {
-      await supabase
-        .from('delivery_orders')
+    const { data: payments, error: paymentsError } = await supabase.from('payments').select('amount').eq('invoice_id', payload.invoice_id)
+    if (paymentsError) throw paymentsError
+    const paidTotal = (payments || []).reduce((sum: number, payment: any) => sum + toNumber(payment.amount), 0)
+    const { data: invoice, error: invoiceError } = await supabase.from('invoices').select('total_amount').eq('id', payload.invoice_id).single()
+    if (invoiceError) throw invoiceError
+    const { error: invoiceUpdateError } = await supabase
+      .from('invoices')
+      .update({ status: paidTotal >= toNumber(invoice.total_amount) ? 'paid' : 'partial_paid' })
+      .eq('id', payload.invoice_id)
+    if (invoiceUpdateError) throw invoiceUpdateError
+  }
+  if (payload.vendor_bill_id) {
+    const { data: payments, error: paymentsError } = await supabase.from('payments').select('amount').eq('vendor_bill_id', payload.vendor_bill_id)
+    if (paymentsError) throw paymentsError
+    const paidTotal = (payments || []).reduce((sum: number, payment: any) => sum + toNumber(payment.amount), 0)
+    const { data: bill, error: billError } = await supabase.from('vendor_bills').select('total, purchase_order_id').eq('id', payload.vendor_bill_id).single()
+    if (billError) throw billError
+    const isPaid = paidTotal >= toNumber(bill.total)
+    const { error: billUpdateError } = await supabase
+      .from('vendor_bills')
+      .update({ status: isPaid ? 'paid' : 'partial_paid' })
+      .eq('id', payload.vendor_bill_id)
+    if (billUpdateError) throw billUpdateError
+    if (isPaid && bill.purchase_order_id) {
+      const { error: receiptUpdateError } = await supabase
+        .from('receipts')
         .update({ status: 'delivering' })
-        .eq('sales_order_id', invoice.sales_order_id)
+        .eq('purchase_order_id', bill.purchase_order_id)
         .eq('status', 'ready')
-      await supabase
-        .from('sales_orders')
-        .update({ status: 'delivering' })
-        .eq('id', invoice.sales_order_id)
-        .eq('status', 'ready')
+      if (receiptUpdateError) throw receiptUpdateError
     }
   }
   return data as T
@@ -1020,6 +1283,9 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
   }
   if (pathname === '/sales-orders' || pathname.startsWith('/sales-orders/')) {
     return writeSalesOrder<T>(body, id)
+  }
+  if (pathname === '/sales/warranty-orders' || pathname.startsWith('/sales/warranty-orders/')) {
+    return writeWarrantyOrder<T>(body, id)
   }
 
   if (pathname === '/products' || pathname.startsWith('/products/')) return writeSimple<T>('products', body, id, normalizeProductPayload)
@@ -1058,7 +1324,7 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
   if (pathname === '/purchase/purchase-orders' || pathname.startsWith('/purchase/purchase-orders/')) return writePurchaseOrder<T>(body, id)
   if (pathname === '/inventory/goods-receipts' || pathname.startsWith('/inventory/goods-receipts/')) {
     return writeSimple<T>('receipts', body, id, (value) => {
-      const status = ['cancelled'].includes(value.status) ? 'cancelled' : 'completed'
+      const status = receiptStatus(value.status)
       return { purchase_order_id: value.purchase_order_id, receipt_date: value.receipt_date || value.scheduledDate || today(), status, notes: value.notes || null }
     })
   }
@@ -1150,6 +1416,7 @@ const deleteResource = async <T>(path: string): Promise<T> => {
     pathname.startsWith('/crm/leads/') ? 'leads' :
     pathname.startsWith('/sales-orders/quotations/') ? 'quotations' :
     pathname.startsWith('/sales-orders/') ? 'sales_orders' :
+    pathname.startsWith('/sales/warranty-orders/') ? 'warranty_orders' :
     pathname.startsWith('/products/') ? 'products' :
     pathname.startsWith('/product-categories/') ? 'product_categories' :
     pathname.startsWith('/customers/') ? 'customers' :
