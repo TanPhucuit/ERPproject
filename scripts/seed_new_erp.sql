@@ -1,0 +1,238 @@
+-- ============================================================================
+-- NEW ERP SEED DATA
+-- Run after scripts/migration_new_erp.sql.
+-- Scenario language: English. Size: enough to test all major flows.
+-- ============================================================================
+
+BEGIN;
+
+-- Users
+INSERT INTO users (id, username, email, password_hash, full_name, role) VALUES
+  ('00000000-0000-0000-0000-000000000101','admin','admin@erp.local','admin123','Alice Admin','admin'),
+  ('00000000-0000-0000-0000-000000000102','sarah.sales','sarah.sales@erp.local','demo123','Sarah Sales','sales'),
+  ('00000000-0000-0000-0000-000000000103','peter.purchase','peter.purchase@erp.local','demo123','Peter Purchase','purchasing'),
+  ('00000000-0000-0000-0000-000000000104','wendy.warehouse','wendy.warehouse@erp.local','demo123','Wendy Warehouse','warehouse'),
+  ('00000000-0000-0000-0000-000000000105','adam.accounting','adam.accounting@erp.local','demo123','Adam Accounting','accountant')
+ON CONFLICT (id) DO NOTHING;
+
+-- Accounts
+INSERT INTO accounts (id, account_number, bank, name, balance) VALUES
+  ('00000000-0000-0000-0000-000000000201','CASH-001',NULL,'Cash Drawer',50000000),
+  ('00000000-0000-0000-0000-000000000202','VCB-102938','Vietcombank','Main Operating Bank',250000000),
+  ('00000000-0000-0000-0000-000000000203','ACB-556677','ACB','Secondary Bank',120000000)
+ON CONFLICT (id) DO NOTHING;
+
+-- Product categories
+INSERT INTO product_categories (id, category_name, parent_id) VALUES
+  ('00000000-0000-0000-0000-000000000301','Smart Home',NULL),
+  ('00000000-0000-0000-0000-000000000302','Security',NULL),
+  ('00000000-0000-0000-0000-000000000303','Sensors','00000000-0000-0000-0000-000000000301')
+ON CONFLICT (id) DO NOTHING;
+
+-- Products
+INSERT INTO products (id, category_id, sku, product_name, description, unit_price, cost_price, uom, warranty_period, repair_fee) VALUES
+  ('00000000-0000-0000-0000-000000000401','00000000-0000-0000-0000-000000000301','HUB-PRO-01','Smart Hub Pro','Central home automation hub',3500000,2100000,'pcs',730,900000),
+  ('00000000-0000-0000-0000-000000000402','00000000-0000-0000-0000-000000000303','SEN-DOOR-01','Door Sensor','Wireless open-close sensor',450000,220000,'pcs',365,150000),
+  ('00000000-0000-0000-0000-000000000403','00000000-0000-0000-0000-000000000303','SEN-MOTION-01','Motion Sensor','PIR motion sensor',650000,330000,'pcs',365,180000),
+  ('00000000-0000-0000-0000-000000000404','00000000-0000-0000-0000-000000000302','CAM-IN-01','Indoor Camera','Wi-Fi indoor camera',1500000,850000,'pcs',365,400000),
+  ('00000000-0000-0000-0000-000000000405','00000000-0000-0000-0000-000000000302','CAM-OUT-01','Outdoor Camera','Weatherproof camera',2400000,1350000,'pcs',730,650000),
+  ('00000000-0000-0000-0000-000000000406','00000000-0000-0000-0000-000000000301','LOCK-SMART-01','Smart Lock','Fingerprint smart lock',4200000,2600000,'pcs',365,1200000),
+  ('00000000-0000-0000-0000-000000000407','00000000-0000-0000-0000-000000000301','SWITCH-02','Smart Switch 2 Gang','Two gang smart switch',720000,350000,'pcs',365,200000),
+  ('00000000-0000-0000-0000-000000000408','00000000-0000-0000-0000-000000000301','PLUG-01','Smart Plug','Energy monitoring smart plug',390000,180000,'pcs',365,120000)
+ON CONFLICT (id) DO NOTHING;
+
+-- Warehouses and bins
+INSERT INTO warehouses (id, warehouse_name, address) VALUES
+  ('00000000-0000-0000-0000-000000000501','Main Warehouse','District 7, Ho Chi Minh City'),
+  ('00000000-0000-0000-0000-000000000502','North Warehouse','Long Bien, Hanoi')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO bin_locations (id, warehouse_id, location_code, location_name) VALUES
+  ('00000000-0000-0000-0000-000000000511','00000000-0000-0000-0000-000000000501','A-01','Main Aisle A-01'),
+  ('00000000-0000-0000-0000-000000000512','00000000-0000-0000-0000-000000000501','A-02','Main Aisle A-02'),
+  ('00000000-0000-0000-0000-000000000513','00000000-0000-0000-0000-000000000501','B-01','Main Aisle B-01'),
+  ('00000000-0000-0000-0000-000000000521','00000000-0000-0000-0000-000000000502','N-01','North Aisle N-01'),
+  ('00000000-0000-0000-0000-000000000522','00000000-0000-0000-0000-000000000502','N-02','North Aisle N-02'),
+  ('00000000-0000-0000-0000-000000000523','00000000-0000-0000-0000-000000000502','N-03','North Aisle N-03')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO stock_in_bins (product_id, bin_location_id, quantity, available) VALUES
+  ('00000000-0000-0000-0000-000000000401','00000000-0000-0000-0000-000000000511',25,25),
+  ('00000000-0000-0000-0000-000000000402','00000000-0000-0000-0000-000000000511',100,100),
+  ('00000000-0000-0000-0000-000000000403','00000000-0000-0000-0000-000000000512',80,80),
+  ('00000000-0000-0000-0000-000000000404','00000000-0000-0000-0000-000000000512',40,40),
+  ('00000000-0000-0000-0000-000000000405','00000000-0000-0000-0000-000000000513',35,35),
+  ('00000000-0000-0000-0000-000000000406','00000000-0000-0000-0000-000000000521',20,20),
+  ('00000000-0000-0000-0000-000000000407','00000000-0000-0000-0000-000000000522',90,90),
+  ('00000000-0000-0000-0000-000000000408','00000000-0000-0000-0000-000000000523',120,120)
+ON CONFLICT (product_id, bin_location_id) DO UPDATE SET quantity = EXCLUDED.quantity, available = EXCLUDED.available;
+
+INSERT INTO stock_levels (product_id, warehouse_id, quantity_on_hand, total_quantity, available, new_quantity, reorder_status)
+SELECT product_id, warehouse_id, SUM(quantity), SUM(quantity), SUM(available), 0,
+       CASE WHEN SUM(available) < 10 THEN 'low' ELSE 'normal' END
+FROM stock_in_bins sib
+JOIN bin_locations bl ON bl.id = sib.bin_location_id
+GROUP BY product_id, warehouse_id
+ON CONFLICT (product_id, warehouse_id) DO UPDATE SET
+  quantity_on_hand = EXCLUDED.quantity_on_hand,
+  total_quantity = EXCLUDED.total_quantity,
+  available = EXCLUDED.available,
+  new_quantity = EXCLUDED.new_quantity,
+  reorder_status = EXCLUDED.reorder_status;
+
+-- Suppliers and supplier catalog
+INSERT INTO suppliers (id, supplier_name, contact_name, email, phone, address, tax_id) VALUES
+  ('00000000-0000-0000-0000-000000000601','Apex Smart Devices','Olivia Chen','sales@apexsmart.example','+862012345678','Shenzhen, China','CN-APEX-001'),
+  ('00000000-0000-0000-0000-000000000602','SecureVision Factory','Mark Lee','export@securevision.example','+862076543210','Guangzhou, China','CN-SVF-002'),
+  ('00000000-0000-0000-0000-000000000603','HomeLink Components','Nina Park','contact@homelink.example','+82212345678','Seoul, Korea','KR-HLC-003')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO supplier_products (id, supplier_id, product_id, sku, price) VALUES
+  ('00000000-0000-0000-0000-000000000611','00000000-0000-0000-0000-000000000601','00000000-0000-0000-0000-000000000401','HUB-PRO-01',2050000),
+  ('00000000-0000-0000-0000-000000000612','00000000-0000-0000-0000-000000000601','00000000-0000-0000-0000-000000000402','SEN-DOOR-01',210000),
+  ('00000000-0000-0000-0000-000000000613','00000000-0000-0000-0000-000000000601','00000000-0000-0000-0000-000000000403','SEN-MOTION-01',315000),
+  ('00000000-0000-0000-0000-000000000614','00000000-0000-0000-0000-000000000602','00000000-0000-0000-0000-000000000404','CAM-IN-01',830000),
+  ('00000000-0000-0000-0000-000000000615','00000000-0000-0000-0000-000000000602','00000000-0000-0000-0000-000000000405','CAM-OUT-01',1320000),
+  ('00000000-0000-0000-0000-000000000616','00000000-0000-0000-0000-000000000603','00000000-0000-0000-0000-000000000406','LOCK-SMART-01',2550000),
+  ('00000000-0000-0000-0000-000000000617','00000000-0000-0000-0000-000000000603','00000000-0000-0000-0000-000000000407','SWITCH-02',340000),
+  ('00000000-0000-0000-0000-000000000618','00000000-0000-0000-0000-000000000603','00000000-0000-0000-0000-000000000408','PLUG-01',175000)
+ON CONFLICT (id) DO NOTHING;
+
+-- Activity types
+INSERT INTO activity_types (id, type_name, icon) VALUES
+  ('00000000-0000-0000-0000-000000000701','Call','phone'),
+  ('00000000-0000-0000-0000-000000000702','Email','mail'),
+  ('00000000-0000-0000-0000-000000000703','Meeting','users'),
+  ('00000000-0000-0000-0000-000000000704','Quotation Sent','file-text')
+ON CONFLICT (id) DO NOTHING;
+
+-- Customers
+INSERT INTO customers (id, full_name, email, phone, address, company_name, tax_id, customer_type) VALUES
+  ('00000000-0000-0000-0000-000000000801','Michael Tran','michael.tran@example.com','0901001001','Thao Dien, Ho Chi Minh City',NULL,NULL,'individual'),
+  ('00000000-0000-0000-0000-000000000802','Grace Office Admin','admin@graceoffice.example','0902002002','District 1, Ho Chi Minh City','Grace Office Co','0312345678','company'),
+  ('00000000-0000-0000-0000-000000000803','Liam Hotel Buyer','buyer@liamhotel.example','0903003003','Da Nang','Liam Boutique Hotel','0409876543','company')
+ON CONFLICT (id) DO NOTHING;
+
+-- Leads: insert products already exist so auto-request trigger can create quotation.
+INSERT INTO leads (id, first_name, last_name, email, phone, company, source, status, probability, assigned_to_id) VALUES
+  ('00000000-0000-0000-0000-000000000901','David','Referral','david.referral@example.com','0911001001','David Villa','referral','new',20,'00000000-0000-0000-0000-000000000102'),
+  ('00000000-0000-0000-0000-000000000902','Emma','Auto','emma.auto@example.com','0911001002','Emma Apartment','auto_request','new',15,NULL),
+  ('00000000-0000-0000-0000-000000000903','Noah','Quoted','noah.quoted@example.com','0911001003','Noah Retail','referral','quoted',60,'00000000-0000-0000-0000-000000000102'),
+  ('00000000-0000-0000-0000-000000000904','Olivia','Won','olivia.won@example.com','0911001004','Olivia Studio','referral','won',100,'00000000-0000-0000-0000-000000000102')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO activities (lead_id, activity_type_id, description, activity_date, performed_by_id) VALUES
+  ('00000000-0000-0000-0000-000000000901','00000000-0000-0000-0000-000000000701','Initial referral call completed.',NOW() - INTERVAL '8 days','00000000-0000-0000-0000-000000000102'),
+  ('00000000-0000-0000-0000-000000000903','00000000-0000-0000-0000-000000000704','Quotation sent for retail security package.',NOW() - INTERVAL '4 days','00000000-0000-0000-0000-000000000102'),
+  ('00000000-0000-0000-0000-000000000904','00000000-0000-0000-0000-000000000703','Customer accepted package after meeting.',NOW() - INTERVAL '20 days','00000000-0000-0000-0000-000000000102');
+
+-- Manual quotations and items. Auto quotation for lead 902 is generated by trigger.
+INSERT INTO quotations (id, lead_id, customer_id, quotation_number, issue_date, valid_until, status, notes) VALUES
+  ('00000000-0000-0000-0000-000000001001','00000000-0000-0000-0000-000000000903',NULL,'QT-SEED-0001',CURRENT_DATE - 4,CURRENT_DATE + 20,'sent','Retail security quotation awaiting response.'),
+  ('00000000-0000-0000-0000-000000001002','00000000-0000-0000-0000-000000000904','00000000-0000-0000-0000-000000000803','QT-SEED-0002',CURRENT_DATE - 35,CURRENT_DATE - 5,'accepted','Accepted hotel package quotation.'),
+  ('00000000-0000-0000-0000-000000001003','00000000-0000-0000-0000-000000000901',NULL,'QT-SEED-0003',CURRENT_DATE - 2,CURRENT_DATE + 28,'draft','Draft quotation for referral lead.'),
+  ('00000000-0000-0000-0000-000000001004',NULL,'00000000-0000-0000-0000-000000000802','QT-SEED-0004',CURRENT_DATE - 50,CURRENT_DATE - 20,'rejected','Rejected office retrofit quote.')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO quotation_items (quotation_id, product_id, quantity, unit_price, discount_percent, tax_amount) VALUES
+  ('00000000-0000-0000-0000-000000001001','00000000-0000-0000-0000-000000000404',4,1500000,5,570000),
+  ('00000000-0000-0000-0000-000000001001','00000000-0000-0000-0000-000000000405',2,2400000,0,480000),
+  ('00000000-0000-0000-0000-000000001002','00000000-0000-0000-0000-000000000401',2,3500000,3,679000),
+  ('00000000-0000-0000-0000-000000001002','00000000-0000-0000-0000-000000000406',5,4200000,5,1995000),
+  ('00000000-0000-0000-0000-000000001003','00000000-0000-0000-0000-000000000407',8,720000,0,576000),
+  ('00000000-0000-0000-0000-000000001004','00000000-0000-0000-0000-000000000408',30,390000,10,1053000);
+
+-- Sales orders, deliveries, invoices
+INSERT INTO sales_orders (id, quotation_id, customer_id, order_number, order_date, status, shipping_address, notes) VALUES
+  ('00000000-0000-0000-0000-000000001101','00000000-0000-0000-0000-000000001002','00000000-0000-0000-0000-000000000803','SO-SEED-0001',CURRENT_DATE - 25,'delivered','Da Nang hotel site','Delivered hotel package.'),
+  ('00000000-0000-0000-0000-000000001102',NULL,'00000000-0000-0000-0000-000000000802','SO-SEED-0002',CURRENT_DATE - 3,'confirmed','Grace Office HQ','Office add-on order awaiting delivery.')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO sales_order_items (sales_order_id, product_id, quantity, unit_price) VALUES
+  ('00000000-0000-0000-0000-000000001101','00000000-0000-0000-0000-000000000401',2,3500000),
+  ('00000000-0000-0000-0000-000000001101','00000000-0000-0000-0000-000000000406',5,4200000),
+  ('00000000-0000-0000-0000-000000001102','00000000-0000-0000-0000-000000000407',10,720000),
+  ('00000000-0000-0000-0000-000000001102','00000000-0000-0000-0000-000000000408',20,390000);
+
+INSERT INTO delivery_orders (id, sales_order_id, delivery_date, status, tracking_number, notes) VALUES
+  ('00000000-0000-0000-0000-000000001201','00000000-0000-0000-0000-000000001101',CURRENT_DATE - 380,'delivered','TRK-HOTEL-001','Delivered more than one year ago for expired warranty scenario.'),
+  ('00000000-0000-0000-0000-000000001202','00000000-0000-0000-0000-000000001102',CURRENT_DATE + 2,'ready','TRK-OFFICE-002','Ready for warehouse picking.')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO delivery_order_items (delivery_order_id, product_id, bin_location_id, quantity_requested) VALUES
+  ('00000000-0000-0000-0000-000000001201','00000000-0000-0000-0000-000000000401','00000000-0000-0000-0000-000000000511',2),
+  ('00000000-0000-0000-0000-000000001201','00000000-0000-0000-0000-000000000406','00000000-0000-0000-0000-000000000521',5),
+  ('00000000-0000-0000-0000-000000001202','00000000-0000-0000-0000-000000000407','00000000-0000-0000-0000-000000000522',10),
+  ('00000000-0000-0000-0000-000000001202','00000000-0000-0000-0000-000000000408','00000000-0000-0000-0000-000000000523',20);
+
+INSERT INTO warranty_orders (id, sales_order_id, date, note) VALUES
+  ('00000000-0000-0000-0000-000000001301','00000000-0000-0000-0000-000000001101',CURRENT_DATE - 10,'Expired warranty check for hotel smart lock.'),
+  ('00000000-0000-0000-0000-000000001302','00000000-0000-0000-0000-000000001101',CURRENT_DATE - 20,'In-warranty hub check.')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO warranty_order_products (warranty_orders_id, product_id, quantity) VALUES
+  ('00000000-0000-0000-0000-000000001301','00000000-0000-0000-0000-000000000406',1),
+  ('00000000-0000-0000-0000-000000001302','00000000-0000-0000-0000-000000000401',1);
+
+INSERT INTO invoices (id, sales_order_id, invoice_number, issue_date, due_date, status, total_amount, tax_amount, net_amount, warranty_orders_id, notes) VALUES
+  ('00000000-0000-0000-0000-000000001401','00000000-0000-0000-0000-000000001101','INV-SEED-0001',CURRENT_DATE - 22,CURRENT_DATE + 8,'sent',28000000,2545454.55,25454545.45,NULL,'Hotel package invoice.'),
+  ('00000000-0000-0000-0000-000000001402','00000000-0000-0000-0000-000000001102','INV-SEED-0002',CURRENT_DATE - 2,CURRENT_DATE + 28,'draft',15000000,1363636.36,13636363.64,NULL,'Office add-on draft invoice.')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO credit_notes (id, invoices_id, reason, total_amount) VALUES
+  ('00000000-0000-0000-0000-000000001501','00000000-0000-0000-0000-000000001401','Goodwill discount after installation delay.',1000000)
+ON CONFLICT (id) DO NOTHING;
+
+-- Purchase flow
+INSERT INTO rfqs (id, issue_date, deadline, status) VALUES
+  ('00000000-0000-0000-0000-000000001601',CURRENT_DATE - 12,CURRENT_DATE + 3,'sent'),
+  ('00000000-0000-0000-0000-000000001602',CURRENT_DATE - 40,CURRENT_DATE - 25,'closed')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO rfq_items (rfq_id, supplier_products_id, quantity) VALUES
+  ('00000000-0000-0000-0000-000000001601','00000000-0000-0000-0000-000000000611',10),
+  ('00000000-0000-0000-0000-000000001601','00000000-0000-0000-0000-000000000612',50),
+  ('00000000-0000-0000-0000-000000001602','00000000-0000-0000-0000-000000000614',30),
+  ('00000000-0000-0000-0000-000000001602','00000000-0000-0000-0000-000000000615',20);
+
+INSERT INTO purchase_orders (id, rfq_id, vendor_id, order_number, order_date, expected_arrival_date, status, notes) VALUES
+  ('00000000-0000-0000-0000-000000001701','00000000-0000-0000-0000-000000001601','00000000-0000-0000-0000-000000000601','PO-SEED-0001',CURRENT_DATE - 5,CURRENT_DATE + 10,'confirmed','Hub and sensor replenishment.'),
+  ('00000000-0000-0000-0000-000000001702','00000000-0000-0000-0000-000000001602','00000000-0000-0000-0000-000000000602','PO-SEED-0002',CURRENT_DATE - 32,CURRENT_DATE - 15,'received','Camera replenishment received.')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO purchase_order_items (purchase_order_id, supplier_products_id, quantity, unit_price) VALUES
+  ('00000000-0000-0000-0000-000000001701','00000000-0000-0000-0000-000000000611',10,2050000),
+  ('00000000-0000-0000-0000-000000001701','00000000-0000-0000-0000-000000000612',50,210000),
+  ('00000000-0000-0000-0000-000000001702','00000000-0000-0000-0000-000000000614',30,830000),
+  ('00000000-0000-0000-0000-000000001702','00000000-0000-0000-0000-000000000615',20,1320000);
+
+INSERT INTO receipts (id, purchase_order_id, receipt_date, status, notes) VALUES
+  ('00000000-0000-0000-0000-000000001801','00000000-0000-0000-0000-000000001701',CURRENT_DATE,'draft','Incoming shipment not received yet.'),
+  ('00000000-0000-0000-0000-000000001802','00000000-0000-0000-0000-000000001702',CURRENT_DATE - 14,'draft','Camera shipment received into new quantity.')
+ON CONFLICT (id) DO NOTHING;
+
+UPDATE receipts SET status = 'completed' WHERE id = '00000000-0000-0000-0000-000000001802';
+
+INSERT INTO vendor_bills (id, purchase_order_id, bill_number, issue_date, due_date, status, total, tax_amount, subtotal, notes) VALUES
+  ('00000000-0000-0000-0000-000000001901','00000000-0000-0000-0000-000000001701','VB-SEED-0001',CURRENT_DATE - 3,CURRENT_DATE + 27,'posted',34100000,3100000,31000000,'Open vendor bill for Apex.'),
+  ('00000000-0000-0000-0000-000000001902','00000000-0000-0000-0000-000000001702','VB-SEED-0002',CURRENT_DATE - 20,CURRENT_DATE + 10,'posted',56430000,5130000,51300000,'Paid vendor bill for cameras.')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO debit_notes (id, vendor_bills_id, reason, total_amount) VALUES
+  ('00000000-0000-0000-0000-000000002001','00000000-0000-0000-0000-000000001902','Two camera units had packaging defects.',1660000)
+ON CONFLICT (id) DO NOTHING;
+
+-- Payments. Triggers update balances/statuses.
+INSERT INTO payments (id, invoice_id, vendor_bill_id, payment_date, payment_method, amount, payment_account, target_account, reference_number, notes) VALUES
+  ('00000000-0000-0000-0000-000000002101','00000000-0000-0000-0000-000000001401',NULL,CURRENT_DATE - 5,'bank_transfer',15000000,NULL,'00000000-0000-0000-0000-000000000202','CUST-TRF-001','Partial bank receipt from Liam Hotel.'),
+  ('00000000-0000-0000-0000-000000002102','00000000-0000-0000-0000-000000001402',NULL,CURRENT_DATE,'cash',2000000,NULL,NULL,'CASH-REC-001','Cash deposit from Grace Office.'),
+  ('00000000-0000-0000-0000-000000002103',NULL,'00000000-0000-0000-0000-000000001902',CURRENT_DATE - 7,'bank_transfer',56430000,'00000000-0000-0000-0000-000000000202',NULL,'SUP-PAY-001','Vendor payment to SecureVision Factory.')
+ON CONFLICT (id) DO NOTHING;
+
+-- Transfer received camera stock from "new" quantity into a physical bin.
+INSERT INTO stock_transfers (id, product_id, src_bin_location_id, target_bin_location_id, quantity, note) VALUES
+  ('00000000-0000-0000-0000-000000002201','00000000-0000-0000-0000-000000000404',NULL,'00000000-0000-0000-0000-000000000512',10,'Move newly received indoor cameras to Main A-02'),
+  ('00000000-0000-0000-0000-000000002202','00000000-0000-0000-0000-000000000405',NULL,'00000000-0000-0000-0000-000000000513',5,'Move newly received outdoor cameras to Main B-01')
+ON CONFLICT (id) DO NOTHING;
+
+COMMIT;

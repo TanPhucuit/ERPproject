@@ -48,9 +48,9 @@ export const authService = {
 
     const { data, error } = await supabase
       .from('users')
-      .select('id, email, full_name, role, status, avatar_url, password_hash')
+      .select('id, email, full_name, role, is_active, password_hash')
       .eq('email', normalizedEmail)
-      .eq('is_deleted', false)
+      .eq('is_active', true)
       .single()
 
     if (error || !data || data.password_hash !== payload.password) {
@@ -72,8 +72,8 @@ export const authService = {
         email: data.email,
         full_name: data.full_name,
         role: data.role,
-        status: data.status,
-        avatar_url: data.avatar_url,
+        status: data.is_active ? 'active' : 'inactive',
+        avatar_url: null,
       },
     }
   },
@@ -85,7 +85,7 @@ export const authService = {
       .from('users')
       .select('id')
       .eq('email', normalizedEmail)
-      .eq('is_deleted', false)
+      .eq('is_active', true)
       .maybeSingle()
 
     if (existingUser) {
@@ -96,13 +96,13 @@ export const authService = {
       .from('users')
       .insert({
         email: normalizedEmail,
+        username: normalizedEmail.split('@')[0],
         password_hash: payload.password,
         full_name: payload.full_name.trim(),
         role: payload.role,
-        status: 'active',
-        is_deleted: false,
+        is_active: true,
       })
-      .select('id, email, full_name, role, status, avatar_url')
+      .select('id, email, full_name, role, is_active')
       .single()
 
     if (error || !data) {
@@ -119,7 +119,11 @@ export const authService = {
 
     return {
       token,
-      user: data,
+      user: {
+        ...data,
+        status: data.is_active ? 'active' : 'inactive',
+        avatar_url: null,
+      },
     }
   },
 
@@ -138,16 +142,20 @@ export const authService = {
 
     const { data, error } = await supabase
       .from('users')
-      .select('id, email, full_name, role, status, avatar_url')
+      .select('id, email, full_name, role, is_active')
       .eq('id', payload.id)
-      .eq('is_deleted', false)
+      .eq('is_active', true)
       .single()
 
     if (error || !data) {
       throw new Error('User not found')
     }
 
-    return data
+    return {
+      ...data,
+      status: data.is_active ? 'active' : 'inactive',
+      avatar_url: null,
+    }
   },
 
   setToken: (token: string) => {
