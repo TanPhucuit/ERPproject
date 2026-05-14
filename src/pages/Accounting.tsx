@@ -172,12 +172,25 @@ const buildAdjustmentMap = (notes: any[]) => notes.reduce((map, note) => {
   return map
 }, new Map<string, { amount: number; reasons: string[] }>())
 
-const buildPaymentMap = (payments: any[], documentType: 'invoice' | 'vendor_bill') => payments.reduce((map, payment) => {
-  const key = documentType === 'invoice' ? payment.invoice_id : payment.vendor_bill_id
+const buildPaymentMap = (payments: any[], documentType: 'invoice' | 'vendor_bill' | 'refund_request') => payments.reduce((map, payment) => {
+  const key = documentType === 'invoice'
+    ? payment.invoice_id
+    : documentType === 'vendor_bill'
+      ? payment.vendor_bill_id
+      : payment.refund_request_id
   if (!key) return map
   map.set(key, (map.get(key) || 0) + Number(payment.amount || 0))
   return map
 }, new Map<string, number>())
+
+const applyRefundPayments = (refund: any, paymentMap: Map<string, number>) => {
+  const paidAmount = paymentMap.get(refund.id) || 0
+  return {
+    ...refund,
+    paidAmount,
+    amountDue: Math.max(Number(refund.totalAmount || refund.amount || 0) - paidAmount, 0),
+  }
+}
 
 const applyAdjustment = (
   record: any,
@@ -258,11 +271,12 @@ const AccountingModule: React.FC = () => {
       const debitMap = buildAdjustmentMap(normalizedDebits)
       const invoicePaymentMap = buildPaymentMap(normalizedPayments, 'invoice')
       const billPaymentMap = buildPaymentMap(normalizedPayments, 'vendor_bill')
+      const refundPaymentMap = buildPaymentMap(normalizedPayments, 'refund_request')
       setInvoices(invoiceData.map(normalizeInvoice).map((invoice) => applyAdjustment(invoice, creditMap, invoicePaymentMap)))
       setVendorBills(billData.map(normalizeBill).map((bill) => applyAdjustment(bill, debitMap, billPaymentMap)))
       setCredits(normalizedCredits)
       setDebits(normalizedDebits)
-      setRefundRequests(refundData.map(normalizeRefundRequest))
+      setRefundRequests(refundData.map(normalizeRefundRequest).map((refund) => applyRefundPayments(refund, refundPaymentMap)))
       setAccounts(accountData.map(normalizeAccount))
       setPayments(normalizedPayments)
     } catch (error: any) {

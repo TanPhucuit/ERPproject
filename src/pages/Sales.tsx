@@ -903,6 +903,8 @@ const SalesModule: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false)
   const [modalRecord, setModalRecord] = useState<FormRecord | null>(null)
   const [modalError, setModalError] = useState<string | null>(null)
+  const [cancelRecord, setCancelRecord] = useState<any>(null)
+  const [cancelReason, setCancelReason] = useState('')
 
   const loadAll = () => {
     return Promise.all([
@@ -1066,6 +1068,33 @@ const SalesModule: React.FC = () => {
     showNotification('success', `${isOrder ? 'Sales Order' : 'Quotation'} đã được lưu.`)
   }
 
+  const openCancel = (record: any) => {
+    setCancelRecord(record)
+    setCancelReason('')
+  }
+
+  const confirmCancel = async () => {
+    if (!cancelRecord || !cancelReason.trim()) {
+      showNotification('error', 'Please enter a cancellation reason.')
+      return
+    }
+    const path = activeTab === 'orders' ? '/sales-orders' : activeTab === 'returns' ? '/sales/returns' : ''
+    if (!path) {
+      setCancelRecord(null)
+      return
+    }
+    try {
+      await erpApi.put(`${path}/${cancelRecord.id}`, { status: 'cancelled', cancellation_reason: cancelReason.trim() })
+      await loadAll()
+    } catch (e: any) {
+      showNotification('error', `Cancel failed: ${e.message}`)
+      return
+    }
+    setCancelRecord(null)
+    setCancelReason('')
+    showNotification('success', 'Document cancelled.')
+  }
+
   const deleteRecord = async (record: any) => {
     const path = activeTab === 'orders' ? '/sales-orders' : activeTab === 'quotations' ? '/sales-orders/quotations' : activeTab === 'warranty' ? '/sales/warranty-orders' : '/sales/returns'
     if (!window.confirm(`Xóa ${record.quotation_number || record.sales_order_number || record.warranty_order_number}?`)) return
@@ -1100,10 +1129,12 @@ const SalesModule: React.FC = () => {
 
   const renderActions = (record: any) => (
     <div className="flex items-center gap-1">
-      {activeTab === 'orders' || activeTab === 'warranty' || activeTab === 'returns' ? (
-        <button onClick={() => deleteRecord(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Delete">
+      {activeTab === 'orders' || activeTab === 'returns' ? (
+        <button onClick={() => openCancel(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Cancel">
           <Trash2 size={16} />
         </button>
+      ) : activeTab === 'warranty' ? (
+        null
       ) : (
         <RecordActions
           onEdit={() => openEdit(record)}
@@ -1273,6 +1304,31 @@ const SalesModule: React.FC = () => {
           onSave={handleSave}
           errorMessage={modalError}
         />
+      )}
+      {cancelRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-md bg-white shadow-xl">
+            <div className="border-b border-gray-200 px-5 py-4">
+              <h3 className="text-lg font-bold text-gray-900">Cancel document</h3>
+            </div>
+            <div className="space-y-3 p-5">
+              <p className="text-sm text-gray-600">
+                {cancelRecord.sales_order_number || cancelRecord.return_number || cancelRecord.quotation_number}
+              </p>
+              <textarea
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                rows={3}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Cancellation reason..."
+              />
+            </div>
+            <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-5 py-4">
+              <button onClick={() => setCancelRecord(null)} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700">Close</button>
+              <button onClick={confirmCancel} className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white">Cancel document</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

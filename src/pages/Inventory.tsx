@@ -85,6 +85,7 @@ const TransferModal: React.FC<{
   onSave: (record: any) => void
 }> = ({ isOpen, record, deliveries, warehouses, binLocations, binStock, stockLevels, products, onClose, onSave }) => {
   const [form, setForm] = useState<any>({})
+  const [formError, setFormError] = useState('')
 
   useEffect(() => {
     if (!isOpen) return
@@ -98,10 +99,11 @@ const TransferModal: React.FC<{
       notes: record?.notes || '',
       deliveryLines: record?.deliveryLines || [],
     })
+    setFormError('')
   }, [record, isOpen])
 
   const selectedDelivery = deliveries.find((delivery) => delivery.id === form.deliveryOrderId)
-  const deliveryOptions = deliveries.filter((delivery) => !['delivered', 'delivering'].includes(delivery.status))
+  const deliveryOptions = deliveries.filter((delivery) => !['delivered', 'delivering', 'cancelled'].includes(delivery.status))
   const orderLines = (selectedDelivery?.sales_order?.items || []).map((item: any) => ({
     id: item.id,
     product_id: item.product_id,
@@ -199,13 +201,14 @@ const TransferModal: React.FC<{
   const handleSave = () => {
     if (form.transferType === 'customer_delivery') {
       if (!form.deliveryOrderId) {
-        alert('Please select a delivery order.')
+        setFormError('Please select a delivery order.')
         return
       }
       if ((form.deliveryLines || []).some((line: any) => !line.bin_location_id)) {
-        alert('Please select warehouse and bin for every delivery product.')
+        setFormError('Please select warehouse and bin for every delivery product.')
         return
       }
+      setFormError('')
       onSave({
         ...record,
         ...form,
@@ -220,6 +223,7 @@ const TransferModal: React.FC<{
       return
     }
 
+    setFormError('')
     onSave({
       ...record,
       ...form,
@@ -236,6 +240,11 @@ const TransferModal: React.FC<{
           <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100">x</button>
         </div>
         <div className="max-h-[75vh] space-y-5 overflow-y-auto p-6">
+          {formError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              {formError}
+            </div>
+          )}
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">Transfer Type</label>

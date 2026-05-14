@@ -421,20 +421,26 @@ const cancelSalesInvoiceCascade = async (invoiceId: string, reason: string) => {
   if (deliveryLookupError) throw deliveryLookupError
 
   for (const delivery of deliveryOrders || []) {
-    if (delivery.status === 'ready') {
+    if (delivery.status === 'delivered') {
+      throw new Error('Delivered orders cannot be cancelled from invoice cancellation. Create a sales return instead.')
+    }
+    if (['ready', 'delivering'].includes(delivery.status)) {
       for (const item of delivery.items || []) {
         const quantity = toNumber(item.quantity_requested)
         const { data: binRow, error: binLookupError } = await supabase
           .from('stock_in_bins')
-          .select('id, available')
+          .select('id, quantity, available')
           .eq('product_id', item.product_id)
           .eq('bin_location_id', item.bin_location_id)
           .maybeSingle()
         if (binLookupError) throw binLookupError
-        if (binRow?.id) {
+        if (binRow?.id && delivery.status === 'delivering') {
           const { error: binUpdateError } = await supabase
             .from('stock_in_bins')
-            .update({ available: toNumber(binRow.available) + quantity })
+            .update({
+              quantity: toNumber(binRow.quantity) + quantity,
+              available: toNumber(binRow.available) + quantity,
+            })
             .eq('id', binRow.id)
           if (binUpdateError) throw binUpdateError
         }
@@ -446,16 +452,20 @@ const cancelSalesInvoiceCascade = async (invoiceId: string, reason: string) => {
         if (warehouseId) {
           const { data: stockLevel, error: stockLookupError } = await supabase
             .from('stock_levels')
-            .select('id, available')
+            .select('id, total_quantity, available')
             .eq('product_id', item.product_id)
             .eq('warehouse_id', warehouseId)
             .maybeSingle()
           if (stockLookupError) throw stockLookupError
           if (stockLevel?.id) {
             const nextAvailable = toNumber(stockLevel.available) + quantity
+            const nextTotal = delivery.status === 'delivering'
+              ? toNumber(stockLevel.total_quantity) + quantity
+              : toNumber(stockLevel.total_quantity)
             const { error: stockUpdateError } = await supabase
               .from('stock_levels')
               .update({
+                total_quantity: nextTotal,
                 available: nextAvailable,
                 reorder_status: nextAvailable <= 0 ? 'out' : nextAvailable < 10 ? 'low' : 'normal',
               })
@@ -1114,6 +1124,36 @@ const writeQuotation = async <T>(body: any, id?: string): Promise<T> => {
 }
 
 const writeSalesOrder = async <T>(body: any, id?: string): Promise<T> => {
+  if (id && body.status === 'cancelled') {
+    const reason = body.cancellation_reason || body.cancelReason || body.reason || body.notes
+    if (!reason?.trim()) throw new Error('Cancellation reason is required.')
+    const { data: invoice, error: invoiceLookupError } = await supabase
+      .from('invoices')
+      .select('id, status')
+      .eq('sales_order_id', id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (invoiceLookupError) throw invoiceLookupError
+    if (invoice?.id) {
+      await cancelSalesInvoiceCascade(invoice.id, reason)
+    } else {
+      const note = `Cancelled: ${reason.trim()}`
+      const { error: orderUpdateError } = await supabase
+        .from('sales_orders')
+        .update({ status: 'cancelled', cancellation_reason: reason.trim(), notes: body.notes || note })
+        .eq('id', id)
+      if (orderUpdateError) throw orderUpdateError
+      const { error: deliveryUpdateError } = await supabase
+        .from('delivery_orders')
+        .update({ status: 'cancelled', cancellation_reason: reason.trim(), notes: note })
+        .eq('sales_order_id', id)
+      if (deliveryUpdateError) throw deliveryUpdateError
+      await recalculateReservedStock()
+    }
+    return mapSalesOrder(await getSingle('sales_orders', id, selectSalesOrder)) as T
+  }
+
   let customerId = body.customer_id || null
   if (!customerId && body.quotation_id) {
     const quotation: any = await getSingle('quotations', body.quotation_id, '*')
@@ -1240,7 +1280,22 @@ const writeWarrantyOrder = async <T>(body: any, id?: string): Promise<T> => {
 }
 
 const writeSalesReturn = async <T>(body: any, id?: string): Promise<T> => {
-  if (id) throw new Error('Sales returns cannot be edited after creation.')
+  if (id) {
+    if (body.status !== 'cancelled') throw new Error('Sales returns cannot be edited after creation.')
+    const reason = body.cancellation_reason || body.cancelReason || body.reason || body.notes || 'Return cancelled'
+    const { error: returnUpdateError } = await supabase
+      .from('sales_returns')
+      .update({ status: 'cancelled', notes: `Cancelled: ${reason}` })
+      .eq('id', id)
+    if (returnUpdateError) throw returnUpdateError
+    const { error: refundUpdateError } = await supabase
+      .from('refund_requests')
+      .update({ status: 'cancelled', notes: `Cancelled with sales return: ${reason}` })
+      .eq('sales_return_id', id)
+      .neq('status', 'paid')
+    if (refundUpdateError) throw refundUpdateError
+    return mapSalesReturn(await getSingle('sales_returns', id, selectSalesReturn)) as T
+  }
   const customerId = body.customer_id || body.customerId
   const salesOrderId = body.sales_order_id || body.salesOrderId
   if (!isUuid(customerId)) throw new Error('Customer is required.')
@@ -1713,66 +1768,6 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor' | 'refund'
   }
   const { data, error } = await supabase.from('payments').insert(payload).select().single()
   if (error) throw error
-  if (payload.invoice_id) {
-    const { data: payments, error: paymentsError } = await supabase.from('payments').select('amount').eq('invoice_id', payload.invoice_id)
-    if (paymentsError) throw paymentsError
-    const paidTotal = (payments || []).reduce((sum: number, payment: any) => sum + toNumber(payment.amount), 0)
-    const { data: invoice, error: invoiceError } = await supabase.from('invoices').select('net_amount, tax_amount, total_amount').eq('id', payload.invoice_id).single()
-    if (invoiceError) throw invoiceError
-    const { data: creditNotes, error: creditNotesError } = await supabase.from('credit_notes').select('total_amount').eq('invoices_id', payload.invoice_id)
-    if (creditNotesError) throw creditNotesError
-    const creditTotal = (creditNotes || []).reduce((sum: number, note: any) => sum + toNumber(note.total_amount), 0)
-    const invoiceSubtotal = toNumber(invoice.net_amount) || toNumber(invoice.total_amount)
-    const invoiceTax = toNumber(invoice.tax_amount) > 0 ? toNumber(invoice.tax_amount) : Math.round(invoiceSubtotal * 0.1)
-    const invoiceTotal = invoiceSubtotal + invoiceTax
-    const invoicePayable = Math.max(invoiceTotal - creditTotal, 0)
-    const { error: invoiceUpdateError } = await supabase
-      .from('invoices')
-      .update({ status: paidTotal >= invoicePayable ? 'paid' : 'partial_paid' })
-      .eq('id', payload.invoice_id)
-    if (invoiceUpdateError) throw invoiceUpdateError
-    if (paidTotal >= invoicePayable) await recalculateReservedStock()
-  }
-  if (payload.vendor_bill_id) {
-    const { data: payments, error: paymentsError } = await supabase.from('payments').select('amount').eq('vendor_bill_id', payload.vendor_bill_id)
-    if (paymentsError) throw paymentsError
-    const paidTotal = (payments || []).reduce((sum: number, payment: any) => sum + toNumber(payment.amount), 0)
-    const { data: bill, error: billError } = await supabase.from('vendor_bills').select('subtotal, tax_amount, total, purchase_order_id').eq('id', payload.vendor_bill_id).single()
-    if (billError) throw billError
-    const { data: debitNotes, error: debitNotesError } = await supabase.from('debit_notes').select('total_amount').eq('vendor_bills_id', payload.vendor_bill_id)
-    if (debitNotesError) throw debitNotesError
-    const debitTotal = (debitNotes || []).reduce((sum: number, note: any) => sum + toNumber(note.total_amount), 0)
-    const billSubtotal = toNumber(bill.subtotal) || toNumber(bill.total)
-    const billTax = toNumber(bill.tax_amount) > 0 ? toNumber(bill.tax_amount) : Math.round(billSubtotal * 0.1)
-    const billTotal = billSubtotal + billTax
-    const billPayable = Math.max(billTotal - debitTotal, 0)
-    const isPaid = paidTotal >= billPayable
-    const { error: billUpdateError } = await supabase
-      .from('vendor_bills')
-      .update({ status: isPaid ? 'paid' : 'partial_paid' })
-      .eq('id', payload.vendor_bill_id)
-    if (billUpdateError) throw billUpdateError
-    if (isPaid && bill.purchase_order_id) {
-      const { error: receiptUpdateError } = await supabase
-        .from('receipts')
-        .update({ status: 'delivering' })
-        .eq('purchase_order_id', bill.purchase_order_id)
-        .eq('status', 'ready')
-      if (receiptUpdateError) throw receiptUpdateError
-    }
-  }
-  if (payload.refund_request_id) {
-    const { data: payments, error: paymentsError } = await supabase.from('payments').select('amount').eq('refund_request_id', payload.refund_request_id)
-    if (paymentsError) throw paymentsError
-    const paidTotal = (payments || []).reduce((sum: number, payment: any) => sum + toNumber(payment.amount), 0)
-    const { data: refund, error: refundError } = await supabase.from('refund_requests').select('amount').eq('id', payload.refund_request_id).single()
-    if (refundError) throw refundError
-    const { error: refundUpdateError } = await supabase
-      .from('refund_requests')
-      .update({ status: paidTotal >= toNumber(refund.amount) ? 'paid' : 'pending' })
-      .eq('id', payload.refund_request_id)
-    if (refundUpdateError) throw refundUpdateError
-  }
   return data as T
 }
 

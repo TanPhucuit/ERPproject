@@ -382,6 +382,7 @@ const RFQModal: React.FC<{
     lines: [],
     quotations: {},
   })
+  const [formError, setFormError] = useState('')
 
   useEffect(() => {
     const emptyRfq = {
@@ -408,17 +409,19 @@ const RFQModal: React.FC<{
     } else {
       setForm(emptyRfq)
     }
+    setFormError('')
   }, [record, isOpen])
 
   const handleSave = () => {
     if ((form.lines || []).length === 0) {
-      alert('RFQ must have at least 1 product line')
+      setFormError('RFQ must have at least one product line.')
       return
     }
     if ((form.lines || []).some((line: RFQLine) => !line.supplier_products_id)) {
-      alert('Please select a supplier for every RFQ product line')
+      setFormError('Please select a supplier for every RFQ product line.')
       return
     }
+    setFormError('')
     const totalEstimatedCost = calcRFQSubtotal(form.lines || [], form.quotations || {})
     onSave({ ...form, totalEstimatedCost })
   }
@@ -436,6 +439,11 @@ const RFQModal: React.FC<{
         </div>
 
         <div className="max-h-[75vh] overflow-y-auto p-6 space-y-6">
+          {formError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              {formError}
+            </div>
+          )}
           {/* Header Fields */}
           <div className="grid grid-cols-3 gap-4">
             <div>
@@ -526,6 +534,7 @@ const POModal: React.FC<{
     notes: '',
     lines: [],
   })
+  const [formError, setFormError] = useState('')
 
   useEffect(() => {
     if (record) {
@@ -547,6 +556,7 @@ const POModal: React.FC<{
         lines: [],
       })
     }
+    setFormError('')
   }, [record, isOpen])
 
   const selectedRfq = rfqs.find((rfq) => rfq.id === form.rfqId)
@@ -560,13 +570,10 @@ const POModal: React.FC<{
     return Array.from(supplierMap.entries()).map(([value, label]) => ({ value, label }))
   }, [selectedRfq, supplierProducts])
 
-  const mappedSupplierName = rfqSupplierOptions[0]?.label || ''
+  const mappedSupplierName = rfqSupplierOptions.map((supplier) => supplier.label).join(', ')
 
-  const linesFromRfq = (rfq: any, supplierId: string) => {
-    return (rfq?.lines || []).filter((line: any) => {
-      const supplierProduct = supplierProducts.find((item) => item.id === line.supplier_products_id)
-      return supplierProduct?.supplier_id === supplierId
-    }).map((line: any) => {
+  const linesFromRfq = (rfq: any) => {
+    return (rfq?.lines || []).map((line: any) => {
       const supplierProduct = supplierProducts.find((item) => item.id === line.supplier_products_id)
       const quantity = Number(line.quantity_required || line.quantity || 1)
       const unitPrice = Number(supplierProduct?.price || line.estimated_unit_price || 0)
@@ -593,23 +600,20 @@ const POModal: React.FC<{
       ...form,
       rfqId,
       supplierId,
-      lines: supplierId ? linesFromRfq(rfq, supplierId) : [],
+      lines: linesFromRfq(rfq),
     })
   }
 
   const handleSave = () => {
     if (!form.rfqId) {
-      alert('Purchase Order must be created from an RFQ')
-      return
-    }
-    if (!form.supplierId) {
-      alert('Please select a supplier from the RFQ')
+      setFormError('Purchase Order must be created from an RFQ.')
       return
     }
     if (form.lines.length === 0) {
-      alert('RFQ supplier must have at least 1 product line')
+      setFormError('RFQ must have at least one product line.')
       return
     }
+    setFormError('')
     const subtotal = calcPOTotal(form.lines)
     const totalWithTax = subtotal + (form.totalTax || 0)
     onSave({ ...form, totalAmountBeforeTax: subtotal, totalAmount: totalWithTax })
@@ -628,6 +632,11 @@ const POModal: React.FC<{
         </div>
 
         <div className="max-h-[75vh] overflow-y-auto p-6 space-y-6">
+          {formError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              {formError}
+            </div>
+          )}
           {/* Header Fields */}
           <div className="grid grid-cols-4 gap-4">
             <div>
@@ -647,7 +656,7 @@ const POModal: React.FC<{
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Supplier</label>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Suppliers in RFQ</label>
               <input value={mappedSupplierName} readOnly
                 className="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm" />
             </div>
@@ -760,6 +769,8 @@ const PurchaseModule: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [modalOpen, setModalOpen] = useState(false)
   const [modalRecord, setModalRecord] = useState<any>(null)
+  const [cancelRecord, setCancelRecord] = useState<any>(null)
+  const [cancelReason, setCancelReason] = useState('')
 
   useEffect(() => {
     erpApi
@@ -867,6 +878,10 @@ const PurchaseModule: React.FC = () => {
   }, [activeRecords, search, status])
 
   const openCreate = () => {
+    if (activeTab === 'purchase-orders') {
+      showNotification('info', 'Purchase orders are generated automatically from accepted RFQs.')
+      return
+    }
     setModalRecord(null)
     setModalOpen(true)
   }
@@ -968,15 +983,24 @@ const PurchaseModule: React.FC = () => {
     showNotification('success', `${title} deleted.`)
   }
 
-  const cancelPurchaseOrder = async (record: any) => {
-    const reason = window.prompt(`Cancel ${record.purchase_order_number || record.poNumber}? Enter reason:`)
-    if (!reason?.trim()) return
+  const openCancelPurchaseOrder = (record: any) => {
+    setCancelRecord(record)
+    setCancelReason('')
+  }
+
+  const confirmCancelPurchaseOrder = async () => {
+    if (!cancelRecord || !cancelReason.trim()) {
+      showNotification('error', 'Please enter a cancellation reason.')
+      return
+    }
     try {
-      await erpApi.put(`/purchase/purchase-orders/${record.id}`, {
+      await erpApi.put(`/purchase/purchase-orders/${cancelRecord.id}`, {
         status: 'cancelled',
-        cancellation_reason: reason.trim(),
+        cancellation_reason: cancelReason.trim(),
       })
-      setPurchaseOrders((current) => current.map((item) => item.id === record.id ? { ...item, status: 'cancelled', cancellation_reason: reason.trim() } : item))
+      setPurchaseOrders((current) => current.map((item) => item.id === cancelRecord.id ? { ...item, status: 'cancelled', cancellation_reason: cancelReason.trim() } : item))
+      setCancelRecord(null)
+      setCancelReason('')
       showNotification('success', 'Purchase order, vendor bill, and goods receipt were cancelled.')
     } catch (error: any) {
       showNotification('error', `Cancel failed: ${error.message}`)
@@ -987,7 +1011,7 @@ const PurchaseModule: React.FC = () => {
     activeTab === 'purchase-orders' ? (
       <div className="flex items-center gap-1">
         {!['cancelled', 'received'].includes(record.status) && (
-        <button onClick={() => cancelPurchaseOrder(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Cancel">
+        <button onClick={() => openCancelPurchaseOrder(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Cancel">
           <Trash2 size={16} />
         </button>
         )}
@@ -1012,7 +1036,7 @@ const PurchaseModule: React.FC = () => {
       <ModuleHeader
         title="Purchase"
         subtitle="Manage RFQs and purchase orders for imported SmartHome and IoT devices."
-        primaryLabel={`New ${title}`}
+        primaryLabel={activeTab === 'purchase-orders' ? 'PO from accepted RFQ' : 'New RFQ'}
         onCreate={openCreate}
       />
 
@@ -1110,6 +1134,29 @@ const PurchaseModule: React.FC = () => {
         onClose={() => setModalOpen(false)}
         onSave={saveRecord}
       />
+      {cancelRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-md bg-white shadow-xl">
+            <div className="border-b border-gray-200 px-5 py-4">
+              <h3 className="text-lg font-bold text-gray-900">Cancel purchase order</h3>
+            </div>
+            <div className="space-y-3 p-5">
+              <p className="text-sm text-gray-600">{cancelRecord.purchase_order_number || cancelRecord.poNumber}</p>
+              <textarea
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                rows={3}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Cancellation reason..."
+              />
+            </div>
+            <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-5 py-4">
+              <button onClick={() => setCancelRecord(null)} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700">Close</button>
+              <button onClick={confirmCancelPurchaseOrder} className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white">Cancel PO</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
