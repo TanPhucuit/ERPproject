@@ -772,6 +772,8 @@ const PurchaseModule: React.FC = () => {
             poNumber: po.purchase_order_number,
             supplierId: po.supplier_id,
             supplierName: po.supplier?.name || po.supplier_id,
+            rfqNumber: po.rfq_number || po.rfq?.rfq_number || po.rfq_id?.slice(0, 8),
+            productCount: po.product_count || po.lines?.length || po.items?.length || 0,
             orderDate: po.order_date,
             requiredDeliveryDate: po.required_delivery_date,
             actualDeliveryDate: po.actual_delivery_date,
@@ -780,7 +782,6 @@ const PurchaseModule: React.FC = () => {
             totalAmount: po.total_amount || 0,
             receivedAmount: po.received_amount,
             notes: po.notes,
-            rfqNumber: po.rfq_id,
             rfqId: po.rfq_id,
             lines: (po.items || []).map((item: any) => ({
               id: item.id,
@@ -860,7 +861,7 @@ const PurchaseModule: React.FC = () => {
 
   const filteredRecords = useMemo(() => {
     return activeRecords.filter((record) => {
-      const haystack = `${record.purchase_order_number || record.rfq_number} ${record.supplierName || ''}`.toLowerCase()
+      const haystack = `${record.purchase_order_number || record.rfq_number || record.rfqNumber || ''} ${record.supplierName || ''}`.toLowerCase()
       return haystack.includes(search.toLowerCase()) && (status === 'all' || record.status === status)
     })
   }, [activeRecords, search, status])
@@ -937,11 +938,12 @@ const PurchaseModule: React.FC = () => {
           poNumber: po.purchase_order_number,
           supplierId: po.supplier_id,
           supplierName: po.supplier?.name || po.supplier_id,
+          rfqNumber: po.rfq_number || po.rfq?.rfq_number || po.rfq_id?.slice(0, 8),
+          productCount: po.product_count || po.lines?.length || po.items?.length || 0,
           orderDate: po.order_date,
           requiredDeliveryDate: po.required_delivery_date,
           totalAmount: po.total_amount || 0,
           notes: po.notes,
-          rfqNumber: po.rfq_id,
           lines: po.items || [],
         })))
       }
@@ -967,16 +969,26 @@ const PurchaseModule: React.FC = () => {
   }
 
   const renderActions = (record: any) => (
-    <RecordActions
-      onEdit={() => {
-        setModalRecord(record)
-        setModalOpen(true)
-      }}
-      onDelete={() => deleteRecord(record)}
-      onAdvance={activeTab === 'rfqs' && record.status === 'new' ? () => advanceRecord(record) : undefined}
-      advanceLabel="Accept"
-    />
+    activeTab === 'purchase-orders' ? (
+      <div className="flex items-center gap-1">
+        <button onClick={() => deleteRecord(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Delete">
+          <Trash2 size={16} />
+        </button>
+      </div>
+    ) : (
+      <RecordActions
+        onEdit={() => {
+          setModalRecord(record)
+          setModalOpen(true)
+        }}
+        onDelete={() => deleteRecord(record)}
+        onAdvance={record.status === 'new' ? () => advanceRecord(record) : undefined}
+        advanceLabel="Accept"
+      />
+    )
   )
+
+  const productCountLabel = (record: any) => `${record.productCount || record.product_count || record.lines?.length || record.items?.length || 0} products`
 
   return (
     <div className="space-y-6">
@@ -1022,11 +1034,11 @@ const PurchaseModule: React.FC = () => {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Reference</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Supplier</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Requirement</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'purchase-orders' ? 'RFQ' : 'Supplier'}</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'purchase-orders' ? 'Products' : 'Requirement'}</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Amount</th>
+                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Total Estimated Cost</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
               </tr>
             </thead>
@@ -1034,8 +1046,8 @@ const PurchaseModule: React.FC = () => {
               {filteredRecords.map((record) => (
                 <tr key={record.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.poNumber || record.rfqNumber}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{record.supplierName}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{record.notes || 'Device replenishment'}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'purchase-orders' ? (record.rfqNumber || '-') : record.supplierName}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'purchase-orders' ? productCountLabel(record) : (record.notes || 'Device replenishment')}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{record.orderDate || record.issuedDate || record.closingDate}</td>
                   <td className="px-4 py-3"><StatusBadge status={record.status} /></td>
                   <td className="px-4 py-3 text-right text-sm font-semibold">{formatCurrency(record.totalAmount || record.totalEstimatedCost || record.total_amount || record.total_estimated_cost || 0)}</td>
@@ -1052,7 +1064,8 @@ const PurchaseModule: React.FC = () => {
           renderCard={(record) => (
             <div key={record.id} className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
               <p className="font-bold text-blue-700">{record.poNumber || record.rfqNumber}</p>
-              <p className="mt-1 text-sm text-gray-600">{record.supplierName}</p>
+              <p className="mt-1 text-sm text-gray-600">{activeTab === 'purchase-orders' ? `RFQ ${record.rfqNumber || '-'}` : record.supplierName}</p>
+              {activeTab === 'purchase-orders' && <p className="mt-1 text-sm text-gray-600">{productCountLabel(record)}</p>}
               <p className="mt-2 text-sm font-semibold">{formatCurrency(record.totalAmount || record.totalEstimatedCost || record.total_amount || record.total_estimated_cost || 0)}</p>
               <div className="mt-3">{renderActions(record)}</div>
             </div>

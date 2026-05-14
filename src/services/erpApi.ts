@@ -76,6 +76,8 @@ const productName = (product: any) => product?.product_name || product?.name || 
 
 const mapUser = (user: any) => ({
   ...user,
+  account: user?.account,
+  account_id: user?.account_id,
   status: user?.is_active ? 'active' : 'inactive',
 })
 
@@ -100,6 +102,8 @@ const mapCustomer = (customer: any) => ({
 const mapSupplier = (supplier: any) => ({
   ...supplier,
   name: supplier?.supplier_name,
+  account: supplier?.account,
+  account_id: supplier?.account_id,
   contact_person_name: supplier?.contact_name,
   contact_person_email: supplier?.email,
   contact_person_phone: supplier?.phone,
@@ -256,6 +260,8 @@ const mapPurchaseOrder = (po: any) => {
     supplier_id: po?.vendor_id,
     supplier: po?.supplier ? mapSupplier(po.supplier) : undefined,
     supplier_name: supplierNames.length > 1 ? supplierNames.join(', ') : po?.supplier?.supplier_name || supplierNames[0] || '',
+    rfq_number: po?.rfq?.rfq_number || po?.rfq_id?.slice(0, 8),
+    product_count: lines.length,
     required_delivery_date: po?.expected_arrival_date,
     total_amount: lines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0),
     lines,
@@ -274,6 +280,8 @@ const mapVendorBill = (bill: any) => {
     ...bill,
     supplier: bill?.purchase_order?.supplier ? mapSupplier(bill.purchase_order.supplier) : undefined,
     supplier_name: bill?.purchase_order?.supplier?.supplier_name || '',
+    purchase_order_number: bill?.purchase_order?.order_number || bill?.purchase_order_id?.slice(0, 8),
+    product_count: lines.length,
     lines,
     items: lines,
     subtotal,
@@ -308,7 +316,7 @@ const selectSalesOrder = '*, customer:customers(*), quotation:quotations(*), ite
 const selectInvoice = '*, sales_order:sales_orders(*, customer:customers(*), items:sales_order_items(*, product:products(*))), warranty_order:warranty_orders(*)'
 const selectVendorBill = '*, purchase_order:purchase_orders(*, supplier:suppliers!purchase_orders_vendor_id_fkey(*), items:purchase_order_items(*, supplier_product:supplier_products(*, supplier:suppliers(*), product:products(*))))'
 const selectRfq = '*, items:rfq_items(*, supplier_product:supplier_products(*, supplier:suppliers(*), product:products(*)))'
-const selectPurchaseOrder = '*, supplier:suppliers!purchase_orders_vendor_id_fkey(*), items:purchase_order_items(*, supplier_product:supplier_products(*, supplier:suppliers(*)))'
+const selectPurchaseOrder = '*, rfq:rfqs(*), supplier:suppliers!purchase_orders_vendor_id_fkey(*), items:purchase_order_items(*, supplier_product:supplier_products(*, supplier:suppliers(*), product:products(*)))'
 
 const getSingle = async (table: string, id: string, columns = '*') => {
   const { data, error } = await supabase.from(table).select(columns).eq('id', id).single()
@@ -427,11 +435,11 @@ const getResource = async <T>(path: string): Promise<T> => {
   }
 
   if (pathname === '/users') {
-    const { data, error } = await applyLimit(supabase.from('users').select('*').order('created_at', { ascending: false }), searchParams)
+    const { data, error } = await applyLimit(supabase.from('users').select('*, account:accounts(*)').order('created_at', { ascending: false }), searchParams)
     if (error) throw error
     return (data || []).map(mapUser) as T
   }
-  if (pathname.startsWith('/users/')) return mapUser(await getSingle('users', pathname.split('/').pop()!)) as T
+  if (pathname.startsWith('/users/')) return mapUser(await getSingle('users', pathname.split('/').pop()!, '*, account:accounts(*)')) as T
 
   if (pathname === '/products') {
     const { data, error } = await applyLimit(supabase.from('products').select(selectProduct).order('created_at', { ascending: false }), searchParams)
@@ -454,11 +462,11 @@ const getResource = async <T>(path: string): Promise<T> => {
   if (pathname.startsWith('/customers/')) return mapCustomer(await getSingle('customers', pathname.split('/').pop()!)) as T
 
   if (pathname === '/suppliers') {
-    const { data, error } = await applyLimit(supabase.from('suppliers').select('*').order('created_at', { ascending: false }), searchParams)
+    const { data, error } = await applyLimit(supabase.from('suppliers').select('*, account:accounts(*)').order('created_at', { ascending: false }), searchParams)
     if (error) throw error
     return (data || []).map(mapSupplier) as T
   }
-  if (pathname.startsWith('/suppliers/')) return mapSupplier(await getSingle('suppliers', pathname.split('/').pop()!)) as T
+  if (pathname.startsWith('/suppliers/')) return mapSupplier(await getSingle('suppliers', pathname.split('/').pop()!, '*, account:accounts(*)')) as T
 
   if (pathname === '/supplier-products') {
     const { data, error } = await applyLimit(
@@ -713,15 +721,19 @@ const normalizeCustomerPayload = (body: any) => ({
   is_active: body.is_active ?? body.status !== 'inactive',
 })
 
-const normalizeSupplierPayload = (body: any) => ({
-  supplier_name: body.supplier_name || body.name,
-  contact_name: body.contact_name || body.contact_person_name || null,
-  email: body.email || body.contact_person_email || null,
-  phone: body.phone || body.contact_person_phone || null,
-  address: body.address || body.company_address || null,
-  tax_id: body.tax_id || null,
-  is_active: body.is_active ?? body.status !== 'inactive',
-})
+const normalizeSupplierPayload = (body: any) => {
+  const payload: any = {
+    supplier_name: body.supplier_name || body.name,
+    contact_name: body.contact_name || body.contact_person_name || null,
+    email: body.email || body.contact_person_email || null,
+    phone: body.phone || body.contact_person_phone || null,
+    address: body.address || body.company_address || null,
+    tax_id: body.tax_id || null,
+    is_active: body.is_active ?? body.status !== 'inactive',
+  }
+  if (body.account_id || body.accountId) payload.account_id = body.account_id || body.accountId
+  return payload
+}
 
 const writeSimple = async <T>(table: string, body: any, id?: string, mapper = (value: any) => value): Promise<T> => {
   const payload = mapper(body)
@@ -1278,18 +1290,36 @@ const writeStockTransfer = async <T>(body: any, id?: string): Promise<T> => {
 }
 
 const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<T> => {
-  const paymentMethod = body.payment_method || 'cash'
-  if (paymentMethod !== 'cash' && (!body.payment_account || !body.target_account)) {
-    throw new Error('Bank/card/other payments require both payment account and target account.')
+  const paymentMethod = body.payment_method || 'bank_transfer'
+  const { data: companyAccount, error: companyAccountError } = await supabase
+    .from('accounts')
+    .select('id')
+    .eq('is_novatech_default', true)
+    .single()
+  if (companyAccountError) throw companyAccountError
+
+  const invoiceId = type === 'customer' ? body.invoice_id || body.document_id : null
+  const vendorBillId = type === 'vendor' ? body.vendor_bill_id || body.bill_id || body.document_id : null
+  let supplierAccountId = null
+  if (vendorBillId) {
+    const { data: bill, error: billError } = await supabase
+      .from('vendor_bills')
+      .select('purchase_order:purchase_orders(vendor:suppliers!purchase_orders_vendor_id_fkey(account_id))')
+      .eq('id', vendorBillId)
+      .single()
+    if (billError) throw billError
+    supplierAccountId = (bill as any)?.purchase_order?.vendor?.account_id
+    if (!supplierAccountId) throw new Error('Supplier bank account is required before paying this vendor bill.')
   }
+
   const payload = {
-    invoice_id: type === 'customer' ? body.invoice_id || body.document_id : null,
-    vendor_bill_id: type === 'vendor' ? body.vendor_bill_id || body.bill_id || body.document_id : null,
+    invoice_id: invoiceId,
+    vendor_bill_id: vendorBillId,
     payment_date: body.payment_date || today(),
     payment_method: paymentMethod,
     amount: toNumber(body.amount),
-    payment_account: paymentMethod === 'cash' ? null : body.payment_account,
-    target_account: paymentMethod === 'cash' ? null : body.target_account,
+    payment_account: vendorBillId ? companyAccount.id : null,
+    target_account: invoiceId ? companyAccount.id : supplierAccountId,
     reference_number: null,
     notes: body.notes || null,
   }
@@ -1386,14 +1416,18 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
     }))
   }
   if (pathname === '/users' || pathname.startsWith('/users/')) {
-    return writeSimple<T>('users', body, id, (value) => ({
-      username: value.username || value.email?.split('@')[0],
-      email: value.email,
-      password_hash: value.password_hash || value.password || 'demo123',
-      full_name: value.full_name || value.fullName,
-      role: ['admin','sales','purchasing','warehouse','accountant','manager'].includes(value.role) ? value.role : 'sales',
-      is_active: value.is_active ?? value.status !== 'inactive',
-    }))
+    return writeSimple<T>('users', body, id, (value) => {
+      const payload: any = {
+        username: value.username || value.email?.split('@')[0],
+        email: value.email,
+        password_hash: value.password_hash || value.password || 'demo123',
+        full_name: value.full_name || value.fullName,
+        role: ['admin','sales','purchasing','warehouse','accountant','manager'].includes(value.role) ? value.role : 'sales',
+        is_active: value.is_active ?? value.status !== 'inactive',
+      }
+      if (value.account_id || value.accountId) payload.account_id = value.account_id || value.accountId
+      return payload
+    })
   }
 
   if (pathname === '/warehouse/warehouses' || pathname.startsWith('/warehouse/warehouses/')) {

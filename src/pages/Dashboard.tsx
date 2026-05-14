@@ -57,6 +57,13 @@ const isOverdueInvoice = (invoice: any, todayText: string) => {
   return !isPaid(status) && !isCancelled(status) && invoice.due_date && String(invoice.due_date).slice(0, 10) < todayText
 }
 
+const buildCreditMap = (creditNotes: any[]) => creditNotes.reduce((map, note) => {
+  const invoiceId = note.invoices_id || note.invoice_id
+  if (!invoiceId) return map
+  map.set(invoiceId, (map.get(invoiceId) || 0) + toNumber(note.total_amount || note.totalAmount))
+  return map
+}, new Map<string, number>())
+
 const formatCurrency = (value: number) =>
   value.toLocaleString('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 
@@ -100,6 +107,7 @@ const Dashboard: React.FC = () => {
           binStock,
           purchaseOrders,
           accounts,
+          creditNotes,
         ] = await Promise.all([
           erpApi.get<any[]>('/accounting/invoices?limit=1000'),
           erpApi.get<any[]>('/sales-orders?limit=1000'),
@@ -109,16 +117,20 @@ const Dashboard: React.FC = () => {
           erpApi.get<any[]>('/inventory/stock-in-bins?limit=1000'),
           erpApi.get<any[]>('/purchase/purchase-orders?limit=500'),
           erpApi.get<any[]>('/accounting/accounts'),
+          erpApi.get<any[]>('/accounting/credit-notes?limit=1000'),
         ])
 
         const todayText = new Date().toISOString().slice(0, 10)
         const monthlyRevenue = new Map(lastMonthKeys(6).map((month) => [month, 0]))
         const quarterlyBuckets = new Map<string, { metric: string; sales: number; orders: number; customers: number }>()
         const invoiceStatus = { paid: 0, pending: 0, overdue: 0 }
+        const creditMap = buildCreditMap(creditNotes)
+        let totalRevenue = 0
 
         invoices.forEach((invoice) => {
           if (isCancelled(invoice.status)) return
-          const amount = toNumber(invoice.total_amount ?? invoice.net_amount)
+          const amount = Math.max(toNumber(invoice.net_amount ?? invoice.subtotal ?? invoice.total_amount) - (creditMap.get(invoice.id) || 0), 0)
+          totalRevenue += amount
           const month = monthKey(invoice.issue_date || invoice.created_at)
           if (month && monthlyRevenue.has(month)) {
             monthlyRevenue.set(month, (monthlyRevenue.get(month) || 0) + amount)
@@ -184,9 +196,7 @@ const Dashboard: React.FC = () => {
         ).length
 
         setMetrics({
-          totalRevenue: invoices
-            .filter((invoice) => !isCancelled(invoice.status))
-            .reduce((sum, invoice) => sum + toNumber(invoice.total_amount ?? invoice.net_amount), 0),
+          totalRevenue,
           activeOrders: salesOrders.filter((order) => !['delivered', 'cancelled', 'canceled'].includes(String(order.status || '').toLowerCase())).length,
           activeCustomers: customers.filter((customer) => customer.is_active !== false && customer.status !== 'inactive').length,
           inventoryItems: products.filter((product) => product.is_active !== false && product.status !== 'inactive').length,
@@ -224,7 +234,7 @@ const Dashboard: React.FC = () => {
       icon: DollarSign,
       color: 'text-blue-600',
       bgColor: 'bg-blue-100',
-      helperText: 'From non-cancelled invoices',
+      helperText: 'Net invoices after credit notes',
     },
     {
       label: 'Active Orders',

@@ -84,14 +84,11 @@ const paymentFieldsBase: FormField[] = [
   { name: 'documentId', label: 'Document', type: 'select', required: true, options: [] },
   { name: 'paymentDate', label: 'Payment Date', type: 'date', required: true },
   { name: 'paymentMethod', label: 'Payment Method', type: 'select', required: true, options: [
-    { value: 'cash', label: 'Cash' },
     { value: 'bank_transfer', label: 'Bank Transfer' },
     { value: 'card', label: 'Card' },
     { value: 'other', label: 'Other' },
   ] },
   { name: 'amount', label: 'Amount', type: 'number', required: true },
-  { name: 'paymentAccount', label: 'Source Account', type: 'select', options: [] },
-  { name: 'targetAccount', label: 'Target Account', type: 'select', options: [] },
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
@@ -116,7 +113,8 @@ const normalizeBill = (bill: any) => ({
   ...bill,
   billNumber: bill.bill_number,
   purchaseOrderId: bill.purchase_order_id,
-  supplierName: bill.purchase_order?.supplier?.supplier_name || bill.purchase_order?.supplier?.name || bill.purchase_order?.vendor_id,
+  purchaseOrderNumber: bill.purchase_order_number || bill.purchase_order?.order_number || bill.purchase_order_id?.slice(0, 8),
+  productCount: bill.product_count || bill.lines?.length || bill.items?.length || 0,
   billDate: bill.issue_date,
   dueDate: bill.due_date,
   subtotal: bill.subtotal,
@@ -149,15 +147,28 @@ const buildAdjustmentMap = (notes: any[]) => notes.reduce((map, note) => {
   return map
 }, new Map<string, { amount: number; reasons: string[] }>())
 
-const applyAdjustment = (record: any, adjustmentMap: Map<string, { amount: number; reasons: string[] }>) => {
+const buildPaymentMap = (payments: any[], documentType: 'invoice' | 'vendor_bill') => payments.reduce((map, payment) => {
+  const key = documentType === 'invoice' ? payment.invoice_id : payment.vendor_bill_id
+  if (!key) return map
+  map.set(key, (map.get(key) || 0) + Number(payment.amount || 0))
+  return map
+}, new Map<string, number>())
+
+const applyAdjustment = (
+  record: any,
+  adjustmentMap: Map<string, { amount: number; reasons: string[] }>,
+  paymentMap = new Map<string, number>(),
+) => {
   const adjustment = adjustmentMap.get(record.id)
   const baseAmount = Number(record.totalAmount || record.total || 0)
   const adjustmentAmount = adjustment?.amount || 0
+  const paidAmount = paymentMap.get(record.id) || 0
   return {
     ...record,
     adjustmentAmount,
     adjustmentReason: adjustment?.reasons.join('; ') || '',
-    amountDue: Math.max(baseAmount - adjustmentAmount, 0),
+    paidAmount,
+    amountDue: Math.max(baseAmount - adjustmentAmount - paidAmount, 0),
   }
 }
 
@@ -211,14 +222,17 @@ const AccountingModule: React.FC = () => {
       setLoadError(null)
       const normalizedCredits = creditData.map((note) => normalizeNote(note, true))
       const normalizedDebits = debitData.map((note) => normalizeNote(note, false))
+      const normalizedPayments = paymentData.map(normalizePayment)
       const creditMap = buildAdjustmentMap(normalizedCredits)
       const debitMap = buildAdjustmentMap(normalizedDebits)
-      setInvoices(invoiceData.map(normalizeInvoice).map((invoice) => applyAdjustment(invoice, creditMap)))
-      setVendorBills(billData.map(normalizeBill).map((bill) => applyAdjustment(bill, debitMap)))
+      const invoicePaymentMap = buildPaymentMap(normalizedPayments, 'invoice')
+      const billPaymentMap = buildPaymentMap(normalizedPayments, 'vendor_bill')
+      setInvoices(invoiceData.map(normalizeInvoice).map((invoice) => applyAdjustment(invoice, creditMap, invoicePaymentMap)))
+      setVendorBills(billData.map(normalizeBill).map((bill) => applyAdjustment(bill, debitMap, billPaymentMap)))
       setCredits(normalizedCredits)
       setDebits(normalizedDebits)
       setAccounts(accountData.map(normalizeAccount))
-      setPayments(paymentData.map(normalizePayment))
+      setPayments(normalizedPayments)
     } catch (error: any) {
       setLoadError(error.message)
     }
@@ -246,9 +260,8 @@ const AccountingModule: React.FC = () => {
   const activeRecords = activeTab === 'invoices' ? invoices : activeTab === 'bills' ? vendorBills : activeTab === 'credit-notes' ? credits : activeTab === 'debit-notes' ? debits : activeTab === 'payments' ? payments : accounts
   const salesOrderOptions = useMemo(() => salesOrders.map((so) => ({ value: so.id, label: `${so.sales_order_number} - ${so.customer?.name || 'Customer'}` })), [salesOrders])
   const purchaseOrderOptions = useMemo(() => purchaseOrders.map((po) => ({ value: po.id, label: `${po.purchase_order_number} - ${po.supplier?.name || 'Supplier'}` })), [purchaseOrders])
-  const accountOptions = useMemo(() => accounts.map((account) => ({ value: account.id, label: `${account.account_number} - ${account.name}` })), [accounts])
   const invoiceOptions = useMemo(() => invoices.map((invoice) => ({ value: invoice.id, label: `${invoice.invoiceNumber} - ${invoice.customerName || 'Customer'}` })), [invoices])
-  const billOptions = useMemo(() => vendorBills.map((bill) => ({ value: bill.id, label: `${bill.billNumber} - ${bill.supplierName || 'Supplier'}` })), [vendorBills])
+  const billOptions = useMemo(() => vendorBills.map((bill) => ({ value: bill.id, label: `${bill.billNumber} - ${bill.purchaseOrderNumber || 'Purchase Order'}` })), [vendorBills])
 
   const activeFields = useMemo(() => {
     if (activeTab === 'invoices') {
@@ -272,7 +285,6 @@ const AccountingModule: React.FC = () => {
     if (activeTab === 'payments') {
       return paymentFieldsBase.map((field) => {
         if (field.name === 'documentId') return { ...field, options: [...invoiceOptions, ...billOptions] }
-        if (field.name === 'paymentAccount' || field.name === 'targetAccount') return { ...field, options: accountOptions }
         return field
       })
     }
@@ -281,7 +293,7 @@ const AccountingModule: React.FC = () => {
       if (field.name === 'referenceDocument') return { ...field, options: billOptions }
       return field
     })
-  }, [activeTab, salesOrderOptions, purchaseOrderOptions, invoiceOptions, billOptions, accountOptions])
+  }, [activeTab, salesOrderOptions, purchaseOrderOptions, invoiceOptions, billOptions])
   const activeTitle = activeTab === 'invoices' ? 'Customer Invoice' : activeTab === 'bills' ? 'Vendor Bill' : activeTab === 'credit-notes' ? 'Credit Note' : activeTab === 'debit-notes' ? 'Debit Note' : activeTab === 'payments' ? 'Payment' : 'Account'
   const setters: Record<string, React.Dispatch<React.SetStateAction<any[]>>> = {
     invoices: setInvoices,
@@ -295,7 +307,7 @@ const AccountingModule: React.FC = () => {
   const filteredRecords = useMemo(() => {
     return activeRecords.filter((record) => {
       const reference = record.invoiceNumber || record.billNumber || record.noteNumber || record.paymentNumber
-      const partner = record.customerName || record.supplierName || record.partnerName || record.documentName
+      const partner = record.customerName || record.purchaseOrderNumber || record.partnerName || record.documentName
       const account = `${record.accountNumber || ''} ${record.bank || ''} ${record.name || ''}`
       const haystack = `${reference || ''} ${partner || ''} ${record.reason || ''} ${account}`.toLowerCase()
       return haystack.includes(search.toLowerCase()) && (status === 'all' || record.status === status)
@@ -317,7 +329,7 @@ const AccountingModule: React.FC = () => {
       billDate: new Date().toISOString().slice(0, 10),
       noteDate: new Date().toISOString().slice(0, 10),
       paymentDate: new Date().toISOString().slice(0, 10),
-      paymentMethod: 'cash',
+      paymentMethod: 'bank_transfer',
       dueDate: '',
       netAmount: 0,
       subtotal: 0,
@@ -328,8 +340,6 @@ const AccountingModule: React.FC = () => {
       bank: '',
       name: '',
       balance: 0,
-      paymentAccount: '',
-      targetAccount: '',
       reason: '',
       notes: '',
     })
@@ -390,8 +400,6 @@ const AccountingModule: React.FC = () => {
       payment_date: record.paymentDate,
       payment_method: record.paymentMethod,
       amount: record.amount,
-      payment_account: record.paymentMethod === 'cash' ? null : record.paymentAccount || null,
-      target_account: record.paymentMethod === 'cash' ? null : record.targetAccount || null,
       notes: record.notes,
     } : {
       account_number: record.accountNumber,
@@ -441,8 +449,6 @@ const AccountingModule: React.FC = () => {
       paymentDate: new Date().toISOString().slice(0, 10),
       paymentMethod: 'bank_transfer',
       amount: record.amountDue ?? record.totalAmount ?? record.total_amount ?? record.total ?? 0,
-      paymentAccount: '',
-      targetAccount: '',
       notes: `Payment for ${record.invoiceNumber || record.billNumber || record.id}`,
     })
     setModalOpen(true)
@@ -520,8 +526,20 @@ const AccountingModule: React.FC = () => {
     </div>
   )
 
-  const totalReceivable = invoices.filter((invoice) => invoice.status !== 'paid').reduce((sum, invoice) => sum + (invoice.amountDue ?? invoice.total_amount ?? 0), 0)
-  const totalPayable = vendorBills.filter((bill) => bill.status !== 'paid').reduce((sum, bill) => sum + (bill.amountDue ?? bill.total ?? 0), 0)
+  const productCountLabel = (record: any) => `${record.productCount || record.product_count || record.lines?.length || record.items?.length || 0} products`
+  const partnerDisplay = (record: any) => activeTab === 'bills'
+    ? (record.purchaseOrderNumber || record.purchase_order_number || record.purchase_order_id || '-')
+    : (record.customerName || record.partnerName || record.documentName)
+  const dateDisplay = (record: any) => activeTab === 'bills'
+    ? productCountLabel(record)
+    : (record.invoiceDate || record.billDate || record.noteDate || record.paymentDate)
+
+  const totalReceivable = invoices
+    .filter((invoice) => !['paid', 'cancelled'].includes(String(invoice.status || '').toLowerCase()))
+    .reduce((sum, invoice) => sum + (invoice.amountDue ?? invoice.total_amount ?? 0), 0)
+  const totalPayable = vendorBills
+    .filter((bill) => !['paid', 'cancelled'].includes(String(bill.status || '').toLowerCase()))
+    .reduce((sum, bill) => sum + (bill.amountDue ?? bill.total ?? 0), 0)
 
   return (
     <div className="space-y-6">
@@ -582,8 +600,8 @@ const AccountingModule: React.FC = () => {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Account Number' : 'Reference'}</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Bank' : 'Partner'}</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Account Name' : 'Date'}</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Bank' : activeTab === 'bills' ? 'Purchase Order' : 'Partner'}</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Account Name' : activeTab === 'bills' ? 'Products' : 'Date'}</th>
                 {activeTab !== 'accounts' && <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>}
                 <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Balance' : 'Amount'}</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
@@ -593,8 +611,8 @@ const AccountingModule: React.FC = () => {
               {filteredRecords.map((record) => (
                 <tr key={record.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.accountNumber || record.invoiceNumber || record.billNumber || record.noteNumber || record.paymentNumber}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'accounts' ? (record.bank || '-') : (record.customerName || record.supplierName || record.partnerName || record.documentName)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'accounts' ? record.name : (record.invoiceDate || record.billDate || record.noteDate || record.paymentDate)}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'accounts' ? (record.bank || '-') : partnerDisplay(record)}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'accounts' ? record.name : dateDisplay(record)}</td>
                   {activeTab !== 'accounts' && <td className="px-4 py-3"><StatusBadge status={record.status} /></td>}
                   <td className="px-4 py-3 text-right text-sm font-semibold">{renderAmount(record)}</td>
                   <td className="px-4 py-3">{renderActions(record)}</td>
@@ -610,7 +628,8 @@ const AccountingModule: React.FC = () => {
           renderCard={(record) => (
             <div key={record.id} className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
               <p className="font-bold text-blue-700">{record.invoiceNumber || record.billNumber || record.noteNumber || record.paymentNumber}</p>
-              <p className="mt-1 text-sm text-gray-600">{activeTab === 'accounts' ? `${record.bank || '-'} - ${record.name}` : (record.customerName || record.supplierName || record.partnerName || record.documentName)}</p>
+              <p className="mt-1 text-sm text-gray-600">{activeTab === 'accounts' ? `${record.bank || '-'} - ${record.name}` : partnerDisplay(record)}</p>
+              {activeTab === 'bills' && <p className="mt-1 text-sm text-gray-600">{productCountLabel(record)}</p>}
               <div className="mt-2 text-sm font-semibold">{renderAmount(record)}</div>
               <div className="mt-3">{renderActions(record)}</div>
             </div>
