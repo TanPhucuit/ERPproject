@@ -92,7 +92,7 @@ interface LeadFormData {
   probability_percent: number
   notes: string
   customer_type: string
-  // Bỏ phần sản phẩm và thông tin tài chính khỏi Lead
+  // Product and financial details are kept out of Lead records.
   // products: LeadProductLine[]
   // tax_percent: number
 }
@@ -313,7 +313,7 @@ const QuotationModal: React.FC<{
 
   const handleSave = () => {
     if (form.products.length === 0) {
-      alert('Báo giá phải có ít nhất một sản phẩm.')
+      alert('Quotation must have at least one product.')
       return
     }
     onSave(form)
@@ -336,7 +336,7 @@ const QuotationModal: React.FC<{
       <div className="w-full max-w-5xl bg-white shadow-xl rounded-lg mt-4 mb-8">
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
           <h2 className="text-xl font-bold text-gray-900">
-            Tạo Báo giá cho Lead: {lead.company_name}
+            Create Quotation for Lead: {lead.company_name}
           </h2>
           <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800">
             <X size={20} />
@@ -348,10 +348,10 @@ const QuotationModal: React.FC<{
           <div className="rounded-lg border border-gray-200 p-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">
-                Sản phẩm Báo giá ({form.products.length})
+                Quotation Products ({form.products.length})
               </h3>
               <p className="text-sm font-semibold text-blue-700">
-                Tổng phụ: {formatCurrency(subtotal)}
+                Subtotal: {formatCurrency(subtotal)}
               </p>
             </div>
 
@@ -364,7 +364,7 @@ const QuotationModal: React.FC<{
                   value={productSearch}
                   onChange={e => { setProductSearch(e.target.value); setShowProductDropdown(true) }}
                   onFocus={() => setShowProductDropdown(true)}
-                  placeholder="Tìm sản phẩm để thêm vào báo giá..."
+                  placeholder="Search products to add to the quotation..."
                   className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none"
                 />
               </div>
@@ -392,11 +392,11 @@ const QuotationModal: React.FC<{
                 <table className="w-full text-sm">
                   <thead className="bg-gray-100">
                     <tr>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-700">Sản phẩm</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-700">Product</th>
                       <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">SL</th>
-                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Đơn giá</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Unit Price</th>
                       <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">CK %</th>
-                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Thành tiền</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Line Total</th>
                       <th className="px-2 py-2 w-10"></th>
                     </tr>
                   </thead>
@@ -438,17 +438,17 @@ const QuotationModal: React.FC<{
                   </tbody>
                   <tfoot className="bg-gray-50">
                     <tr>
-                      <td colSpan={4} className="px-3 py-2 text-right font-semibold text-gray-700">Tổng phụ:</td>
+                      <td colSpan={4} className="px-3 py-2 text-right font-semibold text-gray-700">Subtotal:</td>
                       <td className="px-2 py-2 text-right font-bold text-blue-700">{formatCurrency(subtotal)}</td>
                       <td></td>
                     </tr>
                     <tr>
-                      <td colSpan={4} className="px-3 py-1 text-right font-semibold text-gray-700">Thuế ({form.tax_percent}%):</td>
+                      <td colSpan={4} className="px-3 py-1 text-right font-semibold text-gray-700">Tax ({form.tax_percent}%):</td>
                       <td className="px-2 py-1 text-right text-sm text-gray-700">{formatCurrency(tax_amount)}</td>
                       <td></td>
                     </tr>
                     <tr className="bg-blue-50">
-                      <td colSpan={4} className="px-3 py-2 text-right font-bold text-gray-900">Tổng cộng:</td>
+                      <td colSpan={4} className="px-3 py-2 text-right font-bold text-gray-900">Total:</td>
                       <td className="px-2 py-2 text-right font-bold text-blue-800">{formatCurrency(total_amount)}</td>
                       <td></td>
                     </tr>
@@ -457,7 +457,7 @@ const QuotationModal: React.FC<{
               </div>
             ) : (
               <div className="rounded-md border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
-                Chưa có sản phẩm. Tìm và thêm sản phẩm ở trên.
+                No products yet. Search and add products above.
               </div>
             )}
           </div>
@@ -466,11 +466,11 @@ const QuotationModal: React.FC<{
         <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
           <button onClick={onClose}
             className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">
-            Hủy
+            Cancel
           </button>
           <button onClick={handleSave}
             className="rounded-md bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700">
-            Tạo Báo giá
+            Create Quotation
           </button>
         </div>
       </div>
@@ -506,7 +506,7 @@ const ActivityModal: React.FC<{
       onSaved()
       onClose()
     } catch (e: any) {
-      alert('Lỗi: ' + e.message)
+      alert('Error: ' + e.message)
     } finally {
       setSaving(false)
     }
@@ -516,43 +516,43 @@ const ActivityModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Ghi nhận Hoạt động</h3>
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Record Activity</h3>
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">Loại hoạt động</label>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Activity Type</label>
             <select value={activityType} onChange={e => setActivityType(e.target.value)}
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
-              <option value="">-- Chọn --</option>
+              <option value="">Select...</option>
               <option>Call</option><option>Email</option><option>Meeting</option><option>Site Visit</option><option>Quote Sent</option>
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">Mô tả</label>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Description</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
-              placeholder="Mô tả hoạt động..."
+              placeholder="Activity description..."
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Ngày/Giờ</label>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Date/Time</label>
               <input type="datetime-local" value={date.slice(0, 16)} onChange={e => setDate(e.target.value)}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Người thực hiện</label>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Performed By</label>
               <select value={performer} onChange={e => setPerformer(e.target.value)}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
-                <option value="">-- Tự động --</option>
+                <option value="">Automatic</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
               </select>
             </div>
           </div>
         </div>
         <div className="flex justify-end gap-3 mt-6">
-          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700">Hủy</button>
+          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700">Cancel</button>
           <button onClick={handleSave} disabled={saving || !activityType || !description}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
-            {saving ? 'Đang lưu...' : 'Lưu Hoạt động'}
+            {saving ? 'Saving...' : 'Save Activity'}
           </button>
         </div>
       </div>
@@ -676,9 +676,9 @@ const CRMModule: React.FC = () => {
         savedLead = await erpApi.post('/crm/leads', payload)
       }
       if (isAutoRequest && savedLead) {
-        showNotification('success', 'Lead auto request da duoc luu. He thong se tao bao gia tu dong.')
+        showNotification('success', 'Auto-request lead saved. The system will create a quotation automatically.')
       } else {
-        showNotification('success', 'Lead da duoc luu thanh cong.')
+        showNotification('success', 'Lead saved successfully.')
       }
 
       await loadAll()
@@ -700,11 +700,11 @@ const CRMModule: React.FC = () => {
       setQuotationModalOpen(false)
       setQuotationLead(null)
       if (showNotif) {
-        showNotification('success', 'Báo giá đã được tạo thành công.')
+        showNotification('success', 'Quotation created successfully.')
       }
     } catch (e: any) {
       if (showNotif) {
-        showNotification('error', `Tạo báo giá thất bại: ${e.message}`)
+        showNotification('error', `Quotation creation failed: ${e.message}`)
       } else {
         console.error("Auto-quote creation failed:", e.message)
       }
@@ -714,13 +714,13 @@ const CRMModule: React.FC = () => {
   }
 
   const deleteLead = async (lead: any) => {
-    if (!window.confirm(`Xóa lead "${lead.company_name}"?`)) return
+    if (!window.confirm(`Delete lead "${lead.company_name}"?`)) return
     try {
       await erpApi.delete(`/crm/leads/${lead.id}`)
       await loadAll()
-      showNotification('success', 'Lead đã được xóa.')
+      showNotification('success', 'Lead deleted.')
     } catch (e: any) {
-      showNotification('error', `Xóa thất bại: ${e.message}`)
+      showNotification('error', `Delete failed: ${e.message}`)
     }
   }
 
@@ -737,12 +737,12 @@ const CRMModule: React.FC = () => {
   const renderLeadActions = (lead: any) => (
     <div className="flex items-center gap-1">
       <button onClick={() => { setActivityLeadId(lead.id); setActivityModalOpen(true) }}
-        className="rounded p-1.5 text-blue-600 hover:bg-blue-50" title="Ghi nhận Activity">
+        className="rounded p-1.5 text-blue-600 hover:bg-blue-50" title="Record Activity">
         <PlusCircle size={14} />
       </button>
       {stageName(lead) !== 'won' && stageName(lead) !== 'lost' && (
         <button onClick={() => openQuotationModal(lead)}
-          className="rounded p-1.5 text-purple-600 hover:bg-purple-50" title="Tạo Báo giá">
+          className="rounded p-1.5 text-purple-600 hover:bg-purple-50" title="Create Quotation">
           <FileText size={14} />
         </button>
       )}
@@ -758,20 +758,20 @@ const CRMModule: React.FC = () => {
     <div className="space-y-6">
       <ModuleHeader
         title="CRM"
-        subtitle="Quản lý Lead: Tiếp cận → Khảo sát → Báo giá → Chốt đơn"
-        primaryLabel="Tạo Lead mới"
+        subtitle="Manage leads from prospecting to survey, quotation, and closing."
+        primaryLabel="New Lead"
         onCreate={openCreateLead}
       />
 
       {loadError && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Không thể tải dữ liệu CRM: {loadError}
+          Unable to load CRM data: {loadError}
         </div>
       )}
 
       {saving && (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
-          Đang xử lý dữ liệu...
+          Processing data...
         </div>
       )}
 
@@ -779,8 +779,8 @@ const CRMModule: React.FC = () => {
         activeTab={activeTab}
         onChange={setActiveTab}
         tabs={[
-          { id: 'leads', label: 'Cơ hội', count: leads.length },
-          { id: 'activities', label: 'Hoạt động', count: activities.length },
+          { id: 'leads', label: 'Leads', count: leads.length },
+          { id: 'activities', label: 'Activities', count: activities.length },
         ]}
       />
 
@@ -801,12 +801,12 @@ const CRMModule: React.FC = () => {
               <table className="w-full min-w-[1100px]">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Mã Lead</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Khách hàng</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Liên hệ</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Xác suất</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Trạng thái</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Hành động</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Lead #</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Customer</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Contact</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Probability</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Status</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -837,7 +837,7 @@ const CRMModule: React.FC = () => {
               </table>
               {filteredLeads.length === 0 && (
                 <div className="p-8 text-center text-sm text-gray-500">
-                  Chưa có lead nào phù hợp
+                  No matching leads found
                 </div>
               )}
             </div>
@@ -858,7 +858,7 @@ const CRMModule: React.FC = () => {
                   <p className="mt-2 text-xs font-semibold text-blue-700">Probability {lead.probability_percent || 10}%</p>
                   {lead.is_auto_request && (
                     <span className="mt-1 inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-semibold text-yellow-800">
-                      📋 Yêu cầu báo giá
+                      Quotation request
                     </span>
                   )}
                   <div className="mt-3">{renderLeadActions(lead)}</div>
@@ -874,7 +874,7 @@ const CRMModule: React.FC = () => {
           {activities.length === 0 ? (
             <div className="rounded-md border border-dashed border-gray-300 bg-white p-12 text-center">
               <Activity size={40} className="mx-auto mb-3 text-gray-300" />
-              <p className="text-sm text-gray-500">Chưa có activity nào. Click "Ghi nhận Activity" trên một lead để bắt đầu.</p>
+              <p className="text-sm text-gray-500">No activities yet. Click "Record Activity" on a lead to start.</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -888,7 +888,7 @@ const CRMModule: React.FC = () => {
                       <span className="text-sm font-semibold text-gray-900">{act.activity_type || 'Activity'}</span>
                       <span className="text-xs text-gray-400">{act.performed_by?.full_name || '-'} - {act.lead?.company || act.lead?.company_name || act.lead?.email || 'No lead'}</span>
                     </div>
-                    <p className="text-sm text-gray-700 mt-0.5">{act.description}</p>
+                      {act.activity_date ? new Date(act.activity_date).toLocaleString('en-US') : ''}
                     <p className="text-xs text-gray-400 mt-1">
                       {act.activity_date ? new Date(act.activity_date).toLocaleString('vi-VN') : ''}
                     </p>
@@ -930,7 +930,6 @@ const CRMModule: React.FC = () => {
 }
 
 export default CRMModule
-
 
 
 

@@ -13,7 +13,7 @@ import {
 import { useUIStore } from '../stores/uiStore'
 
 // ========== CALCULATION HELPERS ==========
-// Subtotal = Σ(qty × unit_price × (1 - discount%/100))
+// Subtotal = sum(qty * unit_price * (1 - discount% / 100))
 const calcLineTotal = (q: number, p: number, d: number) => q * p * (1 - d / 100)
 const calcSubtotal = (lines: any[]) =>
   lines.reduce((sum, l) => sum + (l.line_total || 0), 0)
@@ -146,7 +146,7 @@ const LinesEditor: React.FC<{
             value={search}
             onChange={e => { setSearch(e.target.value); setShowDropdown(true) }}
             onFocus={() => setShowDropdown(true)}
-            placeholder="Tìm sản phẩm để thêm..."
+            placeholder="Search products to add..."
             className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none"
           />
         </div>
@@ -166,7 +166,7 @@ const LinesEditor: React.FC<{
         )}
         {showDropdown && filteredProducts.length === 0 && (
           <div className="absolute z-20 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg p-3 text-sm text-gray-500">
-            Không tìm thấy sản phẩm phù hợp
+            No matching products found
           </div>
         )}
       </div>
@@ -177,12 +177,12 @@ const LinesEditor: React.FC<{
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-3 py-2 text-left font-semibold text-gray-700">Sản phẩm</th>
-                <th className="px-2 py-2 text-center font-semibold text-gray-700 w-16">SL</th>
-                <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Đơn giá</th>
-                {showCost && <th className="px-2 py-2 text-right font-semibold text-gray-700 w-24">Giá vốn</th>}
-                <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">CK%</th>
-                <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Thành tiền</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Product</th>
+                <th className="px-2 py-2 text-center font-semibold text-gray-700 w-16">Qty</th>
+                <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Unit Price</th>
+                {showCost && <th className="px-2 py-2 text-right font-semibold text-gray-700 w-24">Cost</th>}
+                <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20">Disc%</th>
+                <th className="px-2 py-2 text-right font-semibold text-gray-700 w-28">Line Total</th>
                 <th className="px-2 py-2 w-8"></th>
               </tr>
             </thead>
@@ -228,7 +228,7 @@ const LinesEditor: React.FC<{
         </div>
       ) : (
         <div className="p-6 text-center text-sm text-gray-500">
-          Chưa có sản phẩm. Thêm sản phẩm bằng ô tìm kiếm trên.
+          No products yet. Use the search box above to add products.
         </div>
       )}
     </div>
@@ -325,9 +325,9 @@ const SalesModal: React.FC<{
 
   const handleSave = () => {
     const nextErrors: Record<string, string> = {}
-    if (isOrder && !form.customer_id) nextErrors.customer_id = 'Khách hàng là bắt buộc'
-    if (!isOrder && !form.lead_id) nextErrors.lead_id = 'Phải chọn Lead nguồn'
-    if (form.lines.length === 0) nextErrors.lines = 'Phải có ít nhất 1 sản phẩm'
+    if (isOrder && !form.customer_id) nextErrors.customer_id = 'Customer is required'
+    if (!isOrder && !form.lead_id) nextErrors.lead_id = 'Source lead is required'
+    if (form.lines.length === 0) nextErrors.lines = 'At least one product is required'
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
     onSave(form)
@@ -345,7 +345,7 @@ const SalesModal: React.FC<{
       <div className="w-full max-w-5xl bg-white shadow-xl rounded-lg mt-4 mb-8">
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
           <h2 className="text-xl font-bold text-gray-900">
-            {record?.id ? `Sửa ${isOrder ? 'Sales Order' : 'Quotation'}` : `Tạo ${isOrder ? 'Sales Order' : 'Quotation'} mới`}
+            {record?.id ? `Edit ${isOrder ? 'Sales Order' : 'Quotation'}` : `Create new ${isOrder ? 'Sales Order' : 'Quotation'}`}
           </h2>
           <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100"><X size={20} /></button>
         </div>
@@ -360,14 +360,14 @@ const SalesModal: React.FC<{
           {/* Header Fields */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Mã</label>
-              <input type="text" value={form.quotation_number || form.order_number || '(tự động)'} readOnly
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Reference</label>
+              <input type="text" value={form.quotation_number || form.order_number || '(automatic)'} readOnly
                 className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500" />
             </div>
             {isOrder && (
             <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">
-                Khách hàng {isOrder && <span className="text-red-500">*</span>}
+                Customer {isOrder && <span className="text-red-500">*</span>}
               </label>
               <select value={form.customer_id}
                 onChange={e => {
@@ -376,7 +376,7 @@ const SalesModal: React.FC<{
                   updateField('customer_name', c?.name || '')
                 }}
                 className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${errors.customer_id ? 'border-red-400' : 'border-gray-300'}`}>
-                <option value="">-- Chọn khách hàng --</option>
+                <option value="">Select customer...</option>
                 {customerOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
               {errors.customer_id && <p className="mt-1 text-xs text-red-600">{errors.customer_id}</p>}
@@ -385,10 +385,10 @@ const SalesModal: React.FC<{
 
             {!isOrder && (
               <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Lead nguồn</label>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Source Lead</label>
                 <select value={form.lead_id || ''} onChange={e => updateField('lead_id', e.target.value)}
                   className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 ${errors.lead_id ? 'border-red-400' : 'border-gray-300'}`}>
-                  <option value="">-- Không có Lead --</option>
+                  <option value="">Select source lead...</option>
                   {leadOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
                 {errors.lead_id && <p className="mt-1 text-xs text-red-600">{errors.lead_id}</p>}
@@ -397,7 +397,7 @@ const SalesModal: React.FC<{
 
             <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">
-                {isOrder ? 'Ngày đặt hàng' : 'Ngày báo giá'}
+                {isOrder ? 'Order Date' : 'Quotation Date'}
               </label>
               <input type="date" value={isOrder ? (form.order_date || '') : (form.issued_date || '')}
                 onChange={e => updateField(isOrder ? 'order_date' : 'issued_date', e.target.value)}
@@ -406,7 +406,7 @@ const SalesModal: React.FC<{
 
             <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">
-                {isOrder ? 'Ngày giao dự kiến' : 'Hạn báo giá'}
+                {isOrder ? 'Required Delivery Date' : 'Quotation Deadline'}
               </label>
               <input type="date" value={isOrder ? (form.required_delivery_date || '') : (form.valid_until_date || '')}
                 onChange={e => updateField(isOrder ? 'required_delivery_date' : 'valid_until_date', e.target.value)}
@@ -419,7 +419,7 @@ const SalesModal: React.FC<{
           <div>
             <div className="mb-2 flex items-center justify-between">
               <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">
-                📦 Sản phẩm ({form.lines.length})
+                Products ({form.lines.length})
               </h3>
               {errors.lines && <p className="text-xs text-red-600">{errors.lines}</p>}
             </div>
@@ -431,19 +431,19 @@ const SalesModal: React.FC<{
             />
           </div>
 
-          {/* Auto-Calculated Summary — only tax_percent is editable */}
+          {/* Auto-calculated summary; only tax_percent is editable */}
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <h3 className="mb-3 text-sm font-bold text-gray-800 uppercase tracking-wide">💰 Tổng kết (Tự động tính)</h3>
+            <h3 className="mb-3 text-sm font-bold text-gray-800 uppercase tracking-wide">Summary (auto calculated)</h3>
             <div className="space-y-2 text-sm">
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">
-                  Tạm tính (Subtotal) = Σ(qty × price × (1 - CK%)):</span>
+                  Subtotal = sum(qty * price * (1 - discount%)):</span>
                 <span className="font-semibold text-gray-900">{formatCurrency(form.subtotal)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 flex items-center gap-1">
                   <TrendingDown size={13} className="text-gray-400" />
-                  Thuế GTGT (% — chỉ nhập vào đây):
+                  Tax (%):
                 </span>
                 <div className="flex items-center gap-2">
                   <input
@@ -458,18 +458,18 @@ const SalesModal: React.FC<{
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-gray-600">Tiền thuế (Tax) = Subtotal × tax%:</span>
+                <span className="text-gray-600">Tax amount = Subtotal * tax%:</span>
                 <span className="font-semibold text-gray-900">{formatCurrency(form.tax_amount)}</span>
               </div>
               <div className="flex items-center justify-between border-t border-gray-300 pt-2">
-                <span className="font-bold text-gray-900 text-base">Tổng cộng (Total) = Subtotal + Tax:</span>
+                <span className="font-bold text-gray-900 text-base">Total = Subtotal + Tax:</span>
                 <span className="font-bold text-blue-700 text-lg">{formatCurrency(form.total_amount)}</span>
               </div>
 
               {showCost && (
                 <>
                   <div className="flex items-center justify-between border-t border-gray-200 mt-2 pt-2">
-                    <span className="text-gray-600">Giá vốn (Total Cost):</span>
+                    <span className="text-gray-600">Total Cost:</span>
                     <span className="font-semibold text-gray-700">{formatCurrency(form.total_cost)}</span>
                   </div>
                   <div className="flex items-center justify-between">
@@ -478,7 +478,7 @@ const SalesModal: React.FC<{
                         ? <TrendingUp size={13} className="text-green-500" />
                         : <TrendingDown size={13} className="text-red-500" />
                       }
-                      Lợi nhuận ước tính = Total – Cost:
+                      Estimated Profit = Total - Cost:
                     </span>
                     <span className={`font-bold ${form.estimated_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {formatCurrency(form.estimated_profit)}
@@ -492,19 +492,19 @@ const SalesModal: React.FC<{
 
           {/* Notes */}
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">Ghi chú</label>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
             <textarea value={form.notes} onChange={e => updateField('notes', e.target.value)} rows={3}
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
-              placeholder="Ghi chú..." />
+              placeholder="Notes..." />
           </div>
         </div>
 
         <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
           <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">
-            Hủy
+            Cancel
           </button>
           <button onClick={handleSave} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-            {record?.id ? 'Cập nhật' : 'Tạo mới'}
+            {record?.id ? 'Update' : 'Create'}
           </button>
         </div>
       </div>
@@ -660,9 +660,9 @@ const WarrantySalesModal: React.FC<{
                       <td className="px-3 py-2 text-right">{formatCurrency(line.repair_fee)}</td>
                       <td className="px-3 py-2">
                         {line.warranty_status === 'in_warranty' ? (
-                          <span className="font-semibold text-green-700">Còn bảo hành đến {line.warranty_until}</span>
+                          <span className="font-semibold text-green-700">Under warranty until {line.warranty_until}</span>
                         ) : (
-                          <span className="font-semibold text-red-700">Hết hạn bảo hành từ {line.warranty_until}</span>
+                          <span className="font-semibold text-red-700">Warranty expired on {line.warranty_until}</span>
                         )}
                       </td>
                       <td className="px-3 py-2 text-right font-semibold">
@@ -797,7 +797,7 @@ const SalesReturnModal: React.FC<{
           <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100"><X size={20} /></button>
         </div>
         <div className="max-h-[75vh] space-y-6 overflow-y-auto p-6">
-          <div className="grid gap-4 md:grid-cols-2">
+          <div>
             <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">Delivered Sales Order</label>
               <select value={salesOrderId} onChange={(event) => setSalesOrderId(event.target.value)}
@@ -809,14 +809,6 @@ const SalesReturnModal: React.FC<{
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Customer</label>
-              <input
-                value={selectedOrder ? (selectedOrder.customer_name || selectedOrder.customer?.name || selectedOrder.customer?.full_name || '') : ''}
-                readOnly
-                className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm"
-              />
             </div>
           </div>
 
@@ -1079,7 +1071,7 @@ const SalesModule: React.FC = () => {
     })
     setModalOpen(false)
     setModalRecord(null)
-    showNotification('success', `${isOrder ? 'Sales Order' : 'Quotation'} đã được lưu.`)
+    showNotification('success', `${isOrder ? 'Sales Order' : 'Quotation'} saved.`)
   }
 
   const openCancel = (record: any) => {
@@ -1173,14 +1165,14 @@ const SalesModule: React.FC = () => {
     <div className="space-y-6">
       <ModuleHeader
         title="Sales"
-        subtitle="Quản lý Quotations và Sales Orders. Chỉ cần nhập tax%, hệ thống tự động tính Subtotal, Tax Amount, Total và Estimated Profit."
-        primaryLabel={`Tạo ${title} mới`}
+        subtitle="Manage quotations and sales orders. Enter tax percent; the system calculates subtotal, tax amount, total, and estimated profit automatically."
+        primaryLabel={`New ${title}`}
         onCreate={openCreate}
       />
 
       {loadError && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Không thể tải dữ liệu: {loadError}
+          Unable to load data: {loadError}
         </div>
       )}
 
@@ -1210,13 +1202,13 @@ const SalesModule: React.FC = () => {
           <table className="w-full min-w-[900px]">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Mã</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Khách hàng</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Ngày</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Trạng thái</th>
-                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Tổng cộng</th>
-                {activeTab === 'orders' && <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Lợi nhuận</th>}
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Hành động</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Reference</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Customer</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Total</th>
+                {activeTab === 'orders' && <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Profit</th>}
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -1249,7 +1241,7 @@ const SalesModule: React.FC = () => {
           </table>
           {filteredRecords.length === 0 && (
             <div className="p-8 text-center text-sm text-gray-500">
-              Chưa có bản ghi nào
+              No records found
             </div>
           )}
         </div>
@@ -1269,7 +1261,7 @@ const SalesModule: React.FC = () => {
               <p className="text-sm font-semibold text-gray-900">{formatCurrency(record.total_amount || record.subtotal || record.amount || 0)}</p>
               {activeTab === 'orders' && (
                 <p className={`text-sm font-semibold ${(record.estimated_profit || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  Lợi nhuận: {formatCurrency(record.estimated_profit || 0)}
+                  Profit: {formatCurrency(record.estimated_profit || 0)}
                 </p>
               )}
               <div className="mt-3">{renderActions(record)}</div>
