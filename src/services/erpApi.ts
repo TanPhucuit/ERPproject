@@ -391,7 +391,7 @@ const recalculateReservedStock = async () => {
 const getDefaultCompanyAccount = async () => {
   const { data, error } = await supabase
     .from('accounts')
-    .select('id')
+    .select('id, balance')
     .eq('is_novatech_default', true)
     .single()
   if (error) throw error
@@ -1321,11 +1321,12 @@ const writeSalesReturn = async <T>(body: any, id?: string): Promise<T> => {
     const quantity = toNumber(line.quantity, 1)
     if (quantity > toNumber(sourceLine.quantity)) throw new Error(`Return quantity for ${sourceLine.product_name} exceeds sold quantity.`)
     const unitPrice = toNumber(sourceLine.unit_price)
+    const taxAmount = Math.round(unitPrice * quantity * 0.1)
     return {
       product_id: line.product_id,
       quantity,
       unit_price: unitPrice,
-      refund_amount: unitPrice * quantity,
+      refund_amount: unitPrice * quantity + taxAmount,
     }
   })
   if (lines.length === 0) throw new Error('Return must have at least one product.')
@@ -1483,40 +1484,47 @@ const ensurePurchaseOrdersFromRfq = async (rfqId: string) => {
   const rfqLines = (rfq?.items || []).filter((item: any) => item?.supplier_product?.supplier_id)
   if (rfqLines.length === 0) return
 
-  const primarySupplierId = rfqLines[0].supplier_product.supplier_id
   const { data: existingOrders, error: existingOrderError } = await supabase
     .from('purchase_orders')
-    .select('id, order_number')
+    .select('id, order_number, vendor_id')
     .eq('rfq_id', rfqId)
     .order('order_number', { ascending: true })
   if (existingOrderError) throw existingOrderError
 
-  let purchaseOrderId = existingOrders?.[0]?.id
-  if (!purchaseOrderId) {
-    const { data: purchaseOrder, error: purchaseOrderCreateError } = await supabase
-      .from('purchase_orders')
-      .insert({
-        rfq_id: rfqId,
-        vendor_id: primarySupplierId,
-        order_date: today(),
-        expected_arrival_date: rfq.deadline || null,
-        status: 'sent',
-        notes: 'Auto-created from awarded RFQ.',
-      })
-      .select('id')
-      .single()
-    if (purchaseOrderCreateError) throw purchaseOrderCreateError
-    purchaseOrderId = purchaseOrder.id
-  }
+  const linesBySupplier = rfqLines.reduce((map: Map<string, any[]>, item: any) => {
+    const supplierId = item.supplier_product.supplier_id
+    map.set(supplierId, [...(map.get(supplierId) || []), item])
+    return map
+  }, new Map<string, any[]>())
 
-  const orderLines = rfqLines.map((item: any) => ({
-    purchase_order_id: purchaseOrderId,
-    supplier_products_id: item.supplier_products_id,
-    quantity: toNumber(item.quantity, 1),
-    unit_price: toNumber(item.supplier_product?.price),
-  }))
-  await replaceChildren('purchase_order_items', 'purchase_order_id', purchaseOrderId, orderLines)
-  await ensurePurchaseReceiptAndBill(purchaseOrderId)
+  for (const [supplierId, supplierLines] of linesBySupplier.entries()) {
+    let purchaseOrderId = existingOrders?.find((order: any) => order.vendor_id === supplierId)?.id
+    if (!purchaseOrderId) {
+      const { data: purchaseOrder, error: purchaseOrderCreateError } = await supabase
+        .from('purchase_orders')
+        .insert({
+          rfq_id: rfqId,
+          vendor_id: supplierId,
+          order_date: today(),
+          expected_arrival_date: rfq.deadline || null,
+          status: 'sent',
+          notes: 'Auto-created from awarded RFQ.',
+        })
+        .select('id')
+        .single()
+      if (purchaseOrderCreateError) throw purchaseOrderCreateError
+      purchaseOrderId = purchaseOrder.id
+    }
+
+    const orderLines = supplierLines.map((item: any) => ({
+      purchase_order_id: purchaseOrderId,
+      supplier_products_id: item.supplier_products_id,
+      quantity: toNumber(item.quantity, 1),
+      unit_price: toNumber(item.supplier_product?.price),
+    }))
+    await replaceChildren('purchase_order_items', 'purchase_order_id', purchaseOrderId, orderLines)
+    await ensurePurchaseReceiptAndBill(purchaseOrderId)
+  }
 }
 
 const writeRfq = async <T>(body: any, id?: string): Promise<T> => {
@@ -1777,6 +1785,89 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor' | 'refund'
   }
   const { data, error } = await supabase.from('payments').insert(payload).select().single()
   if (error) throw error
+
+  if (invoiceId) {
+    const [{ data: invoicePayments, error: paymentTotalError }, { data: invoiceRow, error: invoiceTotalError }, { data: creditRows, error: creditError }] = await Promise.all([
+      supabase.from('payments').select('amount').eq('invoice_id', invoiceId),
+      supabase.from('invoices').select('total_amount').eq('id', invoiceId).single(),
+      supabase.from('credit_notes').select('total_amount').eq('invoices_id', invoiceId),
+    ])
+    if (paymentTotalError) throw paymentTotalError
+    if (invoiceTotalError) throw invoiceTotalError
+    if (creditError) throw creditError
+    const paidTotal = (invoicePayments || []).reduce((sum: number, item: any) => sum + toNumber(item.amount), 0)
+    const adjustmentTotal = (creditRows || []).reduce((sum: number, item: any) => sum + toNumber(item.total_amount), 0)
+    const payableTotal = Math.max(toNumber((invoiceRow as any)?.total_amount) - adjustmentTotal, 0)
+    const { error: statusError } = await supabase
+      .from('invoices')
+      .update({ status: paidTotal >= payableTotal ? 'paid' : 'partial_paid' })
+      .eq('id', invoiceId)
+    if (statusError) throw statusError
+  }
+
+  if (vendorBillId) {
+    const [{ data: billPayments, error: paymentTotalError }, { data: billRow, error: billTotalError }, { data: debitRows, error: debitError }] = await Promise.all([
+      supabase.from('payments').select('amount').eq('vendor_bill_id', vendorBillId),
+      supabase.from('vendor_bills').select('total, purchase_order_id').eq('id', vendorBillId).single(),
+      supabase.from('debit_notes').select('total_amount').eq('vendor_bills_id', vendorBillId),
+    ])
+    if (paymentTotalError) throw paymentTotalError
+    if (billTotalError) throw billTotalError
+    if (debitError) throw debitError
+    const paidTotal = (billPayments || []).reduce((sum: number, item: any) => sum + toNumber(item.amount), 0)
+    const adjustmentTotal = (debitRows || []).reduce((sum: number, item: any) => sum + toNumber(item.total_amount), 0)
+    const payableTotal = Math.max(toNumber((billRow as any)?.total) - adjustmentTotal, 0)
+    const nextStatus = paidTotal >= payableTotal ? 'paid' : 'partial_paid'
+    const { error: statusError } = await supabase
+      .from('vendor_bills')
+      .update({ status: nextStatus })
+      .eq('id', vendorBillId)
+    if (statusError) throw statusError
+    if (nextStatus === 'paid' && (billRow as any)?.purchase_order_id) {
+      const { error: receiptError } = await supabase
+        .from('receipts')
+        .update({ status: 'delivering' })
+        .eq('purchase_order_id', (billRow as any).purchase_order_id)
+        .eq('status', 'ready')
+      if (receiptError) throw receiptError
+    }
+  }
+
+  if (refundRequestId) {
+    const [{ data: refundPayments, error: paymentTotalError }, { data: refundRow, error: refundTotalError }] = await Promise.all([
+      supabase.from('payments').select('amount').eq('refund_request_id', refundRequestId),
+      supabase.from('refund_requests').select('amount').eq('id', refundRequestId).single(),
+    ])
+    if (paymentTotalError) throw paymentTotalError
+    if (refundTotalError) throw refundTotalError
+    const paidTotal = (refundPayments || []).reduce((sum: number, item: any) => sum + toNumber(item.amount), 0)
+    const refundTotal = toNumber((refundRow as any)?.amount)
+    const { error: refundStatusError } = await supabase
+      .from('refund_requests')
+      .update({ status: paidTotal >= refundTotal ? 'paid' : 'pending' })
+      .eq('id', refundRequestId)
+    if (refundStatusError) throw refundStatusError
+    if (paymentMethod !== 'cash') {
+      const { error: sourceAccountError } = await supabase
+        .from('accounts')
+        .update({ balance: (companyAccount.balance || 0) - toNumber(body.amount) })
+        .eq('id', companyAccount.id)
+      if (sourceAccountError) throw sourceAccountError
+      if (refundCustomerAccountId) {
+        const { data: customerAccount, error: customerAccountError } = await supabase
+          .from('accounts')
+          .select('balance')
+          .eq('id', refundCustomerAccountId)
+          .single()
+        if (customerAccountError) throw customerAccountError
+        const { error: targetAccountError } = await supabase
+          .from('accounts')
+          .update({ balance: toNumber((customerAccount as any)?.balance) + toNumber(body.amount) })
+          .eq('id', refundCustomerAccountId)
+        if (targetAccountError) throw targetAccountError
+      }
+    }
+  }
   return data as T
 }
 

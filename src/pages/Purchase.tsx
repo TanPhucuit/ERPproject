@@ -7,7 +7,6 @@ import {
   KanbanBoard,
   ModuleHeader,
   ModuleTabs,
-  RecordActions,
   StatusBadge,
   ViewMode,
 } from '../components/OdooLite'
@@ -615,8 +614,9 @@ const POModal: React.FC<{
     }
     setFormError('')
     const subtotal = calcPOTotal(form.lines)
-    const totalWithTax = subtotal + (form.totalTax || 0)
-    onSave({ ...form, totalAmountBeforeTax: subtotal, totalAmount: totalWithTax })
+    const tax = Math.round(subtotal * 0.1)
+    const totalWithTax = subtotal + tax
+    onSave({ ...form, totalTax: tax, totalAmountBeforeTax: subtotal, totalAmount: totalWithTax })
   }
 
   if (!isOpen) return null
@@ -720,13 +720,11 @@ const POModal: React.FC<{
             </div>
             <div className="flex items-center justify-between">
               <span className="font-semibold text-gray-900">Tax:</span>
-              <input type="number" min={0} step={0.01} value={form.totalTax}
-                onChange={e => setForm({ ...form, totalTax: Number(e.target.value) })}
-                className="w-32 rounded border border-gray-300 px-2 py-1 text-sm text-right" />
+              <span className="font-semibold text-gray-900">{formatCurrency(Math.round(calcPOTotal(form.lines) * 0.1))}</span>
             </div>
             <div className="border-t border-gray-300 pt-2 flex items-center justify-between">
               <span className="font-bold text-gray-900">Total:</span>
-              <span className="font-bold text-blue-700 text-lg">{formatCurrency(calcPOTotal(form.lines) + (form.totalTax || 0))}</span>
+              <span className="font-bold text-blue-700 text-lg">{formatCurrency(calcPOTotal(form.lines) + Math.round(calcPOTotal(form.lines) * 0.1))}</span>
             </div>
           </div>
 
@@ -969,18 +967,14 @@ const PurchaseModule: React.FC = () => {
     }
   }
 
-  const deleteRecord = async (record: any) => {
-    const path = activeTab === 'purchase-orders' ? '/purchase/purchase-orders' : '/purchase/rfqs'
-    const recordName = record.purchase_order_number || record.rfq_number || 'this record'
-    if (!window.confirm(`Delete ${recordName}?`)) return
+  const denyRfq = async (record: any) => {
     try {
-      await erpApi.delete(`${path}/${record.id}`)
+      await erpApi.put(`/purchase/rfqs/${record.id}`, { ...record, status: 'denied' })
+      setRfqs((current) => current.map((item) => (item.id === record.id ? { ...item, status: 'denied' } : item)))
+      showNotification('success', 'RFQ denied.')
     } catch (error: any) {
-      showNotification('error', `Purchase delete failed: ${error.message}`)
-      return
+      showNotification('error', `RFQ deny failed: ${error.message}`)
     }
-    setActiveRecords((current) => current.filter((item) => item.id !== record.id))
-    showNotification('success', `${title} deleted.`)
   }
 
   const openCancelPurchaseOrder = (record: any) => {
@@ -1017,15 +1011,26 @@ const PurchaseModule: React.FC = () => {
         )}
       </div>
     ) : (
-      <RecordActions
-        onEdit={() => {
-          setModalRecord(record)
-          setModalOpen(true)
-        }}
-        onDelete={() => deleteRecord(record)}
-        onAdvance={record.status === 'new' ? () => advanceRecord(record) : undefined}
-        advanceLabel="Accept"
-      />
+      <div className="flex items-center gap-1">
+        {record.status === 'new' && (
+          <button onClick={() => advanceRecord(record)} className="rounded px-2 py-1 text-xs font-semibold text-green-700 hover:bg-green-50">
+            Accept
+          </button>
+        )}
+        {record.status === 'new' && (
+          <button onClick={() => denyRfq(record)} className="rounded px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50">
+            Deny
+          </button>
+        )}
+        {record.status === 'new' && (
+          <button onClick={() => {
+            setModalRecord(record)
+            setModalOpen(true)
+          }} className="rounded px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+            Edit
+          </button>
+        )}
+      </div>
     )
   )
 

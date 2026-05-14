@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Download, Trash2 } from 'lucide-react'
+import { Download, Trash2, X } from 'lucide-react'
 import { erpApi } from '../services/erpApi'
 import { exportInvoiceToPDF, exportVendorBillToPDF } from '../services/pdfExportService'
 import {
@@ -9,7 +9,6 @@ import {
   KanbanBoard,
   ModuleHeader,
   ModuleTabs,
-  RecordActions,
   RecordModal,
   StatusBadge,
   ViewMode,
@@ -234,6 +233,169 @@ const normalizeAccount = (account: any) => ({
   accountNumber: account.account_number,
   status: 'active',
 })
+
+const PaymentModal: React.FC<{
+  isOpen: boolean
+  record: any
+  invoices: any[]
+  vendorBills: any[]
+  refundRequests: any[]
+  accounts: any[]
+  companyAccount: any
+  onClose: () => void
+  onSave: (record: any) => void
+}> = ({ isOpen, record, invoices, vendorBills, refundRequests, companyAccount, onClose, onSave }) => {
+  const [form, setForm] = useState<any>(record || {})
+
+  useEffect(() => {
+    setForm(record || {})
+  }, [record, isOpen])
+
+  if (!isOpen) return null
+
+  const documentType = form.documentType || 'invoice'
+  const documents = documentType === 'invoice'
+    ? invoices
+    : documentType === 'vendor_bill'
+      ? vendorBills
+      : refundRequests
+  const selectedDocument = documents.find((item) => item.id === form.documentId)
+  const isCash = form.paymentMethod === 'cash'
+  const isRefund = documentType === 'refund_request'
+  const sourceAccount = isCash
+    ? null
+    : documentType === 'invoice'
+      ? selectedDocument?.customerAccount
+      : companyAccount
+  const targetAccount = isCash
+    ? null
+    : documentType === 'invoice'
+      ? companyAccount
+      : isRefund
+        ? selectedDocument?.customerAccount
+        : selectedDocument?.supplierAccount
+
+  const updateDocumentType = (nextType: string) => {
+    setForm((current: any) => ({
+      ...current,
+      documentType: nextType,
+      documentId: '',
+      paymentMethod: nextType === 'refund_request' ? 'bank_transfer' : current.paymentMethod || 'bank_transfer',
+      amount: 0,
+      sourceAccountId: '',
+      targetAccountId: '',
+    }))
+  }
+
+  const updateDocument = (documentId: string) => {
+    const doc = documents.find((item) => item.id === documentId)
+    setForm((current: any) => ({
+      ...current,
+      documentId,
+      amount: doc?.amountDue ?? doc?.totalAmount ?? doc?.total_amount ?? doc?.total ?? doc?.amount ?? 0,
+      sourceAccountId: '',
+      targetAccountId: '',
+      notes: `Payment for ${doc?.invoiceNumber || doc?.billNumber || doc?.refundNumber || doc?.id || ''}`,
+    }))
+  }
+
+  const updatePaymentMethod = (paymentMethod: string) => {
+    setForm((current: any) => ({
+      ...current,
+      paymentMethod,
+      sourceAccountId: paymentMethod === 'cash' ? '' : current.sourceAccountId,
+      targetAccountId: paymentMethod === 'cash' ? '' : current.targetAccountId,
+    }))
+  }
+
+  const handleSave = () => {
+    onSave({
+      ...form,
+      sourceAccountId: isCash ? null : sourceAccount?.id,
+      targetAccountId: isCash ? null : targetAccount?.id,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-md bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <h2 className="text-xl font-bold text-gray-900">Create Payment</h2>
+          <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="max-h-[68vh] overflow-y-auto p-6">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Payment For *</label>
+              <select value={documentType} onChange={(event) => updateDocumentType(event.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                <option value="invoice">Customer Invoice</option>
+                <option value="vendor_bill">Vendor Bill</option>
+                <option value="refund_request">Refund Request</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Document *</label>
+              <select value={form.documentId || ''} onChange={(event) => updateDocument(event.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                <option value="">Select document</option>
+                {documents.filter((doc) => !['paid', 'cancelled'].includes(String(doc.status || '').toLowerCase())).map((doc) => (
+                  <option key={doc.id} value={doc.id}>
+                    {doc.invoiceNumber || doc.billNumber || doc.refundNumber} - {doc.customerName || doc.purchaseOrderNumber || doc.salesReturnNumber || 'Document'} - due {formatCurrency(doc.amountDue ?? doc.totalAmount ?? doc.total_amount ?? doc.total ?? doc.amount ?? 0)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Payment Date *</label>
+              <input type="date" value={form.paymentDate || ''} onChange={(event) => setForm({ ...form, paymentDate: event.target.value })}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Payment Method *</label>
+              <select value={form.paymentMethod || 'bank_transfer'} disabled={isRefund} onChange={(event) => updatePaymentMethod(event.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-50">
+                <option value="bank_transfer">Bank Transfer</option>
+                {!isRefund && <option value="cash">Cash</option>}
+                {!isRefund && <option value="card">Card</option>}
+                {!isRefund && <option value="other">Other</option>}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Amount *</label>
+              <input type="number" min={0} value={form.amount || 0} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Source Account</label>
+              <input readOnly value={isCash ? 'Cash payment - bank account not used' : accountLabel(sourceAccount) || 'Missing required source account'}
+                className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Target Account</label>
+              <input readOnly value={isCash ? 'Cash payment - bank account not used' : accountLabel(targetAccount) || 'Missing required target account'}
+                className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
+              <textarea value={form.notes || ''} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={3}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
+          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">Cancel</button>
+          <button onClick={handleSave} disabled={!form.documentId || !Number(form.amount) || (!isCash && (!sourceAccount?.id || !targetAccount?.id))}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300">
+            Post Payment
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 const AccountingModule: React.FC = () => {
   const showNotification = useUIStore((state) => state.showNotification)
@@ -547,28 +709,6 @@ const AccountingModule: React.FC = () => {
     setModalOpen(true)
   }
 
-  const deleteRecord = async (record: any) => {
-    const pathMap: Record<string, string> = {
-      invoices: '/accounting/invoices',
-      bills: '/accounting/bills',
-      'credit-notes': '/accounting/credit-notes',
-      'debit-notes': '/accounting/debit-notes',
-      payments: '/accounting/payments',
-      accounts: '/accounting/accounts',
-    }
-    const path = pathMap[activeTab]
-    const recordName = record.invoice_number || record.bill_number || record.note_number || 'this record'
-    if (!window.confirm(`Delete ${recordName}?`)) return
-    try {
-      await erpApi.delete(`${path}/${record.id}`)
-    } catch (error: any) {
-      showNotification('error', `Accounting delete failed: ${error.message}`)
-      return
-    }
-    setters[activeTab]((current) => current.filter((item) => item.id !== record.id))
-    showNotification('success', `${activeTitle} deleted.`)
-  }
-
   const openCancel = (record: any) => {
     setCancelRecord(record)
     setCancelReason('')
@@ -638,17 +778,15 @@ const AccountingModule: React.FC = () => {
         <button onClick={() => openCancel(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Cancel">
           <Trash2 size={16} />
         </button>
-      ) : activeTab === 'refund-requests' || activeTab === 'invoices' || activeTab === 'bills' || activeTab === 'payments' ? (
+      ) : activeTab === 'refund-requests' || activeTab === 'invoices' || activeTab === 'bills' || activeTab === 'payments' || activeTab === 'credit-notes' || activeTab === 'debit-notes' ? (
         null
       ) : (
-        <RecordActions
-          onEdit={() => {
-            setModalRecord(record)
-            setModalOpen(true)
-          }}
-          onDelete={() => deleteRecord(record)}
-          onAdvance={undefined}
-        />
+        <button onClick={() => {
+          setModalRecord(record)
+          setModalOpen(true)
+        }} className="rounded px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+          Edit
+        </button>
       )}
     </div>
   )
@@ -800,14 +938,28 @@ const AccountingModule: React.FC = () => {
         </div>
       )}
 
-      <RecordModal
-        isOpen={modalOpen}
-        title={`${modalRecord && activeRecords.some((item) => item.id === modalRecord.id) ? 'Edit' : 'Create'} ${activeTitle}`}
-        record={modalRecord}
-        fields={activeFields}
-        onClose={() => setModalOpen(false)}
-        onSave={saveRecord}
-      />
+      {activeTab === 'payments' ? (
+        <PaymentModal
+          isOpen={modalOpen}
+          record={modalRecord}
+          invoices={invoices}
+          vendorBills={vendorBills}
+          refundRequests={refundRequests}
+          accounts={accounts}
+          companyAccount={companyAccount}
+          onClose={() => setModalOpen(false)}
+          onSave={saveRecord}
+        />
+      ) : (
+        <RecordModal
+          isOpen={modalOpen}
+          title={`${modalRecord && activeRecords.some((item) => item.id === modalRecord.id) ? 'Edit' : 'Create'} ${activeTitle}`}
+          record={modalRecord}
+          fields={activeFields}
+          onClose={() => setModalOpen(false)}
+          onSave={saveRecord}
+        />
+      )}
     </div>
   )
 }

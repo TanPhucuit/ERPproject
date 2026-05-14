@@ -6,7 +6,6 @@ import {
   KanbanBoard,
   ModuleHeader,
   ModuleTabs,
-  RecordActions,
   RecordModal,
   StatusBadge,
   ViewMode,
@@ -28,17 +27,6 @@ const movementFieldsBase: FormField[] = [
   { name: 'reference', label: 'Receipt #', type: 'text', readonly: true, disabled: true },
   { name: 'purchaseOrderId', label: 'Purchase Order', type: 'select', required: true, options: [] },
   { name: 'scheduledDate', label: 'Receipt Date', type: 'date' },
-  {
-    name: 'status',
-    label: 'Status',
-    type: 'select',
-    options: [
-      { value: 'ready', label: 'Ready' },
-      { value: 'delivering', label: 'Delivering' },
-      { value: 'received', label: 'Received' },
-      { value: 'cancelled', label: 'Cancelled' },
-    ],
-  },
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
 
@@ -47,16 +35,6 @@ const deliveryFieldsBase: FormField[] = [
   { name: 'salesOrderId', label: 'Sales Order', type: 'select', options: [] },
   { name: 'invoiceId', label: 'Invoice', type: 'select', options: [] },
   { name: 'scheduledDate', label: 'Delivery Date', type: 'date' },
-  {
-    name: 'status',
-    label: 'Status',
-    type: 'select',
-    options: [
-      { value: 'ready', label: 'Ready' },
-      { value: 'delivering', label: 'Delivering' },
-      { value: 'delivered', label: 'Delivered' },
-    ],
-  },
   { name: 'tracking_number', label: 'Tracking Number', type: 'text' },
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
@@ -678,6 +656,60 @@ const InventoryModule: React.FC = () => {
     return transferBinLabel(targetId, record.destBinName || record.target?.location_code || record.target?.bin_code || 'No destination bin')
   }
 
+  const reloadInventoryData = async () => {
+    const [stockRecords, binRecords, transferRecords, deliveryRecords] = await Promise.all([
+      erpApi.get<any[]>('/inventory/stock-levels?limit=100'),
+      erpApi.get<any[]>('/inventory/stock-in-bins?limit=500'),
+      erpApi.get<any[]>('/inventory/stock-transfers?limit=100'),
+      erpApi.get<any[]>('/inventory/delivery-orders?limit=100'),
+    ])
+    setStock(stockRecords.map((item) => ({
+      ...item,
+      warehouseName: item.warehouse?.warehouse_name || item.warehouse?.name || item.warehouse_id,
+      productName: item.product?.product_name || item.product?.name || item.productName || item.product_id,
+      binCode: item.bin_location?.bin_code || '',
+      bin: item.bin_location || null,
+      quantityOnHand: item.quantity_on_hand || 0,
+      totalQuantity: item.total_quantity || 0,
+      quantityAvailable: item.available ?? item.quantityAvailable ?? item.quantity_available ?? 0,
+      newQuantity: item.new_quantity || 0,
+      reorderStatus: item.reorder_status || 'normal',
+    })))
+    setBinStock(binRecords.map((item) => ({
+      ...item,
+      productName: item.productName || item.product?.product_name || item.product?.name || item.product_id,
+      warehouseName: item.warehouseName || item.bin_location?.warehouse?.warehouse_name || '',
+      binCode: item.binCode || item.bin_location?.location_code || item.bin_location?.bin_code || '',
+      quantity: item.quantity || 0,
+      available: item.available || 0,
+      occupancyQuantity: item.occupancyQuantity || item.quantity || 0,
+    })))
+    setTransfers(transferRecords.map((item) => ({
+      ...item,
+      reference: item.transfer_number || item.reference || item.id?.slice(0, 8),
+      sourceWarehouseId: item.source_warehouse_id,
+      destWarehouseId: item.dest_warehouse_id,
+      sourceWarehouseName: item.sourceWarehouseName || item.source_warehouse?.name || item.source_warehouse_id,
+      destWarehouseName: item.destWarehouseName || item.dest_warehouse?.name || item.dest_warehouse_id,
+      transferDate: item.transfer_date || item.transferDate || item.created_at?.slice(0, 10),
+      productId: item.productId || item.product_id || item.lines?.[0]?.product_id || '',
+      productName: item.productName || item.product?.product_name || item.product?.name || item.product_id || item.lines?.[0]?.product_id || '',
+      sourceBinLocationId: item.sourceBinLocationId || item.src_bin_location_id || item.lines?.[0]?.from_bin_location_id || '',
+      destBinLocationId: item.destBinLocationId || item.target_bin_location_id || item.lines?.[0]?.to_bin_location_id || '',
+      sourceBinName: item.source?.location_code || item.source?.bin_code || '',
+      destBinName: item.target?.location_code || item.target?.bin_code || '',
+      quantity: item.quantity || item.lines?.[0]?.quantity || 1,
+    })))
+    setDeliveries(deliveryRecords.map((item) => ({
+      ...item,
+      reference: item.delivery_order_number || item.id?.slice(0, 8),
+      salesOrderId: item.sales_order_id,
+      partnerName: item.sales_order?.order_number || item.sales_order?.sales_order_number || item.sales_order_id,
+      warehouseName: item.warehouse?.warehouse_name || item.warehouse?.name || item.warehouse_id,
+      scheduledDate: item.delivery_date || item.scheduled_delivery_date,
+    })))
+  }
+
   const filteredRecords = useMemo(() => {
     return activeRecords.filter((record) => {
       const haystack = activeTab === 'transfers'
@@ -799,43 +831,16 @@ const InventoryModule: React.FC = () => {
           : record
       const saved = await (isExisting ? erpApi.put<any>(`${path}/${record.id}`, payload) : erpApi.post<any>(path, payload))
       if (activeTab === 'transfers' && record.transfer_type === 'customer_delivery') {
-        setDeliveries((current) => current.map((delivery) => (
-          delivery.id === record.delivery_order_id ? { ...delivery, ...saved, status: 'delivering' } : delivery
-        )))
-        setBinStock((current) => current.map((row) => {
-          const shippedLine = (record.lines || []).find((line: any) => line.product_id === row.product_id && line.bin_location_id === row.bin_location_id)
-          if (!shippedLine) return row
-          return {
-            ...row,
-            quantity: Math.max(Number(row.quantity || 0) - Number(shippedLine.quantity || 0), 0),
-            available: Math.max(Number(row.available || 0) - Number(shippedLine.quantity || 0), 0),
-            occupancyQuantity: Math.max(Number(row.occupancyQuantity || row.quantity || 0) - Number(shippedLine.quantity || 0), 0),
-          }
-        }))
+        await reloadInventoryData()
         showNotification('success', 'Delivery order moved to delivering and stock was deducted from selected bins.')
         setModalOpen(false)
         return
       }
-      if (activeTab === 'transfers' && record.sourceBinLocationId === 'new') {
-        setStock((current) => current.map((row) => (
-          row.product_id === record.productId
-            ? { ...row, newQuantity: Math.max(Number(row.newQuantity ?? row.new_quantity ?? 0) - Number(record.quantity || 0), 0), new_quantity: Math.max(Number(row.newQuantity ?? row.new_quantity ?? 0) - Number(record.quantity || 0), 0) }
-            : row
-        )))
-        setBinStock((current) => {
-          const existing = current.find((row) => row.product_id === record.productId && row.bin_location_id === record.destBinLocationId)
-          if (existing) {
-            return current.map((row) => row.product_id === record.productId && row.bin_location_id === record.destBinLocationId
-              ? {
-                ...row,
-                quantity: Number(row.quantity || 0) + Number(record.quantity || 0),
-                available: Number(row.available || 0) + Number(record.quantity || 0),
-                occupancyQuantity: Number(row.occupancyQuantity || row.quantity || 0) + Number(record.quantity || 0),
-              }
-              : row)
-          }
-          return current
-        })
+      if (activeTab === 'transfers') {
+        await reloadInventoryData()
+        showNotification('success', 'Stock transfer posted and inventory quantities were refreshed from database.')
+        setModalOpen(false)
+        return
       }
       activeSetters[activeTab]((current) => {
         const normalized = { ...record, ...saved }
@@ -881,23 +886,24 @@ const InventoryModule: React.FC = () => {
     }
   }
 
-  const deleteRecord = async (record: any) => {
+  const cancelRecord = async (record: any) => {
     const pathMap: Record<string, string> = {
       deliveries: '/inventory/delivery-orders',
       receipts: '/inventory/goods-receipts',
-      transfers: '/inventory/stock-transfers',
     }
     const path = pathMap[activeTab]
+    if (!path) return
     const recordName = record.delivery_order_number || record.goods_receipt_number || record.adjustment_number || record.reference || 'this record'
-    if (!window.confirm(`Delete ${recordName}?`)) return
+    const reason = window.prompt(`Cancel ${recordName}? Enter cancellation reason:`)
+    if (!reason?.trim()) return
     try {
-      await erpApi.delete(`${path}/${record.id}`)
+      await erpApi.put(`${path}/${record.id}`, { ...record, status: 'cancelled', cancellation_reason: reason.trim(), notes: record.notes || `Cancelled: ${reason.trim()}` })
     } catch (error: any) {
-      showNotification('error', `Inventory delete failed: ${error.message}`)
+      showNotification('error', `Inventory cancel failed: ${error.message}`)
       return
     }
-    activeSetters[activeTab]((current) => current.filter((item) => item.id !== record.id))
-    showNotification('success', `${activeTitle} deleted.`)
+    activeSetters[activeTab]((current) => current.map((item) => (item.id === record.id ? { ...item, status: 'cancelled', cancellation_reason: reason.trim() } : item)))
+    showNotification('success', `${activeTitle} cancelled.`)
   }
 
   const renderActions = (record: any) => (
@@ -909,16 +915,21 @@ const InventoryModule: React.FC = () => {
           </button>
         )}
       </div>
+    ) : activeTab === 'transfers' ? (
+      null
     ) : (
-      <RecordActions
-        onEdit={() => {
-          setModalRecord(record)
-          setModalOpen(true)
-        }}
-        onDelete={() => deleteRecord(record)}
-        onAdvance={flow[activeTab]?.[record.status] ? () => advanceRecord(record) : undefined}
-        advanceLabel={activeTab === 'receipts' ? 'Receive' : 'Delivered'}
-      />
+      <div className="flex items-center gap-1">
+        {flow[activeTab]?.[record.status] && (
+          <button onClick={() => advanceRecord(record)} className="rounded px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+            {activeTab === 'receipts' ? 'Receive' : 'Delivered'}
+          </button>
+        )}
+        {!['cancelled', 'received', 'delivered'].includes(record.status) && (
+          <button onClick={() => cancelRecord(record)} className="rounded px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50">
+            Cancel
+          </button>
+        )}
+      </div>
     )
   )
 

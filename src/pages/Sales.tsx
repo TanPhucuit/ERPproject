@@ -7,7 +7,6 @@ import {
   KanbanBoard,
   ModuleHeader,
   ModuleTabs,
-  RecordActions,
   StatusBadge,
   ViewMode,
 } from '../components/OdooLite'
@@ -587,7 +586,9 @@ const WarrantySalesModal: React.FC<{
     })
   }
 
-  const total = lines.reduce((sum, line) => sum + line.line_total, 0)
+  const subtotal = lines.reduce((sum, line) => sum + line.line_total, 0)
+  const tax = Math.round(subtotal * 0.1)
+  const total = subtotal + tax
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
@@ -685,9 +686,19 @@ const WarrantySalesModal: React.FC<{
           )}
 
           <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-gray-900">Invoice Total</span>
-              <span className="text-lg font-bold text-blue-700">{formatCurrency(total)}</span>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-gray-700">Subtotal</span>
+                <span className="font-semibold text-gray-900">{formatCurrency(subtotal)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-gray-700">Tax 10%</span>
+                <span className="font-semibold text-gray-900">{formatCurrency(tax)}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-gray-300 pt-2">
+                <span className="font-bold text-gray-900">Invoice Total</span>
+                <span className="text-lg font-bold text-blue-700">{formatCurrency(total)}</span>
+              </div>
             </div>
           </div>
 
@@ -742,6 +753,7 @@ const SalesReturnModal: React.FC<{
     if (!sourceLine) return
     const quantity = 1
     const unitPrice = Number(sourceLine.unit_price || 0)
+    const taxAmount = Math.round(unitPrice * quantity * 0.1)
     setLines((current) => [...current, {
       id: `return-${Date.now()}-${Math.random()}`,
       product_id: sourceLine.product_id,
@@ -750,7 +762,7 @@ const SalesReturnModal: React.FC<{
       quantity,
       max_quantity: Number(sourceLine.quantity || 1),
       unit_price: unitPrice,
-      line_total: unitPrice * quantity,
+      line_total: unitPrice * quantity + taxAmount,
     }])
   }
 
@@ -758,7 +770,7 @@ const SalesReturnModal: React.FC<{
     setLines((current) => current.map((line) => {
       if (line.id !== lineId) return line
       const nextQuantity = Math.max(1, Math.min(quantity, line.max_quantity))
-      return { ...line, quantity: nextQuantity, line_total: nextQuantity * line.unit_price }
+      return { ...line, quantity: nextQuantity, line_total: nextQuantity * line.unit_price + Math.round(nextQuantity * line.unit_price * 0.1) }
     }))
   }
 
@@ -1097,18 +1109,6 @@ const SalesModule: React.FC = () => {
     showNotification('success', 'Document cancelled.')
   }
 
-  const deleteRecord = async (record: any) => {
-    const path = activeTab === 'orders' ? '/sales-orders' : activeTab === 'quotations' ? '/sales-orders/quotations' : activeTab === 'warranty' ? '/sales/warranty-orders' : '/sales/returns'
-    if (!window.confirm(`Xóa ${record.quotation_number || record.sales_order_number || record.warranty_order_number}?`)) return
-    try {
-      await erpApi.delete(`${path}/${record.id}`)
-    } catch (e: any) {
-      showNotification('error', `Xóa thất bại: ${e.message}`)
-      return
-    }
-    setActiveRecords(current => current.filter(r => r.id !== record.id))
-    showNotification('success', 'Đã xóa thành công.')
-  }
   const acceptQuotation = async (record: any) => {
     try {
       await erpApi.put(`/sales-orders/quotations/${record.id}`, { status: 'accepted' })
@@ -1138,10 +1138,11 @@ const SalesModule: React.FC = () => {
       ) : activeTab === 'warranty' ? (
         null
       ) : (
-        <RecordActions
-          onEdit={() => openEdit(record)}
-          onDelete={() => deleteRecord(record)}
-        />
+        record.status === 'sent' && (
+          <button onClick={() => openEdit(record)} className="rounded px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+            Edit
+          </button>
+        )
       )}
       {activeTab === 'quotations' && record.status === 'sent' && (
         <button

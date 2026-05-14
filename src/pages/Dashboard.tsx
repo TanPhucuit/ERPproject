@@ -228,13 +228,13 @@ const Dashboard: React.FC = () => {
 
   const stats = [
     {
-      label: 'Total Revenue',
+      label: 'Net Revenue',
       value: metrics.totalRevenue,
       displayValue: formatCurrency(metrics.totalRevenue),
       icon: DollarSign,
       color: 'text-blue-600',
       bgColor: 'bg-blue-100',
-      helperText: 'Net invoices after credit notes',
+      helperText: 'Untaxed invoice revenue after credit notes',
     },
     {
       label: 'Active Orders',
