@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Download, Trash2 } from 'lucide-react'
 import { erpApi } from '../services/erpApi'
-import { exportInvoiceToPDF } from '../services/pdfExportService'
+import { exportInvoiceToPDF, exportVendorBillToPDF } from '../services/pdfExportService'
 import {
   ActionToolbar,
   formatCurrency,
@@ -120,9 +120,11 @@ const normalizeBill = (bill: any) => ({
   billDate: bill.issue_date,
   dueDate: bill.due_date,
   subtotal: bill.subtotal,
-  taxAmount: bill.tax_amount,
-  totalAmount: bill.total,
+  taxAmount: Number(bill.tax_amount) > 0 ? bill.tax_amount : Math.round(Number(bill.subtotal || 0) * 0.1),
+  totalAmount: Number(bill.subtotal || 0) + (Number(bill.tax_amount) > 0 ? Number(bill.tax_amount) : Math.round(Number(bill.subtotal || 0) * 0.1)),
   notes: bill.notes,
+  lines: bill.lines || bill.items || [],
+  items: bill.items || bill.lines || [],
 })
 
 const normalizeNote = (note: any, isCredit: boolean) => ({
@@ -488,6 +490,11 @@ const AccountingModule: React.FC = () => {
     <div className="flex items-center gap-1">
       {activeTab === 'invoices' && (
         <button onClick={() => exportInvoiceToPDF(record)} className="rounded p-2 text-blue-600 hover:bg-blue-50" title="Download PDF">
+          <Download size={16} />
+        </button>
+      )}
+      {activeTab === 'bills' && (
+        <button onClick={() => exportVendorBillToPDF(record)} className="rounded p-2 text-blue-600 hover:bg-blue-50" title="Download PDF">
           <Download size={16} />
         </button>
       )}

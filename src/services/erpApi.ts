@@ -256,6 +256,26 @@ const mapPurchaseOrder = (po: any) => {
   }
 }
 
+const mapVendorBill = (bill: any) => {
+  const lines = (bill?.purchase_order?.items || bill?.purchase_order?.purchase_order_items || []).map(mapPurchaseOrderItem)
+  const calculatedSubtotal = lines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0)
+  const subtotal = toNumber(bill?.subtotal, calculatedSubtotal)
+  const storedTaxAmount = toNumber(bill?.tax_amount)
+  const taxAmount = storedTaxAmount > 0 ? storedTaxAmount : Math.round(subtotal * 0.1)
+  const totalAmount = subtotal + taxAmount
+  return {
+    ...bill,
+    supplier: bill?.purchase_order?.supplier ? mapSupplier(bill.purchase_order.supplier) : undefined,
+    supplier_name: bill?.purchase_order?.supplier?.supplier_name || '',
+    lines,
+    items: lines,
+    subtotal,
+    tax_amount: taxAmount,
+    total: totalAmount,
+    total_amount: totalAmount,
+  }
+}
+
 const mapWarrantyOrder = (order: any) => ({
   ...order,
   warranty_order_number: order?.id?.slice(0, 8),
@@ -279,7 +299,7 @@ const selectLead = '*, assigned_to:users(*)'
 const selectQuotation = '*, customer:customers(*), lead:leads(*), items:quotation_items(*, product:products(*))'
 const selectSalesOrder = '*, customer:customers(*), quotation:quotations(*), items:sales_order_items(*, product:products(*))'
 const selectInvoice = '*, sales_order:sales_orders(*, customer:customers(*), items:sales_order_items(*, product:products(*))), warranty_order:warranty_orders(*)'
-const selectVendorBill = '*, purchase_order:purchase_orders(*, supplier:suppliers!purchase_orders_vendor_id_fkey(*))'
+const selectVendorBill = '*, purchase_order:purchase_orders(*, supplier:suppliers!purchase_orders_vendor_id_fkey(*), items:purchase_order_items(*, supplier_product:supplier_products(*, supplier:suppliers(*), product:products(*))))'
 const selectRfq = '*, items:rfq_items(*, supplier_product:supplier_products(*, supplier:suppliers(*), product:products(*)))'
 const selectPurchaseOrder = '*, supplier:suppliers!purchase_orders_vendor_id_fkey(*), items:purchase_order_items(*, supplier_product:supplier_products(*, supplier:suppliers(*)))'
 
@@ -598,7 +618,7 @@ const getResource = async <T>(path: string): Promise<T> => {
   if (pathname === '/accounting/bills') {
     const { data, error } = await applyLimit(supabase.from('vendor_bills').select(selectVendorBill).order('issue_date', { ascending: false }), searchParams)
     if (error) throw error
-    return data as T
+    return (data || []).map(mapVendorBill) as T
   }
 
   if (pathname === '/accounting/credit-notes' || pathname === '/sales/credit-notes') {
@@ -1004,13 +1024,7 @@ const ensurePurchaseReceiptAndBill = async (purchaseOrderId: string) => {
     const { error: receiptCreateError } = await supabase
       .from('receipts')
       .insert(receiptPayload)
-    if (receiptCreateError) {
-      if (!String(receiptCreateError.message || '').includes('receipts_status_check')) throw receiptCreateError
-      const { error: fallbackReceiptError } = await supabase
-        .from('receipts')
-        .insert({ ...receiptPayload, status: 'completed' })
-      if (fallbackReceiptError) throw fallbackReceiptError
-    }
+    if (receiptCreateError) throw receiptCreateError
   }
 
   const { data: existingBill, error: billLookupError } = await supabase
@@ -1276,12 +1290,15 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<
     const { data: payments, error: paymentsError } = await supabase.from('payments').select('amount').eq('invoice_id', payload.invoice_id)
     if (paymentsError) throw paymentsError
     const paidTotal = (payments || []).reduce((sum: number, payment: any) => sum + toNumber(payment.amount), 0)
-    const { data: invoice, error: invoiceError } = await supabase.from('invoices').select('total_amount').eq('id', payload.invoice_id).single()
+    const { data: invoice, error: invoiceError } = await supabase.from('invoices').select('net_amount, tax_amount, total_amount').eq('id', payload.invoice_id).single()
     if (invoiceError) throw invoiceError
     const { data: creditNotes, error: creditNotesError } = await supabase.from('credit_notes').select('total_amount').eq('invoices_id', payload.invoice_id)
     if (creditNotesError) throw creditNotesError
     const creditTotal = (creditNotes || []).reduce((sum: number, note: any) => sum + toNumber(note.total_amount), 0)
-    const invoicePayable = Math.max(toNumber(invoice.total_amount) - creditTotal, 0)
+    const invoiceSubtotal = toNumber(invoice.net_amount) || toNumber(invoice.total_amount)
+    const invoiceTax = toNumber(invoice.tax_amount) > 0 ? toNumber(invoice.tax_amount) : Math.round(invoiceSubtotal * 0.1)
+    const invoiceTotal = invoiceSubtotal + invoiceTax
+    const invoicePayable = Math.max(invoiceTotal - creditTotal, 0)
     const { error: invoiceUpdateError } = await supabase
       .from('invoices')
       .update({ status: paidTotal >= invoicePayable ? 'paid' : 'partial_paid' })
@@ -1292,12 +1309,15 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<
     const { data: payments, error: paymentsError } = await supabase.from('payments').select('amount').eq('vendor_bill_id', payload.vendor_bill_id)
     if (paymentsError) throw paymentsError
     const paidTotal = (payments || []).reduce((sum: number, payment: any) => sum + toNumber(payment.amount), 0)
-    const { data: bill, error: billError } = await supabase.from('vendor_bills').select('total, purchase_order_id').eq('id', payload.vendor_bill_id).single()
+    const { data: bill, error: billError } = await supabase.from('vendor_bills').select('subtotal, tax_amount, total, purchase_order_id').eq('id', payload.vendor_bill_id).single()
     if (billError) throw billError
     const { data: debitNotes, error: debitNotesError } = await supabase.from('debit_notes').select('total_amount').eq('vendor_bills_id', payload.vendor_bill_id)
     if (debitNotesError) throw debitNotesError
     const debitTotal = (debitNotes || []).reduce((sum: number, note: any) => sum + toNumber(note.total_amount), 0)
-    const billPayable = Math.max(toNumber(bill.total) - debitTotal, 0)
+    const billSubtotal = toNumber(bill.subtotal) || toNumber(bill.total)
+    const billTax = toNumber(bill.tax_amount) > 0 ? toNumber(bill.tax_amount) : Math.round(billSubtotal * 0.1)
+    const billTotal = billSubtotal + billTax
+    const billPayable = Math.max(billTotal - debitTotal, 0)
     const isPaid = paidTotal >= billPayable
     const { error: billUpdateError } = await supabase
       .from('vendor_bills')
