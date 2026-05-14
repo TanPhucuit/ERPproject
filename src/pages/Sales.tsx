@@ -711,24 +711,17 @@ const WarrantySalesModal: React.FC<{
 
 const SalesReturnModal: React.FC<{
   isOpen: boolean
-  customers: any[]
   deliveredOrders: any[]
   onClose: () => void
   onSave: (data: any) => void
-}> = ({ isOpen, customers, deliveredOrders, onClose, onSave }) => {
-  const [customerId, setCustomerId] = useState('')
+}> = ({ isOpen, deliveredOrders, onClose, onSave }) => {
   const [salesOrderId, setSalesOrderId] = useState('')
   const [reason, setReason] = useState('')
   const [lines, setLines] = useState<ReturnLine[]>([])
 
-  const customerOrders = deliveredOrders.filter((order) => !customerId || order.customer_id === customerId || order.customer?.id === customerId)
-  const selectedOrder = customerOrders.find((order) => order.id === salesOrderId)
+  const selectedOrder = deliveredOrders.find((order) => order.id === salesOrderId)
+  const selectedCustomerId = selectedOrder?.customer_id || selectedOrder?.customer?.id || ''
   const orderLineOptions = (selectedOrder?.lines || []).filter((line: any) => !lines.some((item) => item.product_id === line.product_id))
-
-  useEffect(() => {
-    setSalesOrderId('')
-    setLines([])
-  }, [customerId])
 
   useEffect(() => {
     setLines([])
@@ -762,9 +755,9 @@ const SalesReturnModal: React.FC<{
   }
 
   const handleSave = () => {
-    if (!customerId || !salesOrderId || lines.length === 0 || !reason.trim()) return
+    if (!salesOrderId || !selectedCustomerId || lines.length === 0 || !reason.trim()) return
     onSave({
-      customer_id: customerId,
+      customer_id: selectedCustomerId,
       sales_order_id: salesOrderId,
       reason: reason.trim(),
       lines: lines.map((line) => ({
@@ -786,26 +779,24 @@ const SalesReturnModal: React.FC<{
         <div className="max-h-[75vh] space-y-6 overflow-y-auto p-6">
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">Customer</label>
-              <select value={customerId} onChange={(event) => setCustomerId(event.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
-                <option value="">Select customer...</option>
-                {customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>{customer.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">Delivered Sales Order</label>
               <select value={salesOrderId} onChange={(event) => setSalesOrderId(event.target.value)}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
                 <option value="">Select sales order...</option>
-                {customerOrders.map((order) => (
+                {deliveredOrders.map((order) => (
                   <option key={order.id} value={order.id}>
                     {order.sales_order_number || order.order_number} - {order.customer_name || order.customer?.name || 'Customer'}
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Customer</label>
+              <input
+                value={selectedOrder ? (selectedOrder.customer_name || selectedOrder.customer?.name || selectedOrder.customer?.full_name || '') : ''}
+                readOnly
+                className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm"
+              />
             </div>
           </div>
 
@@ -877,7 +868,10 @@ const SalesReturnModal: React.FC<{
         </div>
         <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
           <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">Cancel</button>
-          <button onClick={handleSave} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Create Return</button>
+          <button onClick={handleSave} disabled={!salesOrderId || lines.length === 0 || !reason.trim()}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300">
+            Create Return
+          </button>
         </div>
       </div>
     </div>
@@ -1286,7 +1280,6 @@ const SalesModule: React.FC = () => {
       ) : activeTab === 'returns' ? (
         <SalesReturnModal
           isOpen={modalOpen}
-          customers={customers}
           deliveredOrders={deliveredOrders}
           onClose={() => { setModalOpen(false); setModalRecord(null) }}
           onSave={handleReturnSave}

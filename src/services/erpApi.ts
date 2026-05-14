@@ -1296,12 +1296,12 @@ const writeSalesReturn = async <T>(body: any, id?: string): Promise<T> => {
     if (refundUpdateError) throw refundUpdateError
     return mapSalesReturn(await getSingle('sales_returns', id, selectSalesReturn)) as T
   }
-  const customerId = body.customer_id || body.customerId
   const salesOrderId = body.sales_order_id || body.salesOrderId
-  if (!isUuid(customerId)) throw new Error('Customer is required.')
   if (!isUuid(salesOrderId)) throw new Error('Sales order is required.')
 
   const order: any = await getSingle('sales_orders', salesOrderId, selectSalesOrder)
+  const customerId = body.customer_id || body.customerId || order.customer_id || order.customer?.id
+  if (!isUuid(customerId)) throw new Error('Customer is required.')
   if (order.customer_id !== customerId) throw new Error('Sales order does not belong to the selected customer.')
   if (order.status !== 'delivered') throw new Error('Returns can only be created for delivered sales orders.')
 
