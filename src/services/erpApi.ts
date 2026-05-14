@@ -162,9 +162,11 @@ const mapInvoice = (invoice: any) => {
   const order = invoice?.sales_order
   const orderLines = (order?.items || order?.sales_order_items || []).map(mapSalesOrderItem)
   const calculatedSubtotal = orderLines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0)
-  const taxAmount = toNumber(invoice?.tax_amount)
   const netAmount = toNumber(invoice?.net_amount, calculatedSubtotal)
-  const totalAmount = toNumber(invoice?.total_amount, netAmount + taxAmount)
+  const subtotal = netAmount || calculatedSubtotal
+  const storedTaxAmount = toNumber(invoice?.tax_amount)
+  const taxAmount = storedTaxAmount > 0 ? storedTaxAmount : Math.round(subtotal * 0.1)
+  const totalAmount = subtotal + taxAmount
   return {
     ...invoice,
     customer_id: order?.customer_id,
@@ -173,10 +175,10 @@ const mapInvoice = (invoice: any) => {
     sales_order_number: order?.order_number,
     lines: orderLines,
     items: orderLines,
-    subtotal: netAmount || calculatedSubtotal,
-    net_amount: netAmount || calculatedSubtotal,
+    subtotal,
+    net_amount: subtotal,
     tax_amount: taxAmount,
-    total_amount: totalAmount || calculatedSubtotal + taxAmount,
+    total_amount: totalAmount,
   }
 }
 

@@ -12,6 +12,9 @@ interface InvoiceData {
   tax_amount?: number
   taxAmount?: number
   amount?: number
+  adjustmentAmount?: number
+  adjustmentReason?: string
+  amountDue?: number
   invoice_date?: string
   invoiceDate?: string
   date?: string
@@ -35,8 +38,11 @@ export const exportInvoiceToPDF = (invoice: InvoiceData) => {
     (sum, item) => sum + (item.line_total || item.total || (item.unit_price || 0) * (item.quantity || 1)),
     0
   )
-  const taxAmount = invoice.tax_amount || invoice.taxAmount || 0
-  const totalAmount = invoice.total_amount || invoice.totalAmount || invoice.amount || subtotal + taxAmount
+  const storedTaxAmount = invoice.tax_amount || invoice.taxAmount || 0
+  const taxAmount = storedTaxAmount > 0 ? storedTaxAmount : Math.round(subtotal * 0.1)
+  const creditAmount = invoice.adjustmentAmount || 0
+  const totalBeforeCredit = subtotal + taxAmount
+  const totalAmount = invoice.amountDue ?? Math.max(totalBeforeCredit - creditAmount, 0)
   const invoiceDate = invoice.invoice_date || invoice.invoiceDate || invoice.created_at?.split('T')[0] || invoice.date || new Date().toISOString().split('T')[0]
   const dueDate = invoice.due_date || invoice.dueDate || ''
 
@@ -75,6 +81,7 @@ export const exportInvoiceToPDF = (invoice: InvoiceData) => {
         .empty { text-align: center; color: #6b7280; }
         .summary { margin-left: auto; width: 320px; font-size: 12px; }
         .summary-row { display: flex; justify-content: space-between; padding: 6px 0; }
+        .credit { color: #047857; }
         .total { margin-top: 8px; padding-top: 10px; border-top: 2px solid #111827; font-weight: 700; font-size: 14px; }
         .notes { margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 12px; }
         .footer { margin-top: 36px; text-align: center; color: #6b7280; font-size: 10px; border-top: 1px solid #e5e7eb; padding-top: 16px; }
@@ -115,7 +122,8 @@ export const exportInvoiceToPDF = (invoice: InvoiceData) => {
         </table>
         <div class="summary">
           <div class="summary-row"><span>Subtotal</span><strong>${money(subtotal)}</strong></div>
-          <div class="summary-row"><span>Tax</span><strong>${money(taxAmount)}</strong></div>
+          <div class="summary-row"><span>Tax 10%</span><strong>${money(taxAmount)}</strong></div>
+          ${creditAmount > 0 ? `<div class="summary-row credit"><span>Credit Note${invoice.adjustmentReason ? ` (${invoice.adjustmentReason})` : ''}</span><strong>-${money(creditAmount)}</strong></div>` : ''}
           <div class="summary-row total"><span>Total Amount</span><strong>${money(totalAmount)}</strong></div>
         </div>
         ${invoice.notes ? `<div class="notes"><strong>Notes:</strong><p>${invoice.notes.replace(/\n/g, '<br>')}</p></div>` : ''}
