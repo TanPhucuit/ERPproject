@@ -771,7 +771,6 @@ const getResource = async <T>(path: string): Promise<T> => {
       sourceWarehouseName: row.source?.location_code ? `${row.source.location_code}` : 'New',
       destWarehouseName: row.target?.location_code || '',
       transferDate: row.created_at?.slice(0, 10),
-      status: 'done',
     })) as T
   }
 

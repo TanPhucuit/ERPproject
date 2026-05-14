@@ -492,16 +492,19 @@ const InventoryModule: React.FC = () => {
         setLoadError(null)
         setTransfers(records.map((item) => ({
           ...item,
-          reference: item.transfer_number,
+          reference: item.transfer_number || item.reference || item.id?.slice(0, 8),
           sourceWarehouseId: item.source_warehouse_id,
           destWarehouseId: item.dest_warehouse_id,
           sourceWarehouseName: item.sourceWarehouseName || item.source_warehouse?.name || item.source_warehouse_id,
           destWarehouseName: item.destWarehouseName || item.dest_warehouse?.name || item.dest_warehouse_id,
-          transferDate: item.transfer_date,
-          productId: item.lines?.[0]?.product_id || '',
-          sourceBinLocationId: item.lines?.[0]?.from_bin_location_id || '',
-          destBinLocationId: item.lines?.[0]?.to_bin_location_id || '',
-          quantity: item.lines?.[0]?.quantity || 1,
+          transferDate: item.transfer_date || item.transferDate || item.created_at?.slice(0, 10),
+          productId: item.productId || item.product_id || item.lines?.[0]?.product_id || '',
+          productName: item.productName || item.product?.product_name || item.product?.name || item.product_id || item.lines?.[0]?.product_id || '',
+          sourceBinLocationId: item.sourceBinLocationId || item.src_bin_location_id || item.lines?.[0]?.from_bin_location_id || '',
+          destBinLocationId: item.destBinLocationId || item.target_bin_location_id || item.lines?.[0]?.to_bin_location_id || '',
+          sourceBinName: item.source?.location_code || item.source?.bin_code || '',
+          destBinName: item.target?.location_code || item.target?.bin_code || '',
+          quantity: item.quantity || item.lines?.[0]?.quantity || 1,
         })))
       })
       .catch((error) => {
@@ -659,12 +662,30 @@ const InventoryModule: React.FC = () => {
   }, [activeTab, warehouseOptions, transferWarehouseOptions, transferBinOptions, sourceStockBinOptions, productOptions, salesOrderOptions, invoiceOptions, purchaseOrderOptions, partnerOptions, filteredBinOptions])
   const activeTitle = activeTab === 'stock' ? 'Stock Level' : activeTab === 'bin-stock' ? 'Bin Stock' : activeTab === 'deliveries' ? 'Delivery Order' : activeTab === 'receipts' ? 'Goods Receipt' : 'Stock Transfer'
 
+  const transferBinLabel = (binId: string, fallback?: string) => {
+    if (!binId || binId === 'new') return fallback || 'New stock'
+    const bin = binLocations.find((item) => item.id === binId)
+    return fallback || bin?.location_code || bin?.binCode || bin?.bin_code || binId.slice(0, 8)
+  }
+
+  const transferSourceLabel = (record: any) => {
+    const sourceId = record.sourceBinLocationId || record.src_bin_location_id
+    return transferBinLabel(sourceId, record.sourceBinName || record.source?.location_code || record.source?.bin_code)
+  }
+
+  const transferDestinationLabel = (record: any) => {
+    const targetId = record.destBinLocationId || record.target_bin_location_id
+    return transferBinLabel(targetId, record.destBinName || record.target?.location_code || record.target?.bin_code || 'No destination bin')
+  }
+
   const filteredRecords = useMemo(() => {
     return activeRecords.filter((record) => {
-      const haystack = `${record.reference || record.productName} ${record.partnerName || ''} ${record.warehouseName} ${record.binCode || ''}`.toLowerCase()
-      return haystack.includes(search.toLowerCase()) && (status === 'all' || record.status === status)
+      const haystack = activeTab === 'transfers'
+        ? `${record.reference || ''} ${record.productName || ''} ${transferSourceLabel(record)} ${transferDestinationLabel(record)} ${record.quantity || ''}`.toLowerCase()
+        : `${record.reference || record.productName} ${record.partnerName || ''} ${record.warehouseName} ${record.binCode || ''}`.toLowerCase()
+      return haystack.includes(search.toLowerCase()) && (activeTab === 'transfers' || status === 'all' || record.status === status)
     })
-  }, [activeRecords, search, status])
+  }, [activeRecords, activeTab, search, status, binLocations])
 
   const openCreate = () => {
     if (activeTab === 'stock' || activeTab === 'bin-stock') {
@@ -938,6 +959,7 @@ const InventoryModule: React.FC = () => {
         status={status}
         onStatusChange={setStatus}
         statuses={Array.from(new Set(activeRecords.map((record) => record.status).filter(Boolean)))}
+        hideStatus={activeTab === 'transfers'}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
       />
@@ -964,6 +986,15 @@ const InventoryModule: React.FC = () => {
                     <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Quantity</th>
                     <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Available</th>
                     <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Occupancy</th>
+                  </>
+                ) : activeTab === 'transfers' ? (
+                  <>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Reference</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Product</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Source Bin</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Destination Bin</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Quantity</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
                   </>
                 ) : (
                   <>
@@ -998,14 +1029,21 @@ const InventoryModule: React.FC = () => {
                       <td className="px-4 py-3 text-right text-sm font-medium">{record.available ?? 0}</td>
                       <td className="px-4 py-3 text-right text-sm font-medium">{record.occupancyQuantity ?? record.quantity ?? 0}</td>
                     </>
+                  ) : activeTab === 'transfers' ? (
+                    <>
+                      <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.reference || record.id?.slice(0, 8)}</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-gray-900">{record.productName || record.productId || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{transferSourceLabel(record)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{transferDestinationLabel(record)}</td>
+                      <td className="px-4 py-3 text-right text-sm font-medium">{record.quantity || 0}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{record.transferDate || '-'}</td>
+                    </>
                   ) : (
                     <>
                       <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.reference || record.delivery_order_number || record.goods_receipt_number}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'transfers' ? `${record.sourceWarehouseName || record.sourceWarehouseId} -> ${record.destWarehouseName || record.destWarehouseId}` : record.warehouseName}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{record.warehouseName}</td>
                       <td className="px-4 py-3 text-sm text-gray-600">
-                        {activeTab === 'transfers'
-                          ? `Qty ${record.quantity || 0}`
-                          : activeTab === 'deliveries'
+                        {activeTab === 'deliveries'
                             ? `${record.sales_order?.order_number || record.sales_order?.sales_order_number || record.partnerName || record.salesOrderId || '-'}${invoiceBySalesOrder.get(record.sales_order_id || record.salesOrderId)?.invoice_number ? ` / ${invoiceBySalesOrder.get(record.sales_order_id || record.salesOrderId)?.invoice_number}` : ''}`
                             : record.partnerName}
                       </td>
@@ -1022,12 +1060,23 @@ const InventoryModule: React.FC = () => {
       ) : (
         <KanbanBoard
           records={filteredRecords}
-          groupBy={(record) => record.status}
+          groupBy={(record) => activeTab === 'transfers' ? transferSourceLabel(record) : record.status}
           renderCard={(record) => (
             <div key={record.id} className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
               <p className="font-bold text-gray-900">{record.reference || record.productName}</p>
-              <p className="mt-1 text-sm text-gray-600">{record.warehouseName}</p>
-              <p className="mt-2 text-sm text-gray-600">{record.partnerName || record.binCode}</p>
+              {activeTab === 'transfers' ? (
+                <>
+                  <p className="mt-1 text-sm font-semibold text-gray-900">{record.productName || record.productId || '-'}</p>
+                  <p className="mt-2 text-sm text-gray-600">Source: {transferSourceLabel(record)}</p>
+                  <p className="mt-1 text-sm text-gray-600">Destination: {transferDestinationLabel(record)}</p>
+                  <p className="mt-1 text-sm text-gray-600">Qty: {record.quantity || 0}</p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 text-sm text-gray-600">{record.warehouseName}</p>
+                  <p className="mt-2 text-sm text-gray-600">{record.partnerName || record.binCode}</p>
+                </>
+              )}
               <div className="mt-3">{renderActions(record)}</div>
             </div>
           )}

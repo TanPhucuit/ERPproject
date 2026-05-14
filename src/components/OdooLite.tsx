@@ -102,9 +102,10 @@ export const ActionToolbar: React.FC<{
   status: string
   onStatusChange: (value: string) => void
   statuses: string[]
+  hideStatus?: boolean
   viewMode: ViewMode
   onViewModeChange: (mode: ViewMode) => void
-}> = ({ search, onSearchChange, status, onStatusChange, statuses, viewMode, onViewModeChange }) => (
+}> = ({ search, onSearchChange, status, onStatusChange, statuses, hideStatus = false, viewMode, onViewModeChange }) => (
   <div className="flex flex-col gap-3 rounded-md border border-gray-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
     <div className="relative min-w-0 flex-1">
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
@@ -116,18 +117,20 @@ export const ActionToolbar: React.FC<{
       />
     </div>
     <div className="flex flex-wrap items-center gap-2">
-      <select
-        value={status}
-        onChange={(event) => onStatusChange(event.target.value)}
-        className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-      >
-        <option value="all">All Statuses</option>
-        {statuses.map((item) => (
-          <option key={item} value={item}>
-            {item}
-          </option>
-        ))}
-      </select>
+      {!hideStatus && (
+        <select
+          value={status}
+          onChange={(event) => onStatusChange(event.target.value)}
+          className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+        >
+          <option value="all">All Statuses</option>
+          {statuses.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+      )}
       <div className="inline-flex rounded-md border border-gray-300 bg-white p-1">
         <button
           onClick={() => onViewModeChange('list')}
