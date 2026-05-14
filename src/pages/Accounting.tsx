@@ -110,7 +110,9 @@ const normalizeInvoice = (invoice: any) => ({
   netAmount: invoice.net_amount,
   subtotal: invoice.subtotal || invoice.net_amount,
   taxAmount: Number(invoice.tax_amount) > 0 ? invoice.tax_amount : Math.round(Number(invoice.subtotal || invoice.net_amount || 0) * 0.1),
-  totalAmount: Number(invoice.subtotal || invoice.net_amount || 0) + (Number(invoice.tax_amount) > 0 ? Number(invoice.tax_amount) : Math.round(Number(invoice.subtotal || invoice.net_amount || 0) * 0.1)),
+  totalAmount: Number(invoice.total_amount) > 0
+    ? Number(invoice.total_amount)
+    : Number(invoice.subtotal || invoice.net_amount || 0) + (Number(invoice.tax_amount) > 0 ? Number(invoice.tax_amount) : Math.round(Number(invoice.subtotal || invoice.net_amount || 0) * 0.1)),
   warrantyOrderId: invoice.warranty_orders_id,
   notes: invoice.notes,
   cancellationReason: invoice.cancellation_reason,
@@ -146,8 +148,8 @@ const normalizeRefundRequest = (refund: any) => ({
   salesReturnNumber: refund.sales_return?.return_number || refund.salesReturnNumber,
   salesOrderNumber: refund.sales_return?.sales_order?.order_number || refund.sales_order_number,
   requestDate: refund.request_date || refund.requestDate,
-  totalAmount: Number(refund.amount || 0),
-  amountDue: Number(refund.amount || 0),
+  totalAmount: Number(refund.totalAmount ?? refund.total_amount ?? refund.amount ?? 0),
+  amountDue: Number(refund.amountDue ?? refund.amount_due ?? refund.totalAmount ?? refund.total_amount ?? refund.amount ?? 0),
 })
 
 const normalizeNote = (note: any, isCredit: boolean) => ({
@@ -185,10 +187,12 @@ const buildPaymentMap = (payments: any[], documentType: 'invoice' | 'vendor_bill
 
 const applyRefundPayments = (refund: any, paymentMap: Map<string, number>) => {
   const paidAmount = paymentMap.get(refund.id) || 0
+  const totalAmount = Number(refund.totalAmount ?? refund.total_amount ?? refund.amount ?? 0)
   return {
     ...refund,
+    totalAmount,
     paidAmount,
-    amountDue: Math.max(Number(refund.totalAmount || refund.amount || 0) - paidAmount, 0),
+    amountDue: Math.max(totalAmount - paidAmount, 0),
   }
 }
 
@@ -592,13 +596,20 @@ const AccountingModule: React.FC = () => {
 
   const renderAmount = (record: any) => {
     if (activeTab === 'accounts') return formatCurrency(record.balance)
-    if ((activeTab === 'invoices' || activeTab === 'bills') && record.adjustmentAmount > 0) {
+    if (activeTab === 'payments') return formatCurrency(record.amount)
+    if (['invoices', 'bills', 'refund-requests'].includes(activeTab)) {
       const label = activeTab === 'invoices' ? 'Credit note' : 'Debit note'
+      const totalAmount = Number(record.totalAmount ?? record.total_amount ?? record.total ?? record.amount ?? 0)
+      const paidAmount = Number(record.paidAmount ?? 0)
+      const amountDue = Number(record.amountDue ?? totalAmount)
       return (
         <div className="space-y-1 text-right">
-          <p>{formatCurrency(record.totalAmount || record.total || 0)}</p>
-          <p className="text-xs font-medium text-emerald-700">{label}: -{formatCurrency(record.adjustmentAmount)}</p>
-          <p className="font-bold text-gray-900">Due: {formatCurrency(record.amountDue)}</p>
+          <p className="font-semibold text-gray-900">{formatCurrency(totalAmount)}</p>
+          {(activeTab === 'invoices' || activeTab === 'bills') && record.adjustmentAmount > 0 && (
+            <p className="text-xs font-medium text-emerald-700">{label}: -{formatCurrency(record.adjustmentAmount)}</p>
+          )}
+          {paidAmount > 0 && <p className="text-xs font-medium text-blue-700">Paid: {formatCurrency(paidAmount)}</p>}
+          <p className="text-xs font-medium text-gray-600">Due: {formatCurrency(amountDue)}</p>
           {record.adjustmentReason && <p className="text-xs font-normal text-gray-500">Reason: {record.adjustmentReason}</p>}
         </div>
       )
@@ -627,7 +638,7 @@ const AccountingModule: React.FC = () => {
         <button onClick={() => openCancel(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Cancel">
           <Trash2 size={16} />
         </button>
-      ) : activeTab === 'refund-requests' || activeTab === 'invoices' || activeTab === 'bills' ? (
+      ) : activeTab === 'refund-requests' || activeTab === 'invoices' || activeTab === 'bills' || activeTab === 'payments' ? (
         null
       ) : (
         <RecordActions
