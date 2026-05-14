@@ -237,7 +237,7 @@ const SalesModal: React.FC<{
   onClose: () => void
   onSave: (data: FormRecord) => void
   errorMessage?: string | null
-}> = ({ isOpen, activeTab, record, customers, leads, products, quotations, onClose, onSave, errorMessage }) => {
+}> = ({ isOpen, activeTab, record, customers, leads, products, onClose, onSave, errorMessage }) => {
   const isOrder = activeTab === 'orders'
   const showCost = isOrder
 
@@ -327,7 +327,6 @@ const SalesModal: React.FC<{
   const leadOptions = leads
     .filter(l => !['won'].includes(l.stage_name || l.stage || l.status))
     .map(l => ({ value: l.id, label: `${l.lead_number || ''} - ${l.company_name}` }))
-  const quotationOptions = quotations.filter(q => ['sent', 'accepted', 'won'].includes(q.status)).map(q => ({ value: q.id, label: `${q.quotation_number} - ${q.customer?.name || ''}` }))
 
   if (!isOpen) return null
 
@@ -383,17 +382,6 @@ const SalesModal: React.FC<{
                   {leadOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
                 {errors.lead_id && <p className="mt-1 text-xs text-red-600">{errors.lead_id}</p>}
-              </div>
-            )}
-
-            {isOrder && (
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Từ Quotation</label>
-                <select value={form.quotation_id || ''} onChange={e => updateField('quotation_id', e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
-                  <option value="">-- Không có Quotation --</option>
-                  {quotationOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
               </div>
             )}
 
@@ -833,7 +821,7 @@ const SalesModule: React.FC = () => {
     const payload: any = {
       customer_id: isOrder ? formData.customer_id : null,
       lead_id: formData.lead_id || null,
-      quotation_id: isOrder ? (formData.quotation_id || null) : null,
+      quotation_id: null,
       issued_date: formData.issued_date,
       order_date: formData.order_date,
       valid_until_date: formData.valid_until_date,

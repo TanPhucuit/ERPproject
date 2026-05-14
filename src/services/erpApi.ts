@@ -305,6 +305,8 @@ const ensureSalesOrderInvoiceAndDelivery = async (orderId: string) => {
   const order: any = await getSingle('sales_orders', orderId, selectSalesOrder)
   const lines = (order?.items || []).map(mapSalesOrderItem)
   const netAmount = lines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0)
+  const taxAmount = Math.round(netAmount * 0.1)
+  const totalAmount = netAmount + taxAmount
 
   const { data: existingInvoice, error: invoiceLookupError } = await supabase
     .from('invoices')
@@ -321,8 +323,8 @@ const ensureSalesOrderInvoiceAndDelivery = async (orderId: string) => {
         due_date: addDays(30),
         status: 'sent',
         net_amount: netAmount,
-        tax_amount: 0,
-        total_amount: netAmount,
+        tax_amount: taxAmount,
+        total_amount: totalAmount,
         notes: 'Auto-created from accepted quotation.',
       })
     if (invoiceCreateError) throw invoiceCreateError
@@ -345,6 +347,36 @@ const ensureSalesOrderInvoiceAndDelivery = async (orderId: string) => {
       })
     if (deliveryCreateError) throw deliveryCreateError
   }
+}
+
+const ensureSalesOrderInvoice = async (orderId: string, note = 'Auto-created from sales order.') => {
+  const order: any = await getSingle('sales_orders', orderId, selectSalesOrder)
+  const lines = (order?.items || []).map(mapSalesOrderItem)
+  const netAmount = lines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0)
+  const taxAmount = Math.round(netAmount * 0.1)
+  const totalAmount = netAmount + taxAmount
+
+  const { data: existingInvoice, error: invoiceLookupError } = await supabase
+    .from('invoices')
+    .select('id')
+    .eq('sales_order_id', orderId)
+    .maybeSingle()
+  if (invoiceLookupError) throw invoiceLookupError
+  if (existingInvoice?.id) return
+
+  const { error: invoiceCreateError } = await supabase
+    .from('invoices')
+    .insert({
+      sales_order_id: orderId,
+      issue_date: today(),
+      due_date: addDays(30),
+      status: 'sent',
+      net_amount: netAmount,
+      tax_amount: taxAmount,
+      total_amount: totalAmount,
+      notes: note,
+    })
+  if (invoiceCreateError) throw invoiceCreateError
 }
 
 const getResource = async <T>(path: string): Promise<T> => {
@@ -868,6 +900,9 @@ const writeSalesOrder = async <T>(body: any, id?: string): Promise<T> => {
     }))
     await replaceChildren('sales_order_items', 'sales_order_id', data.id, lines)
   }
+  if (!id) {
+    await ensureSalesOrderInvoice(data.id)
+  }
   return mapSalesOrder(await getSingle('sales_orders', data.id, selectSalesOrder)) as T
 }
 
@@ -922,6 +957,8 @@ const writeWarrantyOrder = async <T>(body: any, id?: string): Promise<T> => {
   if (linesCreateError) throw linesCreateError
 
   const totalAmount = warrantyRows.reduce((sum: number, line: any) => sum + toNumber(line.repair_fee_amount), 0)
+  const taxAmount = Math.round(totalAmount * 0.1)
+  const invoiceTotal = totalAmount + taxAmount
   const { error: invoiceCreateError } = await supabase
     .from('invoices')
     .insert({
@@ -929,10 +966,10 @@ const writeWarrantyOrder = async <T>(body: any, id?: string): Promise<T> => {
       warranty_orders_id: warrantyOrder.id,
       issue_date: today(),
       due_date: addDays(30),
-      status: totalAmount > 0 ? 'sent' : 'paid',
+      status: invoiceTotal > 0 ? 'sent' : 'paid',
       net_amount: totalAmount,
-      tax_amount: 0,
-      total_amount: totalAmount,
+      tax_amount: taxAmount,
+      total_amount: invoiceTotal,
       notes: 'Auto-created from warranty sales order.',
     })
   if (invoiceCreateError) throw invoiceCreateError
@@ -956,15 +993,22 @@ const ensurePurchaseReceiptAndBill = async (purchaseOrderId: string) => {
     .maybeSingle()
   if (receiptLookupError) throw receiptLookupError
   if (!existingReceipt?.id) {
+    const receiptPayload = {
+      purchase_order_id: purchaseOrderId,
+      receipt_date: today(),
+      status: 'ready',
+      notes: 'Auto-created from awarded RFQ.',
+    }
     const { error: receiptCreateError } = await supabase
       .from('receipts')
-      .insert({
-        purchase_order_id: purchaseOrderId,
-        receipt_date: today(),
-        status: 'ready',
-        notes: 'Auto-created from awarded RFQ.',
-      })
-    if (receiptCreateError) throw receiptCreateError
+      .insert(receiptPayload)
+    if (receiptCreateError) {
+      if (!String(receiptCreateError.message || '').includes('receipts_status_check')) throw receiptCreateError
+      const { error: fallbackReceiptError } = await supabase
+        .from('receipts')
+        .insert({ ...receiptPayload, status: 'completed' })
+      if (fallbackReceiptError) throw fallbackReceiptError
+    }
   }
 
   const { data: existingBill, error: billLookupError } = await supabase
@@ -982,8 +1026,8 @@ const ensurePurchaseReceiptAndBill = async (purchaseOrderId: string) => {
         due_date: addDays(30),
         status: 'posted',
         subtotal,
-        tax_amount: 0,
-        total: subtotal,
+        tax_amount: Math.round(subtotal * 0.1),
+        total: subtotal + Math.round(subtotal * 0.1),
         notes: 'Auto-created from awarded RFQ.',
       })
     if (billCreateError) throw billCreateError
@@ -1120,7 +1164,7 @@ const writePurchaseOrder = async <T>(body: any, id?: string): Promise<T> => {
     if (lines.length === 0) throw new Error('Purchase order must have at least one supplier product line.')
     await replaceChildren('purchase_order_items', 'purchase_order_id', data.id, lines)
   }
-  if (payload.rfq_id || body.rfq_id) {
+  if (!id && (payload.rfq_id || body.rfq_id)) {
     await ensurePurchaseReceiptAndBill(data.id)
   }
   return mapPurchaseOrder(await getSingle('purchase_orders', data.id, selectPurchaseOrder)) as T
@@ -1232,9 +1276,13 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<
     const paidTotal = (payments || []).reduce((sum: number, payment: any) => sum + toNumber(payment.amount), 0)
     const { data: invoice, error: invoiceError } = await supabase.from('invoices').select('total_amount').eq('id', payload.invoice_id).single()
     if (invoiceError) throw invoiceError
+    const { data: creditNotes, error: creditNotesError } = await supabase.from('credit_notes').select('total_amount').eq('invoices_id', payload.invoice_id)
+    if (creditNotesError) throw creditNotesError
+    const creditTotal = (creditNotes || []).reduce((sum: number, note: any) => sum + toNumber(note.total_amount), 0)
+    const invoicePayable = Math.max(toNumber(invoice.total_amount) - creditTotal, 0)
     const { error: invoiceUpdateError } = await supabase
       .from('invoices')
-      .update({ status: paidTotal >= toNumber(invoice.total_amount) ? 'paid' : 'partial_paid' })
+      .update({ status: paidTotal >= invoicePayable ? 'paid' : 'partial_paid' })
       .eq('id', payload.invoice_id)
     if (invoiceUpdateError) throw invoiceUpdateError
   }
@@ -1244,7 +1292,11 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<
     const paidTotal = (payments || []).reduce((sum: number, payment: any) => sum + toNumber(payment.amount), 0)
     const { data: bill, error: billError } = await supabase.from('vendor_bills').select('total, purchase_order_id').eq('id', payload.vendor_bill_id).single()
     if (billError) throw billError
-    const isPaid = paidTotal >= toNumber(bill.total)
+    const { data: debitNotes, error: debitNotesError } = await supabase.from('debit_notes').select('total_amount').eq('vendor_bills_id', payload.vendor_bill_id)
+    if (debitNotesError) throw debitNotesError
+    const debitTotal = (debitNotes || []).reduce((sum: number, note: any) => sum + toNumber(note.total_amount), 0)
+    const billPayable = Math.max(toNumber(bill.total) - debitTotal, 0)
+    const isPaid = paidTotal >= billPayable
     const { error: billUpdateError } = await supabase
       .from('vendor_bills')
       .update({ status: isPaid ? 'paid' : 'partial_paid' })
@@ -1350,12 +1402,19 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
   if (pathname === '/accounting/invoices' || pathname.startsWith('/accounting/invoices/')) {
     const value = body
     let netAmount = toNumber(value.net_amount ?? value.subtotal ?? value.total_amount_before_tax ?? value.netAmount)
-    const taxAmount = toNumber(value.tax_amount ?? value.total_tax ?? value.taxAmount)
+    const rawTaxAmount = value.tax_amount ?? value.total_tax ?? value.taxAmount
+    const hasExplicitTax = rawTaxAmount != null && toNumber(rawTaxAmount) > 0
+    let taxAmount = hasExplicitTax ? toNumber(rawTaxAmount) : 0
     let totalAmount = toNumber(value.total_amount ?? value.totalAmount)
     if (value.sales_order_id && (!netAmount || !totalAmount)) {
       const order: any = await getSingle('sales_orders', value.sales_order_id, selectSalesOrder)
       const orderLines = (order?.items || []).map(mapSalesOrderItem)
       netAmount = orderLines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0)
+    }
+    if (!hasExplicitTax) {
+      taxAmount = Math.round(netAmount * 0.1)
+    }
+    if (!totalAmount) {
       totalAmount = netAmount + taxAmount
     }
     const payload = {
@@ -1377,17 +1436,24 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
     return mapInvoice(await getSingle('invoices', data.id, selectInvoice)) as T
   }
   if (pathname === '/accounting/bills' || pathname.startsWith('/accounting/bills/')) {
-    return writeSimple<T>('vendor_bills', body, id, (value) => ({
-      purchase_order_id: value.purchase_order_id,
-      bill_number: value.bill_number || value.billNumber || '',
-      issue_date: value.issue_date || value.bill_date || today(),
-      due_date: value.due_date || null,
-      status: billStatus(value.status),
-      total: toNumber(value.total ?? value.total_amount),
-      tax_amount: toNumber(value.tax_amount ?? value.total_tax),
-      subtotal: toNumber(value.subtotal ?? value.total_amount_before_tax),
-      notes: value.notes || null,
-    }))
+    return writeSimple<T>('vendor_bills', body, id, (value) => {
+      const subtotal = toNumber(value.subtotal ?? value.total_amount_before_tax)
+      const rawTaxAmount = value.tax_amount ?? value.total_tax ?? value.taxAmount
+      const hasExplicitTax = rawTaxAmount != null && toNumber(rawTaxAmount) > 0
+      const taxAmount = hasExplicitTax ? toNumber(rawTaxAmount) : Math.round(subtotal * 0.1)
+      const total = toNumber(value.total ?? value.total_amount) || subtotal + taxAmount
+      return {
+        purchase_order_id: value.purchase_order_id,
+        bill_number: value.bill_number || value.billNumber || '',
+        issue_date: value.issue_date || value.bill_date || today(),
+        due_date: value.due_date || null,
+        status: billStatus(value.status),
+        total,
+        tax_amount: taxAmount,
+        subtotal,
+        notes: value.notes || null,
+      }
+    })
   }
   if (pathname === '/accounting/credit-notes' || pathname.startsWith('/accounting/credit-notes/')) return writeSimple<T>('credit_notes', body, id, (value) => ({ invoices_id: value.invoices_id || value.invoice_id, reason: value.reason, total_amount: toNumber(value.total_amount) }))
   if (pathname === '/accounting/debit-notes' || pathname.startsWith('/accounting/debit-notes/')) return writeSimple<T>('debit_notes', body, id, (value) => ({ vendor_bills_id: value.vendor_bills_id || value.bill_id, reason: value.reason, total_amount: toNumber(value.total_amount) }))

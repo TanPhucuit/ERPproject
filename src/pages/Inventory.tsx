@@ -166,6 +166,32 @@ const TransferModal: React.FC<{
     .filter((row) => row.product?.id)
   const isNewStockTransfer = form.sourceBinLocationId === 'new'
   const selectedNewStock = newStockProductOptions.find((row) => row.product.id === form.productId)
+  const sourceBinOptions = [
+    { id: 'new', label: 'New stock' },
+    ...Array.from(
+      new Map(
+        binStock
+          .filter((row) => Number(row.available ?? 0) > 0)
+          .map((row) => [
+            row.bin_location_id,
+            {
+              id: row.bin_location_id,
+              label: `${row.binCode || row.bin_location?.location_code || row.bin_location?.bin_code || row.bin_location_id} - ${row.warehouseName || row.bin_location?.warehouse?.warehouse_name || ''}`,
+            },
+          ])
+      ).values()
+    ),
+  ]
+  const binProductOptions = isNewStockTransfer
+    ? []
+    : binStock
+      .filter((row) => row.bin_location_id === form.sourceBinLocationId && Number(row.available ?? 0) > 0)
+      .map((row) => ({
+        product: products.find((product) => product.id === row.product_id) || row.product,
+        available: Number(row.available ?? 0),
+      }))
+      .filter((row) => row.product?.id)
+  const selectedBinStock = binStock.find((row) => row.bin_location_id === form.sourceBinLocationId && row.product_id === form.productId)
   const destinationBins = isNewStockTransfer && selectedNewStock?.warehouse_id
     ? binLocations.filter((bin) => bin.warehouse_id === selectedNewStock.warehouse_id)
     : binLocations
@@ -279,6 +305,15 @@ const TransferModal: React.FC<{
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Source Bin</label>
+                <select value={form.sourceBinLocationId || ''} onChange={(event) => setForm({ ...form, sourceBinLocationId: event.target.value, productId: '', quantity: 1 })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                  {sourceBinOptions.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="mb-1 block text-sm font-semibold text-gray-700">Product</label>
                 <select value={form.productId || ''} onChange={(event) => setForm({ ...form, productId: event.target.value })}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
@@ -289,28 +324,19 @@ const TransferModal: React.FC<{
                         {row.product.name || row.product.product_name} ({row.product.sku}) - new {row.new_quantity} - {row.warehouse_name}
                       </option>
                     ))
-                    : products.map((product) => (
-                      <option key={product.id} value={product.id}>{product.name || product.product_name} ({product.sku})</option>
+                    : binProductOptions.map((row) => (
+                      <option key={row.product.id} value={row.product.id}>
+                        {row.product.name || row.product.product_name} ({row.product.sku}) - available {row.available}
+                      </option>
                     ))}
                 </select>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-semibold text-gray-700">Quantity</label>
-                <input type="number" min={1} max={isNewStockTransfer ? selectedNewStock?.new_quantity : undefined} value={form.quantity || 1} onChange={(event) => setForm({ ...form, quantity: Number(event.target.value) })}
+                <input type="number" min={1} max={isNewStockTransfer ? selectedNewStock?.new_quantity : selectedBinStock?.available} value={form.quantity || 1} onChange={(event) => setForm({ ...form, quantity: Number(event.target.value) })}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
                 {isNewStockTransfer && selectedNewStock && <p className="mt-1 text-xs text-gray-500">New quantity available: {selectedNewStock.new_quantity}</p>}
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-gray-700">Source Bin</label>
-                <select value={form.sourceBinLocationId || ''} onChange={(event) => setForm({ ...form, sourceBinLocationId: event.target.value })}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
-                  <option value="new">New stock</option>
-                  {binStock.filter((row) => !form.productId || row.product_id === form.productId).map((row) => (
-                    <option key={`${row.product_id}-${row.bin_location_id}`} value={row.bin_location_id}>
-                      {row.binCode} - {row.productName} - available {row.available}
-                    </option>
-                  ))}
-                </select>
+                {!isNewStockTransfer && selectedBinStock && <p className="mt-1 text-xs text-gray-500">Available in source bin: {selectedBinStock.available}</p>}
               </div>
               <div>
                 <label className="mb-1 block text-sm font-semibold text-gray-700">Destination Bin</label>

@@ -136,6 +136,29 @@ const normalizeNote = (note: any, isCredit: boolean) => ({
   status: 'posted',
 })
 
+const buildAdjustmentMap = (notes: any[]) => notes.reduce((map, note) => {
+  const key = note.referenceDocument
+  if (!key) return map
+  const current = map.get(key) || { amount: 0, reasons: [] as string[] }
+  map.set(key, {
+    amount: current.amount + Number(note.totalAmount || note.total_amount || 0),
+    reasons: note.reason ? [...current.reasons, note.reason] : current.reasons,
+  })
+  return map
+}, new Map<string, { amount: number; reasons: string[] }>())
+
+const applyAdjustment = (record: any, adjustmentMap: Map<string, { amount: number; reasons: string[] }>) => {
+  const adjustment = adjustmentMap.get(record.id)
+  const baseAmount = Number(record.totalAmount || record.total || 0)
+  const adjustmentAmount = adjustment?.amount || 0
+  return {
+    ...record,
+    adjustmentAmount,
+    adjustmentReason: adjustment?.reasons.join('; ') || '',
+    amountDue: Math.max(baseAmount - adjustmentAmount, 0),
+  }
+}
+
 const normalizePayment = (payment: any) => ({
   ...payment,
   paymentNumber: payment.id?.slice(0, 8),
@@ -184,10 +207,14 @@ const AccountingModule: React.FC = () => {
         erpApi.get<any[]>('/accounting/payments?limit=100'),
       ])
       setLoadError(null)
-      setInvoices(invoiceData.map(normalizeInvoice))
-      setVendorBills(billData.map(normalizeBill))
-      setCredits(creditData.map((note) => normalizeNote(note, true)))
-      setDebits(debitData.map((note) => normalizeNote(note, false)))
+      const normalizedCredits = creditData.map((note) => normalizeNote(note, true))
+      const normalizedDebits = debitData.map((note) => normalizeNote(note, false))
+      const creditMap = buildAdjustmentMap(normalizedCredits)
+      const debitMap = buildAdjustmentMap(normalizedDebits)
+      setInvoices(invoiceData.map(normalizeInvoice).map((invoice) => applyAdjustment(invoice, creditMap)))
+      setVendorBills(billData.map(normalizeBill).map((bill) => applyAdjustment(bill, debitMap)))
+      setCredits(normalizedCredits)
+      setDebits(normalizedDebits)
       setAccounts(accountData.map(normalizeAccount))
       setPayments(paymentData.map(normalizePayment))
     } catch (error: any) {
@@ -319,15 +346,21 @@ const AccountingModule: React.FC = () => {
             : activeTab === 'payments'
               ? '/accounting/payments'
               : '/accounting/accounts'
+    const invoiceNet = Number(record.netAmount || record.subtotal || 0)
+    const invoiceTax = Number(record.taxAmount) || Math.round(invoiceNet * 0.1)
+    const invoiceTotal = Number(record.totalAmount) || invoiceNet + invoiceTax
+    const billSubtotal = Number(record.subtotal || 0)
+    const billTax = Number(record.taxAmount) || Math.round(billSubtotal * 0.1)
+    const billTotal = Number(record.totalAmount) || billSubtotal + billTax
 
     const payload = activeTab === 'invoices' ? {
       invoice_number: record.invoiceNumber,
       sales_order_id: record.salesOrderId,
       invoice_date: record.invoiceDate,
       due_date: record.dueDate,
-      net_amount: record.netAmount,
-      tax_amount: record.taxAmount,
-      total_amount: record.totalAmount,
+      net_amount: invoiceNet,
+      tax_amount: invoiceTax,
+      total_amount: invoiceTotal,
       status: record.status,
       warranty_orders_id: record.warrantyOrderId || null,
       notes: record.notes,
@@ -336,9 +369,9 @@ const AccountingModule: React.FC = () => {
       purchase_order_id: record.purchaseOrderId,
       bill_date: record.billDate,
       due_date: record.dueDate,
-      subtotal: record.subtotal,
-      tax_amount: record.taxAmount,
-      total_amount: record.totalAmount,
+      subtotal: billSubtotal,
+      tax_amount: billTax,
+      total_amount: billTotal,
       status: record.status,
       notes: record.notes,
     } : activeTab === 'credit-notes' ? {
@@ -383,6 +416,12 @@ const AccountingModule: React.FC = () => {
       showNotification('success', 'Payment posted and document status updated.')
       return
     }
+    if (activeTab === 'credit-notes' || activeTab === 'debit-notes') {
+      await loadAccounting()
+      setModalOpen(false)
+      showNotification('success', `${activeTitle} saved.`)
+      return
+    }
     setters[activeTab]((current) => {
       const exists = current.some((item) => item.id === record.id)
       return exists ? current.map((item) => (item.id === record.id ? record : item)) : [record, ...current]
@@ -391,23 +430,18 @@ const AccountingModule: React.FC = () => {
   }
 
   const openPaymentFor = (record: any) => {
-    const isInvoice = activeTab === 'invoices' || activeTab === 'credit-notes'
-    const documentId = activeTab === 'credit-notes'
-      ? record.referenceDocument || record.invoices_id
-      : activeTab === 'debit-notes'
-        ? record.referenceDocument || record.vendor_bills_id
-        : record.id
+    const isInvoice = activeTab === 'invoices'
     setActiveTab('payments')
     setModalRecord({
       id: `payments-${Date.now()}`,
       documentType: isInvoice ? 'invoice' : 'vendor_bill',
-      documentId,
+      documentId: record.id,
       paymentDate: new Date().toISOString().slice(0, 10),
       paymentMethod: 'bank_transfer',
-      amount: record.totalAmount || record.total_amount || record.total || 0,
+      amount: record.amountDue ?? record.totalAmount ?? record.total_amount ?? record.total ?? 0,
       paymentAccount: '',
       targetAccount: '',
-      notes: `Payment for ${record.invoiceNumber || record.billNumber || record.noteNumber || record.id}`,
+      notes: `Payment for ${record.invoiceNumber || record.billNumber || record.id}`,
     })
     setModalOpen(true)
   }
@@ -434,6 +468,22 @@ const AccountingModule: React.FC = () => {
     showNotification('success', `${activeTitle} deleted.`)
   }
 
+  const renderAmount = (record: any) => {
+    if (activeTab === 'accounts') return formatCurrency(record.balance)
+    if ((activeTab === 'invoices' || activeTab === 'bills') && record.adjustmentAmount > 0) {
+      const label = activeTab === 'invoices' ? 'Credit note' : 'Debit note'
+      return (
+        <div className="space-y-1 text-right">
+          <p>{formatCurrency(record.totalAmount || record.total || 0)}</p>
+          <p className="text-xs font-medium text-emerald-700">{label}: -{formatCurrency(record.adjustmentAmount)}</p>
+          <p className="font-bold text-gray-900">Due: {formatCurrency(record.amountDue)}</p>
+          {record.adjustmentReason && <p className="text-xs font-normal text-gray-500">Reason: {record.adjustmentReason}</p>}
+        </div>
+      )
+    }
+    return formatCurrency(record.amountDue ?? record.totalAmount ?? record.total ?? record.amount)
+  }
+
   const renderActions = (record: any) => (
     <div className="flex items-center gap-1">
       {activeTab === 'invoices' && (
@@ -441,7 +491,7 @@ const AccountingModule: React.FC = () => {
           <Download size={16} />
         </button>
       )}
-      {['invoices', 'bills', 'credit-notes', 'debit-notes'].includes(activeTab) && !['paid', 'cancelled'].includes(record.status) && (
+      {['invoices', 'bills'].includes(activeTab) && !['paid', 'cancelled'].includes(record.status) && (
         <button onClick={() => openPaymentFor(record)} className="rounded px-2 py-1 text-xs font-semibold text-green-700 hover:bg-green-50" title="Create payment">
           Pay
         </button>
@@ -463,8 +513,8 @@ const AccountingModule: React.FC = () => {
     </div>
   )
 
-  const totalReceivable = invoices.filter((invoice) => invoice.status !== 'paid').reduce((sum, invoice) => sum + (invoice.total_amount || 0), 0)
-  const totalPayable = vendorBills.filter((bill) => bill.status !== 'paid').reduce((sum, bill) => sum + (bill.total || 0), 0)
+  const totalReceivable = invoices.filter((invoice) => invoice.status !== 'paid').reduce((sum, invoice) => sum + (invoice.amountDue ?? invoice.total_amount ?? 0), 0)
+  const totalPayable = vendorBills.filter((bill) => bill.status !== 'paid').reduce((sum, bill) => sum + (bill.amountDue ?? bill.total ?? 0), 0)
 
   return (
     <div className="space-y-6">
@@ -539,7 +589,7 @@ const AccountingModule: React.FC = () => {
                   <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'accounts' ? (record.bank || '-') : (record.customerName || record.supplierName || record.partnerName || record.documentName)}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'accounts' ? record.name : (record.invoiceDate || record.billDate || record.noteDate || record.paymentDate)}</td>
                   {activeTab !== 'accounts' && <td className="px-4 py-3"><StatusBadge status={record.status} /></td>}
-                  <td className="px-4 py-3 text-right text-sm font-semibold">{formatCurrency(activeTab === 'accounts' ? record.balance : (record.totalAmount || record.total || record.amount))}</td>
+                  <td className="px-4 py-3 text-right text-sm font-semibold">{renderAmount(record)}</td>
                   <td className="px-4 py-3">{renderActions(record)}</td>
                 </tr>
               ))}
@@ -554,7 +604,7 @@ const AccountingModule: React.FC = () => {
             <div key={record.id} className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
               <p className="font-bold text-blue-700">{record.invoiceNumber || record.billNumber || record.noteNumber || record.paymentNumber}</p>
               <p className="mt-1 text-sm text-gray-600">{activeTab === 'accounts' ? `${record.bank || '-'} - ${record.name}` : (record.customerName || record.supplierName || record.partnerName || record.documentName)}</p>
-              <p className="mt-2 text-sm font-semibold">{formatCurrency(activeTab === 'accounts' ? record.balance : (record.totalAmount || record.total || record.amount))}</p>
+              <div className="mt-2 text-sm font-semibold">{renderAmount(record)}</div>
               <div className="mt-3">{renderActions(record)}</div>
             </div>
           )}
