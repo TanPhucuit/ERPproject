@@ -857,6 +857,9 @@ CREATE INDEX idx_sales_orders_customer ON sales_orders(customer_id);
 CREATE INDEX idx_delivery_orders_sales_order ON delivery_orders(sales_order_id);
 CREATE INDEX idx_payments_invoice ON payments(invoice_id);
 CREATE INDEX idx_payments_vendor_bill ON payments(vendor_bill_id);
+CREATE UNIQUE INDEX uniq_purchase_orders_one_active_per_rfq
+  ON purchase_orders(rfq_id)
+  WHERE rfq_id IS NOT NULL AND status <> 'cancelled';
 CREATE INDEX idx_stock_levels_product_warehouse ON stock_levels(product_id, warehouse_id);
 
 COMMIT;

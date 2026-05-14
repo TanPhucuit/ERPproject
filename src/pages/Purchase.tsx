@@ -769,6 +769,7 @@ const PurchaseModule: React.FC = () => {
   const [modalRecord, setModalRecord] = useState<any>(null)
   const [cancelRecord, setCancelRecord] = useState<any>(null)
   const [cancelReason, setCancelReason] = useState('')
+  const [processingRfqId, setProcessingRfqId] = useState<string | null>(null)
 
   useEffect(() => {
     erpApi
@@ -937,11 +938,13 @@ const PurchaseModule: React.FC = () => {
 
   const advanceRecord = async (record: any) => {
     if (activeTab !== 'rfqs') return
+    if (processingRfqId) return
     const rfqFlow: Record<string, string> = {
       new: 'accepted',
     }
     const nextStatus = rfqFlow[record.status]
     if (!nextStatus) return
+    setProcessingRfqId(record.id)
     try {
       await erpApi.put(`/purchase/rfqs/${record.id}`, { ...record, status: nextStatus })
       if (nextStatus === 'accepted') {
@@ -964,6 +967,8 @@ const PurchaseModule: React.FC = () => {
       showNotification('success', `${title} moved to ${nextStatus}.`)
     } catch (error: any) {
       showNotification('error', `Status update failed: ${error.message}`)
+    } finally {
+      setProcessingRfqId(null)
     }
   }
 
@@ -1013,8 +1018,8 @@ const PurchaseModule: React.FC = () => {
     ) : (
       <div className="flex items-center gap-1">
         {record.status === 'new' && (
-          <button onClick={() => advanceRecord(record)} className="rounded px-2 py-1 text-xs font-semibold text-green-700 hover:bg-green-50">
-            Accept
+          <button disabled={processingRfqId === record.id} onClick={() => advanceRecord(record)} className="rounded px-2 py-1 text-xs font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:text-gray-400">
+            {processingRfqId === record.id ? 'Accepting...' : 'Accept'}
           </button>
         )}
         {record.status === 'new' && (

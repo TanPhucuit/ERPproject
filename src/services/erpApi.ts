@@ -1486,45 +1486,87 @@ const ensurePurchaseOrdersFromRfq = async (rfqId: string) => {
 
   const { data: existingOrders, error: existingOrderError } = await supabase
     .from('purchase_orders')
-    .select('id, order_number, vendor_id')
+    .select('id, order_number, vendor_id, status')
     .eq('rfq_id', rfqId)
     .order('order_number', { ascending: true })
   if (existingOrderError) throw existingOrderError
 
-  const linesBySupplier = rfqLines.reduce((map: Map<string, any[]>, item: any) => {
-    const supplierId = item.supplier_product.supplier_id
-    map.set(supplierId, [...(map.get(supplierId) || []), item])
-    return map
-  }, new Map<string, any[]>())
+  const activeOrders = (existingOrders || []).filter((order: any) => order.status !== 'cancelled')
+  let primaryOrder = activeOrders[0]
+  let purchaseOrderId = primaryOrder?.id
+  const primarySupplierId = primaryOrder?.vendor_id || rfqLines[0].supplier_product.supplier_id
 
-  for (const [supplierId, supplierLines] of linesBySupplier.entries()) {
-    let purchaseOrderId = existingOrders?.find((order: any) => order.vendor_id === supplierId)?.id
-    if (!purchaseOrderId) {
-      const { data: purchaseOrder, error: purchaseOrderCreateError } = await supabase
+  if (!purchaseOrderId) {
+    const { data: purchaseOrder, error: purchaseOrderCreateError } = await supabase
+      .from('purchase_orders')
+      .insert({
+        rfq_id: rfqId,
+        vendor_id: primarySupplierId,
+        order_date: today(),
+        expected_arrival_date: rfq.deadline || null,
+        status: 'sent',
+        notes: 'Auto-created from accepted RFQ.',
+      })
+      .select('id')
+      .single()
+    if (purchaseOrderCreateError) {
+      if (purchaseOrderCreateError.code !== '23505') throw purchaseOrderCreateError
+      const { data: racedOrder, error: racedOrderError } = await supabase
         .from('purchase_orders')
-        .insert({
-          rfq_id: rfqId,
-          vendor_id: supplierId,
-          order_date: today(),
-          expected_arrival_date: rfq.deadline || null,
-          status: 'sent',
-          notes: 'Auto-created from awarded RFQ.',
-        })
-        .select('id')
+        .select('id, order_number, vendor_id, status')
+        .eq('rfq_id', rfqId)
+        .neq('status', 'cancelled')
+        .order('order_number', { ascending: true })
+        .limit(1)
         .single()
-      if (purchaseOrderCreateError) throw purchaseOrderCreateError
+      if (racedOrderError) throw racedOrderError
+      primaryOrder = racedOrder
+      purchaseOrderId = racedOrder.id
+    } else {
       purchaseOrderId = purchaseOrder.id
     }
-
-    const orderLines = supplierLines.map((item: any) => ({
-      purchase_order_id: purchaseOrderId,
-      supplier_products_id: item.supplier_products_id,
-      quantity: toNumber(item.quantity, 1),
-      unit_price: toNumber(item.supplier_product?.price),
-    }))
-    await replaceChildren('purchase_order_items', 'purchase_order_id', purchaseOrderId, orderLines)
-    await ensurePurchaseReceiptAndBill(purchaseOrderId)
+  } else {
+    const { error: purchaseOrderUpdateError } = await supabase
+      .from('purchase_orders')
+      .update({
+        expected_arrival_date: rfq.deadline || null,
+        notes: 'Auto-created from accepted RFQ.',
+      })
+      .eq('id', purchaseOrderId)
+    if (purchaseOrderUpdateError) throw purchaseOrderUpdateError
   }
+
+  const duplicateOrders = activeOrders.filter((order: any) => order.id !== purchaseOrderId)
+  for (const duplicate of duplicateOrders) {
+    const { error: receiptCancelError } = await supabase
+      .from('receipts')
+      .update({ status: 'cancelled', notes: 'Cancelled because RFQ must have exactly one purchase order.' })
+      .eq('purchase_order_id', duplicate.id)
+      .neq('status', 'received')
+    if (receiptCancelError) throw receiptCancelError
+
+    const { error: billCancelError } = await supabase
+      .from('vendor_bills')
+      .update({ status: 'cancelled', notes: 'Cancelled because RFQ must have exactly one purchase order.' })
+      .eq('purchase_order_id', duplicate.id)
+      .neq('status', 'paid')
+    if (billCancelError) throw billCancelError
+
+    const { error: duplicatePoCancelError } = await supabase
+      .from('purchase_orders')
+      .update({ status: 'cancelled', notes: 'Cancelled duplicate purchase order for accepted RFQ.' })
+      .eq('id', duplicate.id)
+    if (duplicatePoCancelError) throw duplicatePoCancelError
+  }
+
+  const orderLines = rfqLines.map((item: any) => ({
+    purchase_order_id: purchaseOrderId,
+    supplier_products_id: item.supplier_products_id,
+    quantity: toNumber(item.quantity, 1),
+    unit_price: toNumber(item.supplier_product?.price),
+  }))
+  await replaceChildren('purchase_order_items', 'purchase_order_id', purchaseOrderId, orderLines)
+  await ensurePurchaseReceiptAndBill(purchaseOrderId)
 }
 
 const writeRfq = async <T>(body: any, id?: string): Promise<T> => {
