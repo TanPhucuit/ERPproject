@@ -249,12 +249,13 @@ const mapPurchaseOrderItem = (item: any) => ({
 
 const mapPurchaseOrder = (po: any) => {
   const lines = (po?.items || po?.purchase_order_items || []).map(mapPurchaseOrderItem)
+  const supplierNames = Array.from(new Set(lines.map((line: any) => line.supplier_name).filter(Boolean)))
   return {
     ...po,
     purchase_order_number: po?.order_number,
     supplier_id: po?.vendor_id,
     supplier: po?.supplier ? mapSupplier(po.supplier) : undefined,
-    supplier_name: po?.supplier?.supplier_name || '',
+    supplier_name: supplierNames.length > 1 ? supplierNames.join(', ') : po?.supplier?.supplier_name || supplierNames[0] || '',
     required_delivery_date: po?.expected_arrival_date,
     total_amount: lines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0),
     lines,
@@ -1039,6 +1040,7 @@ const ensurePurchaseReceiptAndBill = async (purchaseOrderId: string) => {
     .eq('purchase_order_id', purchaseOrderId)
     .maybeSingle()
   if (billLookupError) throw billLookupError
+  const taxAmount = Math.round(subtotal * 0.1)
   if (!existingBill?.id) {
     const { error: billCreateError } = await supabase
       .from('vendor_bills')
@@ -1048,63 +1050,64 @@ const ensurePurchaseReceiptAndBill = async (purchaseOrderId: string) => {
         due_date: addDays(30),
         status: 'posted',
         subtotal,
-        tax_amount: Math.round(subtotal * 0.1),
-        total: subtotal + Math.round(subtotal * 0.1),
+        tax_amount: taxAmount,
+        total: subtotal + taxAmount,
         notes: 'Auto-created from awarded RFQ.',
       })
     if (billCreateError) throw billCreateError
+  } else {
+    const { error: billUpdateError } = await supabase
+      .from('vendor_bills')
+      .update({
+        subtotal,
+        tax_amount: taxAmount,
+        total: subtotal + taxAmount,
+      })
+      .eq('id', existingBill.id)
+      .neq('status', 'paid')
+    if (billUpdateError) throw billUpdateError
   }
 }
 
 const ensurePurchaseOrdersFromRfq = async (rfqId: string) => {
   const rfq: any = await getSingle('rfqs', rfqId, selectRfq)
-  const linesBySupplier = new Map<string, any[]>()
-  ;(rfq?.items || []).forEach((item: any) => {
-    const supplierId = item?.supplier_product?.supplier_id
-    if (!supplierId) return
-    linesBySupplier.set(supplierId, [...(linesBySupplier.get(supplierId) || []), item])
-  })
+  const rfqLines = (rfq?.items || []).filter((item: any) => item?.supplier_product?.supplier_id)
+  if (rfqLines.length === 0) return
 
-  for (const [supplierId, supplierLines] of linesBySupplier.entries()) {
-    const { data: existingOrder, error: existingOrderError } = await supabase
+  const primarySupplierId = rfqLines[0].supplier_product.supplier_id
+  const { data: existingOrders, error: existingOrderError } = await supabase
+    .from('purchase_orders')
+    .select('id, order_number')
+    .eq('rfq_id', rfqId)
+    .order('order_number', { ascending: true })
+  if (existingOrderError) throw existingOrderError
+
+  let purchaseOrderId = existingOrders?.[0]?.id
+  if (!purchaseOrderId) {
+    const { data: purchaseOrder, error: purchaseOrderCreateError } = await supabase
       .from('purchase_orders')
+      .insert({
+        rfq_id: rfqId,
+        vendor_id: primarySupplierId,
+        order_date: today(),
+        expected_arrival_date: rfq.deadline || null,
+        status: 'sent',
+        notes: 'Auto-created from awarded RFQ.',
+      })
       .select('id')
-      .eq('rfq_id', rfqId)
-      .eq('vendor_id', supplierId)
-      .maybeSingle()
-    if (existingOrderError) throw existingOrderError
-
-    let purchaseOrderId = existingOrder?.id
-    if (!purchaseOrderId) {
-      const { data: purchaseOrder, error: purchaseOrderCreateError } = await supabase
-        .from('purchase_orders')
-        .insert({
-          rfq_id: rfqId,
-          vendor_id: supplierId,
-          order_date: today(),
-          expected_arrival_date: rfq.deadline || null,
-          status: 'sent',
-          notes: 'Auto-created from awarded RFQ.',
-        })
-        .select('id')
-        .single()
-      if (purchaseOrderCreateError) throw purchaseOrderCreateError
-      purchaseOrderId = purchaseOrder.id
-
-      const orderLines = supplierLines.map((item: any) => ({
-        purchase_order_id: purchaseOrderId,
-        supplier_products_id: item.supplier_products_id,
-        quantity: toNumber(item.quantity, 1),
-        unit_price: toNumber(item.supplier_product?.price),
-      }))
-      if (orderLines.length > 0) {
-        const { error: orderLineCreateError } = await supabase.from('purchase_order_items').insert(orderLines)
-        if (orderLineCreateError) throw orderLineCreateError
-      }
-    }
-
-    if (purchaseOrderId) await ensurePurchaseReceiptAndBill(purchaseOrderId)
+      .single()
+    if (purchaseOrderCreateError) throw purchaseOrderCreateError
+    purchaseOrderId = purchaseOrder.id
   }
+
+  const orderLines = rfqLines.map((item: any) => ({
+    purchase_order_id: purchaseOrderId,
+    supplier_products_id: item.supplier_products_id,
+    quantity: toNumber(item.quantity, 1),
+    unit_price: toNumber(item.supplier_product?.price),
+  }))
+  await replaceChildren('purchase_order_items', 'purchase_order_id', purchaseOrderId, orderLines)
+  await ensurePurchaseReceiptAndBill(purchaseOrderId)
 }
 
 const writeRfq = async <T>(body: any, id?: string): Promise<T> => {
