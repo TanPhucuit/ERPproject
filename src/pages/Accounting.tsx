@@ -87,16 +87,24 @@ const paymentFieldsBase: FormField[] = [
     { value: 'bank_transfer', label: 'Bank Transfer' },
     { value: 'card', label: 'Card' },
     { value: 'other', label: 'Other' },
+    { value: 'cash', label: 'Cash' },
   ] },
   { name: 'amount', label: 'Amount', type: 'number', required: true },
+  { name: 'sourceAccountId', label: 'Source Account', type: 'select', options: [] },
+  { name: 'targetAccountId', label: 'Target Account', type: 'select', options: [] },
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ]
+
+const accountLabel = (account: any) =>
+  account ? `${account.account_number || account.accountNumber} - ${account.name}` : ''
 
 const normalizeInvoice = (invoice: any) => ({
   ...invoice,
   invoiceNumber: invoice.invoice_number,
   salesOrderId: invoice.sales_order_id,
   customerName: invoice.customer?.name || invoice.sales_order?.customer?.full_name || invoice.customer_id,
+  customerAccountId: invoice.customer?.account_id || invoice.sales_order?.customer?.account_id || '',
+  customerAccount: invoice.customer?.account || invoice.sales_order?.customer?.account,
   invoiceDate: invoice.issue_date,
   dueDate: invoice.due_date,
   netAmount: invoice.net_amount,
@@ -105,6 +113,7 @@ const normalizeInvoice = (invoice: any) => ({
   totalAmount: Number(invoice.subtotal || invoice.net_amount || 0) + (Number(invoice.tax_amount) > 0 ? Number(invoice.tax_amount) : Math.round(Number(invoice.subtotal || invoice.net_amount || 0) * 0.1)),
   warrantyOrderId: invoice.warranty_orders_id,
   notes: invoice.notes,
+  cancellationReason: invoice.cancellation_reason,
   lines: invoice.lines || invoice.items || [],
   items: invoice.items || invoice.lines || [],
 })
@@ -115,14 +124,30 @@ const normalizeBill = (bill: any) => ({
   purchaseOrderId: bill.purchase_order_id,
   purchaseOrderNumber: bill.purchase_order_number || bill.purchase_order?.order_number || bill.purchase_order_id?.slice(0, 8),
   productCount: bill.product_count || bill.lines?.length || bill.items?.length || 0,
+  supplierAccountId: bill.supplier?.account_id || bill.purchase_order?.supplier?.account_id || '',
+  supplierAccount: bill.supplier?.account || bill.purchase_order?.supplier?.account,
   billDate: bill.issue_date,
   dueDate: bill.due_date,
   subtotal: bill.subtotal,
   taxAmount: Number(bill.tax_amount) > 0 ? bill.tax_amount : Math.round(Number(bill.subtotal || 0) * 0.1),
   totalAmount: Number(bill.subtotal || 0) + (Number(bill.tax_amount) > 0 ? Number(bill.tax_amount) : Math.round(Number(bill.subtotal || 0) * 0.1)),
+  cancellationReason: bill.cancellation_reason,
   notes: bill.notes,
   lines: bill.lines || bill.items || [],
   items: bill.items || bill.lines || [],
+})
+
+const normalizeRefundRequest = (refund: any) => ({
+  ...refund,
+  refundNumber: refund.refund_number || refund.refundNumber,
+  customerName: refund.customer?.name || refund.customer?.full_name || refund.customer_name,
+  customerAccountId: refund.customer?.account_id || '',
+  customerAccount: refund.customer?.account,
+  salesReturnNumber: refund.sales_return?.return_number || refund.salesReturnNumber,
+  salesOrderNumber: refund.sales_return?.sales_order?.order_number || refund.sales_order_number,
+  requestDate: refund.request_date || refund.requestDate,
+  totalAmount: Number(refund.amount || 0),
+  amountDue: Number(refund.amount || 0),
 })
 
 const normalizeNote = (note: any, isCredit: boolean) => ({
@@ -175,13 +200,15 @@ const applyAdjustment = (
 const normalizePayment = (payment: any) => ({
   ...payment,
   paymentNumber: payment.id?.slice(0, 8),
-  documentType: payment.invoice_id ? 'invoice' : 'vendor_bill',
-  documentId: payment.invoice_id || payment.vendor_bill_id,
-  documentName: payment.invoice?.invoice_number || payment.vendor_bill?.bill_number || payment.invoice_id || payment.vendor_bill_id,
+  documentType: payment.invoice_id ? 'invoice' : payment.vendor_bill_id ? 'vendor_bill' : 'refund_request',
+  documentId: payment.invoice_id || payment.vendor_bill_id || payment.refund_request_id,
+  documentName: payment.invoice?.invoice_number || payment.vendor_bill?.bill_number || payment.refund_request?.refund_number || payment.invoice_id || payment.vendor_bill_id || payment.refund_request_id,
   paymentDate: payment.payment_date,
   paymentMethod: payment.payment_method,
   paymentAccount: payment.payment_account,
   targetAccount: payment.target_account,
+  sourceAccountName: accountLabel(payment.source_account),
+  targetAccountName: accountLabel(payment.destination_account),
   status: 'posted',
 })
 
@@ -198,6 +225,7 @@ const AccountingModule: React.FC = () => {
   const [vendorBills, setVendorBills] = useState<any[]>([])
   const [credits, setCredits] = useState<any[]>([])
   const [debits, setDebits] = useState<any[]>([])
+  const [refundRequests, setRefundRequests] = useState<any[]>([])
   const [payments, setPayments] = useState<any[]>([])
   const [accounts, setAccounts] = useState<any[]>([])
   const [salesOrders, setSalesOrders] = useState<any[]>([])
@@ -208,14 +236,17 @@ const AccountingModule: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [modalOpen, setModalOpen] = useState(false)
   const [modalRecord, setModalRecord] = useState<any>(null)
+  const [cancelRecord, setCancelRecord] = useState<any>(null)
+  const [cancelReason, setCancelReason] = useState('')
 
   const loadAccounting = async () => {
     try {
-      const [invoiceData, billData, creditData, debitData, accountData, paymentData] = await Promise.all([
+      const [invoiceData, billData, creditData, debitData, refundData, accountData, paymentData] = await Promise.all([
         erpApi.get<any[]>('/accounting/invoices?limit=100'),
         erpApi.get<any[]>('/accounting/bills?limit=100'),
         erpApi.get<any[]>('/accounting/credit-notes?limit=100'),
         erpApi.get<any[]>('/accounting/debit-notes?limit=100'),
+        erpApi.get<any[]>('/accounting/refund-requests?limit=100'),
         erpApi.get<any[]>('/accounting/accounts'),
         erpApi.get<any[]>('/accounting/payments?limit=100'),
       ])
@@ -231,6 +262,7 @@ const AccountingModule: React.FC = () => {
       setVendorBills(billData.map(normalizeBill).map((bill) => applyAdjustment(bill, debitMap, billPaymentMap)))
       setCredits(normalizedCredits)
       setDebits(normalizedDebits)
+      setRefundRequests(refundData.map(normalizeRefundRequest))
       setAccounts(accountData.map(normalizeAccount))
       setPayments(normalizedPayments)
     } catch (error: any) {
@@ -257,11 +289,38 @@ const AccountingModule: React.FC = () => {
       })
   }, [])
 
-  const activeRecords = activeTab === 'invoices' ? invoices : activeTab === 'bills' ? vendorBills : activeTab === 'credit-notes' ? credits : activeTab === 'debit-notes' ? debits : activeTab === 'payments' ? payments : accounts
+  const activeRecords = activeTab === 'invoices' ? invoices : activeTab === 'bills' ? vendorBills : activeTab === 'credit-notes' ? credits : activeTab === 'debit-notes' ? debits : activeTab === 'refund-requests' ? refundRequests : activeTab === 'payments' ? payments : accounts
   const salesOrderOptions = useMemo(() => salesOrders.map((so) => ({ value: so.id, label: `${so.sales_order_number} - ${so.customer?.name || 'Customer'}` })), [salesOrders])
   const purchaseOrderOptions = useMemo(() => purchaseOrders.map((po) => ({ value: po.id, label: `${po.purchase_order_number} - ${po.supplier?.name || 'Supplier'}` })), [purchaseOrders])
   const invoiceOptions = useMemo(() => invoices.map((invoice) => ({ value: invoice.id, label: `${invoice.invoiceNumber} - ${invoice.customerName || 'Customer'}` })), [invoices])
   const billOptions = useMemo(() => vendorBills.map((bill) => ({ value: bill.id, label: `${bill.billNumber} - ${bill.purchaseOrderNumber || 'Purchase Order'}` })), [vendorBills])
+  const refundOptions = useMemo(() => refundRequests.map((refund) => ({ value: refund.id, label: `${refund.refundNumber} - ${refund.customerName || 'Customer'}` })), [refundRequests])
+  const companyAccount = useMemo(() => accounts.find((account) => account.is_novatech_default), [accounts])
+  const paymentDocument = useMemo(() => {
+    if (!modalRecord?.documentId) return null
+    return invoices.find((invoice) => invoice.id === modalRecord.documentId)
+      || vendorBills.find((bill) => bill.id === modalRecord.documentId)
+      || refundRequests.find((refund) => refund.id === modalRecord.documentId)
+      || null
+  }, [modalRecord?.documentId, invoices, vendorBills, refundRequests])
+  const paymentDocumentType = modalRecord?.documentType
+    || (paymentDocument && 'invoiceNumber' in paymentDocument ? 'invoice' : paymentDocument && 'billNumber' in paymentDocument ? 'vendor_bill' : paymentDocument ? 'refund_request' : 'invoice')
+  const sourceAccountOptions = useMemo(() => {
+    if (!modalRecord || modalRecord.paymentMethod === 'cash') return []
+    if (paymentDocumentType === 'invoice') {
+      const account = paymentDocument?.customerAccount
+      return account ? [{ value: account.id, label: accountLabel(account) }] : []
+    }
+    return companyAccount ? [{ value: companyAccount.id, label: accountLabel(companyAccount) }] : []
+  }, [modalRecord, paymentDocumentType, paymentDocument, companyAccount])
+  const targetAccountOptions = useMemo(() => {
+    if (!modalRecord || modalRecord.paymentMethod === 'cash') return []
+    if (paymentDocumentType === 'invoice') {
+      return companyAccount ? [{ value: companyAccount.id, label: accountLabel(companyAccount) }] : []
+    }
+    const account = paymentDocumentType === 'refund_request' ? paymentDocument?.customerAccount : paymentDocument?.supplierAccount
+    return account ? [{ value: account.id, label: accountLabel(account) }] : []
+  }, [modalRecord, paymentDocumentType, paymentDocument, companyAccount])
 
   const activeFields = useMemo(() => {
     if (activeTab === 'invoices') {
@@ -284,7 +343,10 @@ const AccountingModule: React.FC = () => {
     }
     if (activeTab === 'payments') {
       return paymentFieldsBase.map((field) => {
-        if (field.name === 'documentId') return { ...field, options: [...invoiceOptions, ...billOptions] }
+        if (field.name === 'documentId') return { ...field, options: [...invoiceOptions, ...billOptions, ...refundOptions] }
+        if (field.name === 'paymentMethod' && paymentDocumentType === 'refund_request') return { ...field, options: [{ value: 'bank_transfer', label: 'Bank Transfer' }], disabled: true }
+        if (field.name === 'sourceAccountId') return { ...field, options: sourceAccountOptions, disabled: modalRecord?.paymentMethod === 'cash' }
+        if (field.name === 'targetAccountId') return { ...field, options: targetAccountOptions, disabled: modalRecord?.paymentMethod === 'cash' }
         return field
       })
     }
@@ -293,21 +355,22 @@ const AccountingModule: React.FC = () => {
       if (field.name === 'referenceDocument') return { ...field, options: billOptions }
       return field
     })
-  }, [activeTab, salesOrderOptions, purchaseOrderOptions, invoiceOptions, billOptions])
-  const activeTitle = activeTab === 'invoices' ? 'Customer Invoice' : activeTab === 'bills' ? 'Vendor Bill' : activeTab === 'credit-notes' ? 'Credit Note' : activeTab === 'debit-notes' ? 'Debit Note' : activeTab === 'payments' ? 'Payment' : 'Account'
+  }, [activeTab, salesOrderOptions, purchaseOrderOptions, invoiceOptions, billOptions, refundOptions, paymentDocumentType, sourceAccountOptions, targetAccountOptions, modalRecord?.paymentMethod])
+  const activeTitle = activeTab === 'invoices' ? 'Customer Invoice' : activeTab === 'bills' ? 'Vendor Bill' : activeTab === 'credit-notes' ? 'Credit Note' : activeTab === 'debit-notes' ? 'Debit Note' : activeTab === 'refund-requests' ? 'Refund Request' : activeTab === 'payments' ? 'Payment' : 'Account'
   const setters: Record<string, React.Dispatch<React.SetStateAction<any[]>>> = {
     invoices: setInvoices,
     bills: setVendorBills,
     'credit-notes': setCredits,
     'debit-notes': setDebits,
+    'refund-requests': setRefundRequests,
     payments: setPayments,
     accounts: setAccounts,
   }
 
   const filteredRecords = useMemo(() => {
     return activeRecords.filter((record) => {
-      const reference = record.invoiceNumber || record.billNumber || record.noteNumber || record.paymentNumber
-      const partner = record.customerName || record.purchaseOrderNumber || record.partnerName || record.documentName
+      const reference = record.invoiceNumber || record.billNumber || record.noteNumber || record.refundNumber || record.paymentNumber
+      const partner = record.customerName || record.purchaseOrderNumber || record.partnerName || record.documentName || record.salesReturnNumber
       const account = `${record.accountNumber || ''} ${record.bank || ''} ${record.name || ''}`
       const haystack = `${reference || ''} ${partner || ''} ${record.reason || ''} ${account}`.toLowerCase()
       return haystack.includes(search.toLowerCase()) && (status === 'all' || record.status === status)
@@ -315,6 +378,10 @@ const AccountingModule: React.FC = () => {
   }, [activeRecords, search, status])
 
   const openCreate = () => {
+    if (activeTab === 'refund-requests') {
+      showNotification('info', 'Refund requests are created automatically from sales returns.')
+      return
+    }
     const prefix = activeTab === 'invoices' ? 'INV' : activeTab === 'bills' ? 'BILL' : activeTab === 'credit-notes' ? 'CN' : activeTab === 'debit-notes' ? 'DN' : activeTab === 'payments' ? 'PAY' : 'ACC'
     setModalRecord({
       id: `${activeTab}-${Date.now()}`,
@@ -353,8 +420,10 @@ const AccountingModule: React.FC = () => {
         ? '/accounting/bills'
         : activeTab === 'credit-notes'
           ? '/accounting/credit-notes'
-          : activeTab === 'debit-notes'
-            ? '/accounting/debit-notes'
+            : activeTab === 'debit-notes'
+              ? '/accounting/debit-notes'
+              : activeTab === 'refund-requests'
+                ? '/accounting/refund-requests'
             : activeTab === 'payments'
               ? '/accounting/payments'
               : '/accounting/accounts'
@@ -397,8 +466,11 @@ const AccountingModule: React.FC = () => {
     } : activeTab === 'payments' ? {
       invoice_id: invoices.some((invoice) => invoice.id === record.documentId) ? record.documentId : null,
       vendor_bill_id: vendorBills.some((bill) => bill.id === record.documentId) ? record.documentId : null,
+      refund_request_id: refundRequests.some((refund) => refund.id === record.documentId) ? record.documentId : null,
       payment_date: record.paymentDate,
       payment_method: record.paymentMethod,
+      payment_account: record.sourceAccountId || record.paymentAccount || null,
+      target_account: record.targetAccountId || record.targetAccount || null,
       amount: record.amount,
       notes: record.notes,
     } : {
@@ -441,15 +513,18 @@ const AccountingModule: React.FC = () => {
 
   const openPaymentFor = (record: any) => {
     const isInvoice = activeTab === 'invoices'
+    const isRefund = activeTab === 'refund-requests'
     setActiveTab('payments')
     setModalRecord({
       id: `payments-${Date.now()}`,
-      documentType: isInvoice ? 'invoice' : 'vendor_bill',
+      documentType: isRefund ? 'refund_request' : isInvoice ? 'invoice' : 'vendor_bill',
       documentId: record.id,
       paymentDate: new Date().toISOString().slice(0, 10),
       paymentMethod: 'bank_transfer',
       amount: record.amountDue ?? record.totalAmount ?? record.total_amount ?? record.total ?? 0,
-      notes: `Payment for ${record.invoiceNumber || record.billNumber || record.id}`,
+      sourceAccountId: isInvoice ? record.customerAccountId : companyAccount?.id || '',
+      targetAccountId: isInvoice ? companyAccount?.id || '' : record.customerAccountId || record.supplierAccountId || '',
+      notes: `Payment for ${record.invoiceNumber || record.billNumber || record.refundNumber || record.id}`,
     })
     setModalOpen(true)
   }
@@ -474,6 +549,31 @@ const AccountingModule: React.FC = () => {
     }
     setters[activeTab]((current) => current.filter((item) => item.id !== record.id))
     showNotification('success', `${activeTitle} deleted.`)
+  }
+
+  const openCancel = (record: any) => {
+    setCancelRecord(record)
+    setCancelReason('')
+  }
+
+  const confirmCancel = async () => {
+    if (!cancelRecord || !cancelReason.trim()) {
+      showNotification('error', 'Please enter a cancellation reason.')
+      return
+    }
+    const path = activeTab === 'invoices' ? '/accounting/invoices' : '/accounting/bills'
+    try {
+      await erpApi.put(`${path}/${cancelRecord.id}`, {
+        status: 'cancelled',
+        cancellation_reason: cancelReason.trim(),
+      })
+      await loadAccounting()
+      setCancelRecord(null)
+      setCancelReason('')
+      showNotification('success', `${activeTitle} cancelled.`)
+    } catch (error: any) {
+      showNotification('error', `Cancel failed: ${error.message}`)
+    }
   }
 
   const renderAmount = (record: any) => {
@@ -504,15 +604,17 @@ const AccountingModule: React.FC = () => {
           <Download size={16} />
         </button>
       )}
-      {['invoices', 'bills'].includes(activeTab) && !['paid', 'cancelled'].includes(record.status) && (
+      {['invoices', 'bills', 'refund-requests'].includes(activeTab) && !['paid', 'cancelled'].includes(record.status) && (
         <button onClick={() => openPaymentFor(record)} className="rounded px-2 py-1 text-xs font-semibold text-green-700 hover:bg-green-50" title="Create payment">
-          Pay
+          {activeTab === 'refund-requests' ? 'Refund' : 'Pay'}
         </button>
       )}
-      {activeTab === 'invoices' ? (
-        <button onClick={() => deleteRecord(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Delete">
+      {['invoices', 'bills'].includes(activeTab) && !['paid', 'cancelled'].includes(record.status) ? (
+        <button onClick={() => openCancel(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Cancel">
           <Trash2 size={16} />
         </button>
+      ) : activeTab === 'refund-requests' || activeTab === 'invoices' || activeTab === 'bills' ? (
+        null
       ) : (
         <RecordActions
           onEdit={() => {
@@ -529,9 +631,13 @@ const AccountingModule: React.FC = () => {
   const productCountLabel = (record: any) => `${record.productCount || record.product_count || record.lines?.length || record.items?.length || 0} products`
   const partnerDisplay = (record: any) => activeTab === 'bills'
     ? (record.purchaseOrderNumber || record.purchase_order_number || record.purchase_order_id || '-')
+    : activeTab === 'refund-requests'
+      ? (record.customerName || '-')
     : (record.customerName || record.partnerName || record.documentName)
   const dateDisplay = (record: any) => activeTab === 'bills'
     ? productCountLabel(record)
+    : activeTab === 'refund-requests'
+      ? (record.salesReturnNumber || record.sales_return_id || '-')
     : (record.invoiceDate || record.billDate || record.noteDate || record.paymentDate)
 
   const totalReceivable = invoices
@@ -579,6 +685,7 @@ const AccountingModule: React.FC = () => {
           { id: 'bills', label: 'Vendor Bills', count: vendorBills.length },
           { id: 'credit-notes', label: 'Credit Notes', count: credits.length },
           { id: 'debit-notes', label: 'Debit Notes', count: debits.length },
+          { id: 'refund-requests', label: 'Refund Requests', count: refundRequests.length },
           { id: 'payments', label: 'Payments', count: payments.length },
           { id: 'accounts', label: 'Accounts', count: accounts.length },
         ]}
@@ -601,7 +708,7 @@ const AccountingModule: React.FC = () => {
               <tr>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Account Number' : 'Reference'}</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Bank' : activeTab === 'bills' ? 'Purchase Order' : 'Partner'}</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Account Name' : activeTab === 'bills' ? 'Products' : 'Date'}</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Account Name' : activeTab === 'bills' ? 'Products' : activeTab === 'refund-requests' ? 'Sales Return' : 'Date'}</th>
                 {activeTab !== 'accounts' && <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>}
                 <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">{activeTab === 'accounts' ? 'Balance' : 'Amount'}</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
@@ -610,7 +717,7 @@ const AccountingModule: React.FC = () => {
             <tbody className="divide-y divide-gray-100">
               {filteredRecords.map((record) => (
                 <tr key={record.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.accountNumber || record.invoiceNumber || record.billNumber || record.noteNumber || record.paymentNumber}</td>
+                  <td className="px-4 py-3 text-sm font-semibold text-blue-700">{record.accountNumber || record.invoiceNumber || record.billNumber || record.noteNumber || record.refundNumber || record.paymentNumber}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'accounts' ? (record.bank || '-') : partnerDisplay(record)}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{activeTab === 'accounts' ? record.name : dateDisplay(record)}</td>
                   {activeTab !== 'accounts' && <td className="px-4 py-3"><StatusBadge status={record.status} /></td>}
@@ -635,6 +742,37 @@ const AccountingModule: React.FC = () => {
             </div>
           )}
         />
+      )}
+
+      {cancelRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-md bg-white shadow-xl">
+            <div className="border-b border-gray-200 px-6 py-4">
+              <h2 className="text-lg font-bold text-gray-900">Cancel {activeTab === 'invoices' ? 'Invoice' : 'Vendor Bill'}</h2>
+            </div>
+            <div className="space-y-3 p-6">
+              <p className="text-sm text-gray-600">
+                {cancelRecord.invoiceNumber || cancelRecord.billNumber}
+              </p>
+              <label className="block text-sm font-semibold text-gray-700">Cancellation Reason</label>
+              <textarea
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                rows={4}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                placeholder="Enter reason..."
+              />
+            </div>
+            <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
+              <button onClick={() => setCancelRecord(null)} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">
+                Close
+              </button>
+              <button onClick={confirmCancel} className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">
+                Confirm Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <RecordModal

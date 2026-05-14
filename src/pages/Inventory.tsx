@@ -17,7 +17,7 @@ const stockFieldsBase: FormField[] = [
   { name: 'warehouseName', label: 'Warehouse', type: 'select', required: true, options: [] },
   { name: 'productName', label: 'Product', type: 'select', required: true, options: [] },
   { name: 'binCode', label: 'Bin Location (Optional)', type: 'select', options: [] },
-  { name: 'quantityOnHand', label: 'Reserved / On Hand', type: 'number', readonly: true, disabled: true },
+  { name: 'quantityOnHand', label: 'On Hand (Reserved Unpaid)', type: 'number', readonly: true, disabled: true },
   { name: 'totalQuantity', label: 'Total Quantity', type: 'number', readonly: true, disabled: true },
   { name: 'quantityAvailable', label: 'Available', type: 'number', readonly: true, disabled: true },
   { name: 'newQuantity', label: 'New Quantity', type: 'number', readonly: true, disabled: true },
@@ -463,8 +463,12 @@ const InventoryModule: React.FC = () => {
           ...item,
           reference: item.id?.slice(0, 8),
           purchaseOrderId: item.purchase_order_id,
-          partnerName: item.purchase_order?.order_number || item.purchase_order_id || 'Purchase Order',
-          warehouseName: 'Receiving',
+          partnerName: item.recordType === 'customer_return' || item.receipt_type === 'customer_return'
+            ? `${item.customerName || item.customer?.name || 'Customer'} - ${item.sales_order_number || item.sales_order?.order_number || 'SO'}`
+            : item.purchase_order?.order_number || item.purchase_order_id || 'Purchase Order',
+          warehouseName: item.recordType === 'customer_return' || item.receipt_type === 'customer_return'
+            ? 'Customer Return'
+            : 'Receiving',
           scheduledDate: item.receipt_date,
         })))
       })
@@ -828,6 +832,19 @@ const InventoryModule: React.FC = () => {
     try {
       await erpApi.put(`${path}/${record.id}`, { ...record, status: nextStatus })
       activeSetters[activeTab]((current) => current.map((item) => (item.id === record.id ? { ...item, status: nextStatus } : item)))
+      if (activeTab === 'receipts' && (record.recordType === 'customer_return' || record.receipt_type === 'customer_return')) {
+        const records = await erpApi.get<any[]>('/inventory/stock-levels?limit=100')
+        setStock(records.map((item) => ({
+          ...item,
+          warehouseName: item.warehouse?.warehouse_name || item.warehouse?.name || item.warehouse_id,
+          productName: item.product?.product_name || item.product?.name || item.productName || item.product_id,
+          quantityOnHand: item.quantity_on_hand || 0,
+          totalQuantity: item.total_quantity || 0,
+          quantityAvailable: item.available ?? item.quantityAvailable ?? item.quantity_available ?? 0,
+          newQuantity: item.new_quantity || 0,
+          reorderStatus: item.reorder_status || 'normal',
+        })))
+      }
       showNotification('success', `${activeTitle} moved to ${nextStatus}.`)
     } catch (error: any) {
       showNotification('error', `Status update failed: ${error.message}`)
@@ -854,15 +871,25 @@ const InventoryModule: React.FC = () => {
   }
 
   const renderActions = (record: any) => (
-    <RecordActions
-      onEdit={() => {
-        setModalRecord(record)
-        setModalOpen(true)
-      }}
-      onDelete={() => deleteRecord(record)}
-      onAdvance={flow[activeTab]?.[record.status] ? () => advanceRecord(record) : undefined}
-      advanceLabel={activeTab === 'receipts' ? 'Receive' : 'Delivered'}
-    />
+    activeTab === 'receipts' && (record.recordType === 'customer_return' || record.receipt_type === 'customer_return') ? (
+      <div className="flex items-center gap-1">
+        {flow[activeTab]?.[record.status] && (
+          <button onClick={() => advanceRecord(record)} className="rounded px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+            Receive
+          </button>
+        )}
+      </div>
+    ) : (
+      <RecordActions
+        onEdit={() => {
+          setModalRecord(record)
+          setModalOpen(true)
+        }}
+        onDelete={() => deleteRecord(record)}
+        onAdvance={flow[activeTab]?.[record.status] ? () => advanceRecord(record) : undefined}
+        advanceLabel={activeTab === 'receipts' ? 'Receive' : 'Delivered'}
+      />
+    )
   )
 
   return (
@@ -915,7 +942,7 @@ const InventoryModule: React.FC = () => {
                   <>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Product</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Warehouse</th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Reserved / On Hand</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">On Hand (Reserved Unpaid)</th>
                     <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Total Qty</th>
                     <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Available</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Reorder Status</th>

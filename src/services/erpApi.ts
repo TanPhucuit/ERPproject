@@ -51,7 +51,7 @@ const salesOrderStatus = (value?: string | null) =>
   ['ready', 'delivering', 'delivered', 'cancelled'].includes(value || '') ? value! : 'ready'
 
 const deliveryStatus = (value?: string | null) =>
-  ['ready', 'delivering', 'delivered'].includes(value || '') ? value! : 'ready'
+  ['ready', 'delivering', 'delivered', 'cancelled'].includes(value || '') ? value! : 'ready'
 
 const invoiceStatus = (value?: string | null) =>
   ['sent', 'partial_paid', 'paid', 'overdue', 'cancelled'].includes(value || '') ? value! : 'sent'
@@ -92,6 +92,8 @@ const mapProduct = (product: any) => ({
 const mapCustomer = (customer: any) => ({
   ...customer,
   name: customer?.full_name || customer?.company_name,
+  account: customer?.account,
+  account_id: customer?.account_id,
   customer_number: customer?.id?.slice(0, 8),
   status: customer?.is_active ? 'active' : 'inactive',
   contact_person_email: customer?.email,
@@ -112,6 +114,8 @@ const mapSupplier = (supplier: any) => ({
 
 const mapLead = (lead: any) => ({
   ...lead,
+  account: lead?.account,
+  account_id: lead?.account_id,
   lead_number: lead?.id?.slice(0, 8),
   company_name: lead?.company || `${lead?.first_name || ''} ${lead?.last_name || ''}`.trim(),
   contact_person_name: `${lead?.first_name || ''} ${lead?.last_name || ''}`.trim(),
@@ -309,14 +313,55 @@ const mapWarrantyOrder = (order: any) => ({
   status: 'invoiced',
 })
 
+const mapSalesReturnItem = (item: any) => ({
+  ...item,
+  product_name: productName(item?.product),
+  product_sku: item?.product?.sku,
+  line_total: toNumber(item?.refund_amount),
+})
+
+const mapSalesReturn = (row: any) => {
+  const lines = (row?.items || row?.sales_return_items || []).map(mapSalesReturnItem)
+  return {
+    ...row,
+    returnNumber: row?.return_number,
+    return_number: row?.return_number,
+    customer: row?.customer ? mapCustomer(row.customer) : undefined,
+    customerName: row?.customer ? mapCustomer(row.customer).name : '',
+    customer_name: row?.customer ? mapCustomer(row.customer).name : '',
+    salesOrderNumber: row?.sales_order?.order_number,
+    sales_order_number: row?.sales_order?.order_number,
+    returnDate: row?.return_date,
+    total_amount: lines.reduce((sum: number, line: any) => sum + toNumber(line.refund_amount), 0),
+    lines,
+    items: lines,
+  }
+}
+
+const mapRefundRequest = (row: any) => ({
+  ...row,
+  refundNumber: row?.refund_number,
+  refund_number: row?.refund_number,
+  requestDate: row?.request_date,
+  customer: row?.customer ? mapCustomer(row.customer) : undefined,
+  customerName: row?.customer ? mapCustomer(row.customer).name : '',
+  customer_name: row?.customer ? mapCustomer(row.customer).name : '',
+  salesReturnNumber: row?.sales_return?.return_number,
+  sales_order_number: row?.sales_return?.sales_order?.order_number,
+  amount: toNumber(row?.amount),
+  amountDue: toNumber(row?.amount),
+})
+
 const selectProduct = '*, category:product_categories(*)'
-const selectLead = '*, assigned_to:users(*)'
-const selectQuotation = '*, customer:customers(*), lead:leads(*), items:quotation_items(*, product:products(*))'
-const selectSalesOrder = '*, customer:customers(*), quotation:quotations(*), items:sales_order_items(*, product:products(*))'
-const selectInvoice = '*, sales_order:sales_orders(*, customer:customers(*), items:sales_order_items(*, product:products(*))), warranty_order:warranty_orders(*)'
-const selectVendorBill = '*, purchase_order:purchase_orders(*, supplier:suppliers!purchase_orders_vendor_id_fkey(*), items:purchase_order_items(*, supplier_product:supplier_products(*, supplier:suppliers(*), product:products(*))))'
+const selectLead = '*, assigned_to:users(*), account:accounts(*)'
+const selectQuotation = '*, customer:customers(*, account:accounts(*)), lead:leads(*, account:accounts(*)), items:quotation_items(*, product:products(*))'
+const selectSalesOrder = '*, customer:customers(*, account:accounts(*)), quotation:quotations(*), items:sales_order_items(*, product:products(*))'
+const selectInvoice = '*, sales_order:sales_orders(*, customer:customers(*, account:accounts(*)), items:sales_order_items(*, product:products(*))), warranty_order:warranty_orders(*)'
+const selectVendorBill = '*, purchase_order:purchase_orders(*, supplier:suppliers!purchase_orders_vendor_id_fkey(*, account:accounts(*)), items:purchase_order_items(*, supplier_product:supplier_products(*, supplier:suppliers(*, account:accounts(*)), product:products(*))))'
 const selectRfq = '*, items:rfq_items(*, supplier_product:supplier_products(*, supplier:suppliers(*), product:products(*)))'
-const selectPurchaseOrder = '*, rfq:rfqs(*), supplier:suppliers!purchase_orders_vendor_id_fkey(*), items:purchase_order_items(*, supplier_product:supplier_products(*, supplier:suppliers(*), product:products(*)))'
+const selectPurchaseOrder = '*, rfq:rfqs(*), supplier:suppliers!purchase_orders_vendor_id_fkey(*, account:accounts(*)), items:purchase_order_items(*, supplier_product:supplier_products(*, supplier:suppliers(*, account:accounts(*)), product:products(*)))'
+const selectSalesReturn = '*, customer:customers(*, account:accounts(*)), sales_order:sales_orders(*, customer:customers(*, account:accounts(*))), warehouse:warehouses(*), items:sales_return_items(*, product:products(*))'
+const selectRefundRequest = '*, customer:customers(*, account:accounts(*)), sales_return:sales_returns(*, sales_order:sales_orders(*))'
 
 const getSingle = async (table: string, id: string, columns = '*') => {
   const { data, error } = await supabase.from(table).select(columns).eq('id', id).single()
@@ -336,6 +381,138 @@ const findDefaultCustomer = async () => {
   const { data, error } = await supabase.from('customers').select('id').order('created_at', { ascending: true }).limit(1).maybeSingle()
   if (error) throw error
   return data?.id || null
+}
+
+const recalculateReservedStock = async () => {
+  const { error } = await supabase.rpc('recalculate_reserved_stock_levels')
+  if (error) throw error
+}
+
+const getDefaultCompanyAccount = async () => {
+  const { data, error } = await supabase
+    .from('accounts')
+    .select('id')
+    .eq('is_novatech_default', true)
+    .single()
+  if (error) throw error
+  return data
+}
+
+const getFirstWarehouseId = async () => {
+  const { data, error } = await supabase
+    .from('warehouses')
+    .select('id')
+    .order('warehouse_name', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  return data?.id || null
+}
+
+const cancelSalesInvoiceCascade = async (invoiceId: string, reason: string) => {
+  if (!reason?.trim()) throw new Error('Cancellation reason is required.')
+  const invoice: any = await getSingle('invoices', invoiceId, selectInvoice)
+  if (invoice.status === 'paid') throw new Error('Paid invoices cannot be cancelled from this flow.')
+  const salesOrderId = invoice.sales_order_id
+  const { data: deliveryOrders, error: deliveryLookupError } = await supabase
+    .from('delivery_orders')
+    .select('id, status, items:delivery_order_items(id, product_id, bin_location_id, quantity_requested, bin_location:bin_locations(warehouse_id))')
+    .eq('sales_order_id', salesOrderId)
+  if (deliveryLookupError) throw deliveryLookupError
+
+  for (const delivery of deliveryOrders || []) {
+    if (delivery.status === 'ready') {
+      for (const item of delivery.items || []) {
+        const quantity = toNumber(item.quantity_requested)
+        const { data: binRow, error: binLookupError } = await supabase
+          .from('stock_in_bins')
+          .select('id, available')
+          .eq('product_id', item.product_id)
+          .eq('bin_location_id', item.bin_location_id)
+          .maybeSingle()
+        if (binLookupError) throw binLookupError
+        if (binRow?.id) {
+          const { error: binUpdateError } = await supabase
+            .from('stock_in_bins')
+            .update({ available: toNumber(binRow.available) + quantity })
+            .eq('id', binRow.id)
+          if (binUpdateError) throw binUpdateError
+        }
+
+        const binLocation: any = item.bin_location
+        const warehouseId = Array.isArray(binLocation)
+          ? binLocation[0]?.warehouse_id
+          : binLocation?.warehouse_id
+        if (warehouseId) {
+          const { data: stockLevel, error: stockLookupError } = await supabase
+            .from('stock_levels')
+            .select('id, available')
+            .eq('product_id', item.product_id)
+            .eq('warehouse_id', warehouseId)
+            .maybeSingle()
+          if (stockLookupError) throw stockLookupError
+          if (stockLevel?.id) {
+            const nextAvailable = toNumber(stockLevel.available) + quantity
+            const { error: stockUpdateError } = await supabase
+              .from('stock_levels')
+              .update({
+                available: nextAvailable,
+                reorder_status: nextAvailable <= 0 ? 'out' : nextAvailable < 10 ? 'low' : 'normal',
+              })
+              .eq('id', stockLevel.id)
+            if (stockUpdateError) throw stockUpdateError
+          }
+        }
+      }
+    }
+  }
+
+  const note = `Cancelled: ${reason.trim()}`
+  const { error: invoiceUpdateError } = await supabase
+    .from('invoices')
+    .update({ status: 'cancelled', cancellation_reason: reason.trim(), notes: invoice.notes ? `${invoice.notes}\n${note}` : note })
+    .eq('id', invoiceId)
+  if (invoiceUpdateError) throw invoiceUpdateError
+
+  const { error: orderUpdateError } = await supabase
+    .from('sales_orders')
+    .update({ status: 'cancelled', cancellation_reason: reason.trim() })
+    .eq('id', salesOrderId)
+  if (orderUpdateError) throw orderUpdateError
+
+  const { error: deliveryUpdateError } = await supabase
+    .from('delivery_orders')
+    .update({ status: 'cancelled', cancellation_reason: reason.trim(), notes: note })
+    .eq('sales_order_id', salesOrderId)
+  if (deliveryUpdateError) throw deliveryUpdateError
+
+  await recalculateReservedStock()
+}
+
+const cancelVendorBillCascade = async (billId: string, reason: string) => {
+  if (!reason?.trim()) throw new Error('Cancellation reason is required.')
+  const bill: any = await getSingle('vendor_bills', billId, selectVendorBill)
+  if (bill.status === 'paid') throw new Error('Paid vendor bills cannot be cancelled from this flow.')
+  const note = `Cancelled: ${reason.trim()}`
+  const { error: billUpdateError } = await supabase
+    .from('vendor_bills')
+    .update({ status: 'cancelled', cancellation_reason: reason.trim(), notes: bill.notes ? `${bill.notes}\n${note}` : note })
+    .eq('id', billId)
+  if (billUpdateError) throw billUpdateError
+
+  if (bill.purchase_order_id) {
+    const { error: poUpdateError } = await supabase
+      .from('purchase_orders')
+      .update({ status: 'cancelled', cancellation_reason: reason.trim() })
+      .eq('id', bill.purchase_order_id)
+    if (poUpdateError) throw poUpdateError
+
+    const { error: receiptUpdateError } = await supabase
+      .from('receipts')
+      .update({ status: 'cancelled', cancellation_reason: reason.trim(), notes: note })
+      .eq('purchase_order_id', bill.purchase_order_id)
+    if (receiptUpdateError) throw receiptUpdateError
+  }
 }
 
 const ensureSalesOrderInvoiceAndDelivery = async (orderId: string) => {
@@ -455,11 +632,11 @@ const getResource = async <T>(path: string): Promise<T> => {
   }
 
   if (pathname === '/customers') {
-    const { data, error } = await applyLimit(supabase.from('customers').select('*').order('created_at', { ascending: false }), searchParams)
+    const { data, error } = await applyLimit(supabase.from('customers').select('*, account:accounts(*)').order('created_at', { ascending: false }), searchParams)
     if (error) throw error
     return (data || []).map(mapCustomer) as T
   }
-  if (pathname.startsWith('/customers/')) return mapCustomer(await getSingle('customers', pathname.split('/').pop()!)) as T
+  if (pathname.startsWith('/customers/')) return mapCustomer(await getSingle('customers', pathname.split('/').pop()!, '*, account:accounts(*)')) as T
 
   if (pathname === '/suppliers') {
     const { data, error } = await applyLimit(supabase.from('suppliers').select('*, account:accounts(*)').order('created_at', { ascending: false }), searchParams)
@@ -538,7 +715,7 @@ const getResource = async <T>(path: string): Promise<T> => {
 
   if (pathname === '/inventory/delivery-orders') {
     const { data, error } = await applyLimit(
-      supabase.from('delivery_orders').select('*, sales_order:sales_orders(*, customer:customers(*), items:sales_order_items(*, product:products(*))), items:delivery_order_items(*, product:products(*), bin_location:bin_locations(*, warehouse:warehouses(*)))').order('created_at', { ascending: false }),
+      supabase.from('delivery_orders').select('*, sales_order:sales_orders(*, customer:customers(*, account:accounts(*)), items:sales_order_items(*, product:products(*))), items:delivery_order_items(*, product:products(*), bin_location:bin_locations(*, warehouse:warehouses(*)))').order('created_at', { ascending: false }),
       searchParams
     )
     if (error) throw error
@@ -615,7 +792,23 @@ const getResource = async <T>(path: string): Promise<T> => {
   if (pathname === '/inventory/goods-receipts') {
     const { data, error } = await applyLimit(supabase.from('receipts').select('*, purchase_order:purchase_orders(*)').order('created_at', { ascending: false }), searchParams)
     if (error) throw error
-    return data as T
+    const { data: returnData, error: returnError } = await applyLimit(
+      supabase.from('sales_returns').select(selectSalesReturn).order('created_at', { ascending: false }),
+      searchParams
+    )
+    if (returnError) throw returnError
+    const purchaseReceipts = (data || []).map((row: any) => ({ ...row, receipt_type: 'purchase', recordType: 'purchase' }))
+    const returnReceipts = (returnData || []).map((row: any) => ({
+      ...mapSalesReturn(row),
+      id: row.id,
+      receipt_type: 'customer_return',
+      recordType: 'customer_return',
+      purchase_order_id: null,
+      receipt_date: row.return_date,
+      status: row.status === 'pending' ? 'delivering' : row.status,
+      notes: row.reason,
+    }))
+    return [...purchaseReceipts, ...returnReceipts] as T
   }
 
   if (pathname === '/accounting/invoices') {
@@ -648,6 +841,12 @@ const getResource = async <T>(path: string): Promise<T> => {
     return data as T
   }
 
+  if (pathname === '/accounting/refund-requests') {
+    const { data, error } = await applyLimit(supabase.from('refund_requests').select(selectRefundRequest).order('created_at', { ascending: false }), searchParams)
+    if (error) throw error
+    return (data || []).map(mapRefundRequest) as T
+  }
+
   if (pathname === '/accounting/accounts') {
     const { data, error } = await supabase.from('accounts').select('*').order('account_number')
     if (error) throw error
@@ -658,7 +857,7 @@ const getResource = async <T>(path: string): Promise<T> => {
     const { data, error } = await applyLimit(
       supabase
         .from('payments')
-        .select('*, invoice:invoices(*), vendor_bill:vendor_bills(*), source_account:accounts!payments_payment_account_fkey(*), destination_account:accounts!payments_target_account_fkey(*)')
+        .select('*, invoice:invoices(*), vendor_bill:vendor_bills(*), refund_request:refund_requests(*), source_account:accounts!payments_payment_account_fkey(*), destination_account:accounts!payments_target_account_fkey(*)')
         .order('payment_date', { ascending: false }),
       searchParams
     )
@@ -673,6 +872,12 @@ const getResource = async <T>(path: string): Promise<T> => {
     )
     if (error) throw error
     return (data || []).map(mapWarrantyOrder) as T
+  }
+
+  if (pathname === '/sales/returns') {
+    const { data, error } = await applyLimit(supabase.from('sales_returns').select(selectSalesReturn).order('created_at', { ascending: false }), searchParams)
+    if (error) throw error
+    return (data || []).map(mapSalesReturn) as T
   }
 
   throw new Error(`Unsupported read path: ${pathname}`)
@@ -693,6 +898,7 @@ const normalizeLeadPayload = (body: any) => {
     probability: toNumber(body.probability ?? body.probability_percent, 10),
     assigned_to_id: body.assigned_to_id || body.owner_id || null,
   }
+  if (body.account_id || body.accountId) payload.account_id = body.account_id || body.accountId
   if (['new','quoted','won','lost'].includes(status)) payload.status = status
   return payload
 }
@@ -710,16 +916,20 @@ const normalizeProductPayload = (body: any) => ({
   repair_fee: toNumber(body.repair_fee),
 })
 
-const normalizeCustomerPayload = (body: any) => ({
-  full_name: body.full_name || body.name || body.contact_person_name || body.company_name,
-  email: body.email || body.contact_person_email || null,
-  phone: body.phone || body.contact_person_phone || null,
-  address: body.address || body.billing_address || null,
-  company_name: body.company_name || (body.customer_type === 'company' ? body.name : null),
-  tax_id: body.tax_id || body.company_tax_id || null,
-  customer_type: ['B2B', 'company'].includes(body.customer_type) ? 'company' : 'individual',
-  is_active: body.is_active ?? body.status !== 'inactive',
-})
+const normalizeCustomerPayload = (body: any) => {
+  const payload: any = {
+    full_name: body.full_name || body.name || body.contact_person_name || body.company_name,
+    email: body.email || body.contact_person_email || null,
+    phone: body.phone || body.contact_person_phone || null,
+    address: body.address || body.billing_address || null,
+    company_name: body.company_name || (body.customer_type === 'company' ? body.name : null),
+    tax_id: body.tax_id || body.company_tax_id || null,
+    customer_type: ['B2B', 'company'].includes(body.customer_type) ? 'company' : 'individual',
+    is_active: body.is_active ?? body.status !== 'inactive',
+  }
+  if (body.account_id || body.accountId) payload.account_id = body.account_id || body.accountId
+  return payload
+}
 
 const normalizeSupplierPayload = (body: any) => {
   const payload: any = {
@@ -757,7 +967,7 @@ const applyAcceptedQuotationWorkflow = async (quotationId: string) => {
     const lead: any = await getSingle('leads', quotation.lead_id, '*')
     const { data: existingCustomer, error: customerLookupError } = await supabase
       .from('customers')
-      .select('id')
+      .select('id, account_id')
       .eq('email', lead.email)
       .maybeSingle()
     if (customerLookupError) throw customerLookupError
@@ -772,11 +982,18 @@ const applyAcceptedQuotationWorkflow = async (quotationId: string) => {
           phone: lead.phone,
           company_name: lead.company,
           customer_type: lead.company ? 'company' : 'individual',
+          account_id: lead.account_id || null,
         })
         .select('id')
         .single()
       if (customerCreateError) throw customerCreateError
       customerId = customer.id
+    } else if (existingCustomer && !existingCustomer.account_id && lead.account_id) {
+      const { error: customerAccountUpdateError } = await supabase
+        .from('customers')
+        .update({ account_id: lead.account_id })
+        .eq('id', existingCustomer.id)
+      if (customerAccountUpdateError) throw customerAccountUpdateError
     }
 
     const { error: quotationUpdateError } = await supabase
@@ -1022,6 +1239,122 @@ const writeWarrantyOrder = async <T>(body: any, id?: string): Promise<T> => {
   )) as T
 }
 
+const writeSalesReturn = async <T>(body: any, id?: string): Promise<T> => {
+  if (id) throw new Error('Sales returns cannot be edited after creation.')
+  const customerId = body.customer_id || body.customerId
+  const salesOrderId = body.sales_order_id || body.salesOrderId
+  if (!isUuid(customerId)) throw new Error('Customer is required.')
+  if (!isUuid(salesOrderId)) throw new Error('Sales order is required.')
+
+  const order: any = await getSingle('sales_orders', salesOrderId, selectSalesOrder)
+  if (order.customer_id !== customerId) throw new Error('Sales order does not belong to the selected customer.')
+  if (order.status !== 'delivered') throw new Error('Returns can only be created for delivered sales orders.')
+
+  const orderLines = (order.items || []).map(mapSalesOrderItem)
+  const lines = (body.lines || []).map((line: any) => {
+    const sourceLine = orderLines.find((item: any) => item.product_id === line.product_id)
+    if (!sourceLine) throw new Error('Return product must belong to the selected sales order.')
+    const quantity = toNumber(line.quantity, 1)
+    if (quantity > toNumber(sourceLine.quantity)) throw new Error(`Return quantity for ${sourceLine.product_name} exceeds sold quantity.`)
+    const unitPrice = toNumber(sourceLine.unit_price)
+    return {
+      product_id: line.product_id,
+      quantity,
+      unit_price: unitPrice,
+      refund_amount: unitPrice * quantity,
+    }
+  })
+  if (lines.length === 0) throw new Error('Return must have at least one product.')
+
+  const warehouseId = body.warehouse_id || body.warehouseId || await getFirstWarehouseId()
+  const { data: salesReturn, error: returnCreateError } = await supabase
+    .from('sales_returns')
+    .insert({
+      customer_id: customerId,
+      sales_order_id: salesOrderId,
+      warehouse_id: warehouseId,
+      return_date: body.return_date || body.returnDate || today(),
+      status: 'pending',
+      reason: body.reason || 'Customer return',
+      notes: body.notes || null,
+    })
+    .select('id')
+    .single()
+  if (returnCreateError) throw returnCreateError
+
+  const { error: linesCreateError } = await supabase
+    .from('sales_return_items')
+    .insert(lines.map((line: any) => ({ ...line, sales_return_id: salesReturn.id })))
+  if (linesCreateError) throw linesCreateError
+
+  const refundAmount = lines.reduce((sum: number, line: any) => sum + toNumber(line.refund_amount), 0)
+  const { error: refundCreateError } = await supabase
+    .from('refund_requests')
+    .insert({
+      sales_return_id: salesReturn.id,
+      customer_id: customerId,
+      request_date: today(),
+      status: 'pending',
+      amount: refundAmount,
+      reason: body.reason || 'Customer return',
+      notes: `Auto-created from sales return.`,
+    })
+  if (refundCreateError) throw refundCreateError
+
+  return mapSalesReturn(await getSingle('sales_returns', salesReturn.id, selectSalesReturn)) as T
+}
+
+const receiveCustomerReturn = async <T>(returnId: string): Promise<T> => {
+  const salesReturn: any = await getSingle('sales_returns', returnId, selectSalesReturn)
+  if (salesReturn.status === 'received') return mapSalesReturn(salesReturn) as T
+  if (salesReturn.status === 'cancelled') throw new Error('Cancelled returns cannot be received.')
+  const warehouseId = salesReturn.warehouse_id || await getFirstWarehouseId()
+  if (!warehouseId) throw new Error('Warehouse is required to receive returned goods.')
+
+  for (const item of salesReturn.items || []) {
+    const quantity = toNumber(item.quantity)
+    const { data: stockLevel, error: stockLookupError } = await supabase
+      .from('stock_levels')
+      .select('id, total_quantity, new_quantity')
+      .eq('product_id', item.product_id)
+      .eq('warehouse_id', warehouseId)
+      .maybeSingle()
+    if (stockLookupError) throw stockLookupError
+    if (stockLevel?.id) {
+      const { error: stockUpdateError } = await supabase
+        .from('stock_levels')
+        .update({
+          total_quantity: toNumber(stockLevel.total_quantity) + quantity,
+          new_quantity: toNumber(stockLevel.new_quantity) + quantity,
+        })
+        .eq('id', stockLevel.id)
+      if (stockUpdateError) throw stockUpdateError
+    } else {
+      const { error: stockInsertError } = await supabase
+        .from('stock_levels')
+        .insert({
+          product_id: item.product_id,
+          warehouse_id: warehouseId,
+          quantity_on_hand: 0,
+          total_quantity: quantity,
+          available: 0,
+          new_quantity: quantity,
+          reorder_status: 'normal',
+        })
+      if (stockInsertError) throw stockInsertError
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('sales_returns')
+    .update({ status: 'received' })
+    .eq('id', returnId)
+    .select(selectSalesReturn)
+    .single()
+  if (error) throw error
+  return mapSalesReturn(data) as T
+}
+
 const ensurePurchaseReceiptAndBill = async (purchaseOrderId: string) => {
   const purchaseOrder: any = await getSingle('purchase_orders', purchaseOrderId, selectPurchaseOrder)
   const lines = (purchaseOrder?.items || []).map(mapPurchaseOrderItem)
@@ -1153,6 +1486,28 @@ const writeRfq = async <T>(body: any, id?: string): Promise<T> => {
 }
 
 const writePurchaseOrder = async <T>(body: any, id?: string): Promise<T> => {
+  if (id && body.status === 'cancelled') {
+    const reason = body.cancellation_reason || body.cancelReason || body.reason || body.notes
+    if (!reason?.trim()) throw new Error('Cancellation reason is required.')
+    const { error: poUpdateError } = await supabase
+      .from('purchase_orders')
+      .update({ status: 'cancelled', cancellation_reason: reason.trim(), notes: body.notes || `Cancelled: ${reason.trim()}` })
+      .eq('id', id)
+    if (poUpdateError) throw poUpdateError
+    const { error: billUpdateError } = await supabase
+      .from('vendor_bills')
+      .update({ status: 'cancelled', cancellation_reason: reason.trim(), notes: `Cancelled: ${reason.trim()}` })
+      .eq('purchase_order_id', id)
+      .neq('status', 'paid')
+    if (billUpdateError) throw billUpdateError
+    const { error: receiptUpdateError } = await supabase
+      .from('receipts')
+      .update({ status: 'cancelled', cancellation_reason: reason.trim(), notes: `Cancelled: ${reason.trim()}` })
+      .eq('purchase_order_id', id)
+    if (receiptUpdateError) throw receiptUpdateError
+    return mapPurchaseOrder(await getSingle('purchase_orders', id, selectPurchaseOrder)) as T
+  }
+
   let vendorId = body.vendor_id || body.supplier_id || body.supplierId || null
   if (!vendorId && Array.isArray(body.lines) && body.lines.length > 0) {
     const sourceLine = body.lines.find((line: any) => isUuid(line.supplier_products_id || line.supplier_product_id))
@@ -1289,18 +1644,29 @@ const writeStockTransfer = async <T>(body: any, id?: string): Promise<T> => {
   }))
 }
 
-const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<T> => {
+const writePayment = async <T>(body: any, type: 'customer' | 'vendor' | 'refund'): Promise<T> => {
   const paymentMethod = body.payment_method || 'bank_transfer'
-  const { data: companyAccount, error: companyAccountError } = await supabase
-    .from('accounts')
-    .select('id')
-    .eq('is_novatech_default', true)
-    .single()
-  if (companyAccountError) throw companyAccountError
+  const companyAccount = await getDefaultCompanyAccount()
 
   const invoiceId = type === 'customer' ? body.invoice_id || body.document_id : null
   const vendorBillId = type === 'vendor' ? body.vendor_bill_id || body.bill_id || body.document_id : null
+  const refundRequestId = type === 'refund' ? body.refund_request_id || body.refundRequestId || body.document_id : null
+  const sourceAccountInput = body.payment_account || body.source_account_id || body.sourceAccountId || null
+  const targetAccountInput = body.target_account || body.target_account_id || body.targetAccountId || null
+  let customerAccountId = null
   let supplierAccountId = null
+  let refundCustomerAccountId = null
+
+  if (invoiceId) {
+    const { data: invoice, error: invoiceError } = await supabase
+      .from('invoices')
+      .select('sales_order:sales_orders(customer:customers(account_id))')
+      .eq('id', invoiceId)
+      .single()
+    if (invoiceError) throw invoiceError
+    customerAccountId = (invoice as any)?.sales_order?.customer?.account_id
+    if (paymentMethod !== 'cash' && !customerAccountId) throw new Error('Customer bank account is required before receiving this invoice payment.')
+  }
   if (vendorBillId) {
     const { data: bill, error: billError } = await supabase
       .from('vendor_bills')
@@ -1311,15 +1677,37 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<
     supplierAccountId = (bill as any)?.purchase_order?.vendor?.account_id
     if (!supplierAccountId) throw new Error('Supplier bank account is required before paying this vendor bill.')
   }
+  if (refundRequestId) {
+    const { data: refund, error: refundError } = await supabase
+      .from('refund_requests')
+      .select('customer:customers(account_id)')
+      .eq('id', refundRequestId)
+      .single()
+    if (refundError) throw refundError
+    refundCustomerAccountId = (refund as any)?.customer?.account_id
+    if (!refundCustomerAccountId) throw new Error('Customer bank account is required before paying this refund request.')
+    if (paymentMethod === 'cash') throw new Error('Refund requests can only be paid by bank transfer.')
+  }
 
   const payload = {
     invoice_id: invoiceId,
     vendor_bill_id: vendorBillId,
+    refund_request_id: refundRequestId,
     payment_date: body.payment_date || today(),
     payment_method: paymentMethod,
     amount: toNumber(body.amount),
-    payment_account: vendorBillId ? companyAccount.id : null,
-    target_account: invoiceId ? companyAccount.id : supplierAccountId,
+    payment_account: paymentMethod === 'cash'
+      ? null
+      : invoiceId
+        ? (sourceAccountInput || customerAccountId)
+        : companyAccount.id,
+    target_account: paymentMethod === 'cash'
+      ? null
+      : invoiceId
+        ? (targetAccountInput || companyAccount.id)
+        : vendorBillId
+          ? (targetAccountInput || supplierAccountId)
+          : (targetAccountInput || refundCustomerAccountId),
     reference_number: null,
     notes: body.notes || null,
   }
@@ -1343,6 +1731,7 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<
       .update({ status: paidTotal >= invoicePayable ? 'paid' : 'partial_paid' })
       .eq('id', payload.invoice_id)
     if (invoiceUpdateError) throw invoiceUpdateError
+    if (paidTotal >= invoicePayable) await recalculateReservedStock()
   }
   if (payload.vendor_bill_id) {
     const { data: payments, error: paymentsError } = await supabase.from('payments').select('amount').eq('vendor_bill_id', payload.vendor_bill_id)
@@ -1372,6 +1761,18 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor'): Promise<
       if (receiptUpdateError) throw receiptUpdateError
     }
   }
+  if (payload.refund_request_id) {
+    const { data: payments, error: paymentsError } = await supabase.from('payments').select('amount').eq('refund_request_id', payload.refund_request_id)
+    if (paymentsError) throw paymentsError
+    const paidTotal = (payments || []).reduce((sum: number, payment: any) => sum + toNumber(payment.amount), 0)
+    const { data: refund, error: refundError } = await supabase.from('refund_requests').select('amount').eq('id', payload.refund_request_id).single()
+    if (refundError) throw refundError
+    const { error: refundUpdateError } = await supabase
+      .from('refund_requests')
+      .update({ status: paidTotal >= toNumber(refund.amount) ? 'paid' : 'pending' })
+      .eq('id', payload.refund_request_id)
+    if (refundUpdateError) throw refundUpdateError
+  }
   return data as T
 }
 
@@ -1399,6 +1800,9 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
   }
   if (pathname === '/sales/warranty-orders' || pathname.startsWith('/sales/warranty-orders/')) {
     return writeWarrantyOrder<T>(body, id)
+  }
+  if (pathname === '/sales/returns' || pathname.startsWith('/sales/returns/')) {
+    return writeSalesReturn<T>(body, id)
   }
 
   if (pathname === '/products' || pathname.startsWith('/products/')) return writeSimple<T>('products', body, id, normalizeProductPayload)
@@ -1440,6 +1844,12 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
   if (pathname === '/purchase/rfqs' || pathname.startsWith('/purchase/rfqs/')) return writeRfq<T>(body, id)
   if (pathname === '/purchase/purchase-orders' || pathname.startsWith('/purchase/purchase-orders/')) return writePurchaseOrder<T>(body, id)
   if (pathname === '/inventory/goods-receipts' || pathname.startsWith('/inventory/goods-receipts/')) {
+    if (body.receipt_type === 'customer_return' || body.recordType === 'customer_return' || body.sales_return_id) {
+      const returnId = body.sales_return_id || id
+      if (!returnId) throw new Error('Sales return is required.')
+      if (body.status === 'received') return receiveCustomerReturn<T>(returnId)
+      return writeSimple<T>('sales_returns', body, returnId, (value) => ({ status: value.status === 'delivering' ? 'pending' : value.status, notes: value.notes || null }))
+    }
     return writeSimple<T>('receipts', body, id, (value) => {
       const status = receiptStatus(value.status)
       return { purchase_order_id: value.purchase_order_id, receipt_date: value.receipt_date || value.scheduledDate || today(), status, notes: value.notes || null }
@@ -1466,6 +1876,10 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
 
   if (pathname === '/accounting/invoices' || pathname.startsWith('/accounting/invoices/')) {
     const value = body
+    if (id && value.status === 'cancelled') {
+      await cancelSalesInvoiceCascade(id, value.cancellation_reason || value.cancelReason || value.reason || value.notes)
+      return mapInvoice(await getSingle('invoices', id, selectInvoice)) as T
+    }
     let netAmount = toNumber(value.net_amount ?? value.subtotal ?? value.total_amount_before_tax ?? value.netAmount)
     const rawTaxAmount = value.tax_amount ?? value.total_tax ?? value.taxAmount
     const hasExplicitTax = rawTaxAmount != null && toNumber(rawTaxAmount) > 0
@@ -1501,6 +1915,10 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
     return mapInvoice(await getSingle('invoices', data.id, selectInvoice)) as T
   }
   if (pathname === '/accounting/bills' || pathname.startsWith('/accounting/bills/')) {
+    if (id && body.status === 'cancelled') {
+      await cancelVendorBillCascade(id, body.cancellation_reason || body.cancelReason || body.reason || body.notes)
+      return mapVendorBill(await getSingle('vendor_bills', id, selectVendorBill)) as T
+    }
     return writeSimple<T>('vendor_bills', body, id, (value) => {
       const subtotal = toNumber(value.subtotal ?? value.total_amount_before_tax)
       const rawTaxAmount = value.tax_amount ?? value.total_tax ?? value.taxAmount
@@ -1528,11 +1946,17 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
       bank: value.bank || null,
       name: value.name,
       balance: toNumber(value.balance),
+      account_type: value.account_type || value.accountType || 'operating',
+      is_novatech_default: value.is_novatech_default ?? value.isNovatechDefault ?? false,
     }))
   }
   if (pathname === '/accounting/customer-payments') return writePayment<T>(body, 'customer')
   if (pathname === '/accounting/supplier-payments') return writePayment<T>(body, 'vendor')
-  if (pathname === '/accounting/payments') return writePayment<T>(body, body.vendor_bill_id || body.bill_id ? 'vendor' : 'customer')
+  if (pathname === '/accounting/refund-payments') return writePayment<T>(body, 'refund')
+  if (pathname === '/accounting/payments') return writePayment<T>(
+    body,
+    body.refund_request_id || body.refundRequestId ? 'refund' : body.vendor_bill_id || body.bill_id ? 'vendor' : 'customer'
+  )
   if (pathname.startsWith('/accounting/payments/')) {
     throw new Error('Payments are posted ledger entries. Delete and recreate a payment if it was entered incorrectly.')
   }
@@ -1548,6 +1972,7 @@ const deleteResource = async <T>(path: string): Promise<T> => {
     pathname.startsWith('/sales-orders/quotations/') ? 'quotations' :
     pathname.startsWith('/sales-orders/') ? 'sales_orders' :
     pathname.startsWith('/sales/warranty-orders/') ? 'warranty_orders' :
+    pathname.startsWith('/sales/returns/') ? 'sales_returns' :
     pathname.startsWith('/products/') ? 'products' :
     pathname.startsWith('/product-categories/') ? 'product_categories' :
     pathname.startsWith('/customers/') ? 'customers' :
@@ -1565,6 +1990,7 @@ const deleteResource = async <T>(path: string): Promise<T> => {
     pathname.startsWith('/accounting/bills/') ? 'vendor_bills' :
     pathname.startsWith('/accounting/credit-notes/') ? 'credit_notes' :
     pathname.startsWith('/accounting/debit-notes/') ? 'debit_notes' :
+    pathname.startsWith('/accounting/refund-requests/') ? 'refund_requests' :
     pathname.startsWith('/accounting/accounts/') ? 'accounts' :
     pathname.startsWith('/accounting/payments/') ? 'payments' :
     ''

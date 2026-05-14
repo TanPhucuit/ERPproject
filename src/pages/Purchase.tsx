@@ -968,12 +968,29 @@ const PurchaseModule: React.FC = () => {
     showNotification('success', `${title} deleted.`)
   }
 
+  const cancelPurchaseOrder = async (record: any) => {
+    const reason = window.prompt(`Cancel ${record.purchase_order_number || record.poNumber}? Enter reason:`)
+    if (!reason?.trim()) return
+    try {
+      await erpApi.put(`/purchase/purchase-orders/${record.id}`, {
+        status: 'cancelled',
+        cancellation_reason: reason.trim(),
+      })
+      setPurchaseOrders((current) => current.map((item) => item.id === record.id ? { ...item, status: 'cancelled', cancellation_reason: reason.trim() } : item))
+      showNotification('success', 'Purchase order, vendor bill, and goods receipt were cancelled.')
+    } catch (error: any) {
+      showNotification('error', `Cancel failed: ${error.message}`)
+    }
+  }
+
   const renderActions = (record: any) => (
     activeTab === 'purchase-orders' ? (
       <div className="flex items-center gap-1">
-        <button onClick={() => deleteRecord(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Delete">
+        {!['cancelled', 'received'].includes(record.status) && (
+        <button onClick={() => cancelPurchaseOrder(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Cancel">
           <Trash2 size={16} />
         </button>
+        )}
       </div>
     ) : (
       <RecordActions

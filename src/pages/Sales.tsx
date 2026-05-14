@@ -81,6 +81,17 @@ interface WarrantyLine {
   line_total: number
 }
 
+interface ReturnLine {
+  id: string
+  product_id: string
+  product_name: string
+  product_sku: string
+  quantity: number
+  max_quantity: number
+  unit_price: number
+  line_total: number
+}
+
 // ========== LINES EDITOR COMPONENT ==========
 const LinesEditor: React.FC<{
   lines: OrderLine[]
@@ -698,13 +709,189 @@ const WarrantySalesModal: React.FC<{
   )
 }
 
+const SalesReturnModal: React.FC<{
+  isOpen: boolean
+  customers: any[]
+  deliveredOrders: any[]
+  onClose: () => void
+  onSave: (data: any) => void
+}> = ({ isOpen, customers, deliveredOrders, onClose, onSave }) => {
+  const [customerId, setCustomerId] = useState('')
+  const [salesOrderId, setSalesOrderId] = useState('')
+  const [reason, setReason] = useState('')
+  const [lines, setLines] = useState<ReturnLine[]>([])
+
+  const customerOrders = deliveredOrders.filter((order) => !customerId || order.customer_id === customerId || order.customer?.id === customerId)
+  const selectedOrder = customerOrders.find((order) => order.id === salesOrderId)
+  const orderLineOptions = (selectedOrder?.lines || []).filter((line: any) => !lines.some((item) => item.product_id === line.product_id))
+
+  useEffect(() => {
+    setSalesOrderId('')
+    setLines([])
+  }, [customerId])
+
+  useEffect(() => {
+    setLines([])
+  }, [salesOrderId])
+
+  if (!isOpen) return null
+
+  const addLine = (productId: string) => {
+    const sourceLine = (selectedOrder?.lines || []).find((line: any) => line.product_id === productId)
+    if (!sourceLine) return
+    const quantity = 1
+    const unitPrice = Number(sourceLine.unit_price || 0)
+    setLines((current) => [...current, {
+      id: `return-${Date.now()}-${Math.random()}`,
+      product_id: sourceLine.product_id,
+      product_name: sourceLine.product_name || sourceLine.product?.product_name || sourceLine.product?.name,
+      product_sku: sourceLine.product_sku || sourceLine.product?.sku || '',
+      quantity,
+      max_quantity: Number(sourceLine.quantity || 1),
+      unit_price: unitPrice,
+      line_total: unitPrice * quantity,
+    }])
+  }
+
+  const updateQuantity = (lineId: string, quantity: number) => {
+    setLines((current) => current.map((line) => {
+      if (line.id !== lineId) return line
+      const nextQuantity = Math.max(1, Math.min(quantity, line.max_quantity))
+      return { ...line, quantity: nextQuantity, line_total: nextQuantity * line.unit_price }
+    }))
+  }
+
+  const handleSave = () => {
+    if (!customerId || !salesOrderId || lines.length === 0 || !reason.trim()) return
+    onSave({
+      customer_id: customerId,
+      sales_order_id: salesOrderId,
+      reason: reason.trim(),
+      lines: lines.map((line) => ({
+        product_id: line.product_id,
+        quantity: line.quantity,
+      })),
+    })
+  }
+
+  const total = lines.reduce((sum, line) => sum + line.line_total, 0)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
+      <div className="mt-4 mb-8 w-full max-w-5xl rounded-lg bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <h2 className="text-xl font-bold text-gray-900">Create Sales Return</h2>
+          <button onClick={onClose} className="rounded p-2 text-gray-500 hover:bg-gray-100"><X size={20} /></button>
+        </div>
+        <div className="max-h-[75vh] space-y-6 overflow-y-auto p-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Customer</label>
+              <select value={customerId} onChange={(event) => setCustomerId(event.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                <option value="">Select customer...</option>
+                {customers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>{customer.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Delivered Sales Order</label>
+              <select value={salesOrderId} onChange={(event) => setSalesOrderId(event.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                <option value="">Select sales order...</option>
+                {customerOrders.map((order) => (
+                  <option key={order.id} value={order.id}>
+                    {order.sales_order_number || order.order_number} - {order.customer_name || order.customer?.name || 'Customer'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {selectedOrder && (
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">Product</label>
+              <select value="" onChange={(event) => addLine(event.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                <option value="">Add returned product...</option>
+                {orderLineOptions.map((line: any) => (
+                  <option key={line.product_id} value={line.product_id}>
+                    {line.product_name} ({line.product_sku}) - sold qty {line.quantity}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {lines.length > 0 && (
+            <div className="overflow-x-auto rounded-md border border-gray-200">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-700">Product</th>
+                    <th className="px-3 py-2 text-center font-semibold text-gray-700">Qty</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-700">Unit Price</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-700">Refund</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {lines.map((line) => (
+                    <tr key={line.id}>
+                      <td className="px-3 py-2">
+                        <p className="font-semibold text-gray-900">{line.product_name}</p>
+                        <p className="text-xs text-gray-500">{line.product_sku}</p>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input type="number" min={1} max={line.max_quantity} value={line.quantity}
+                          onChange={(event) => updateQuantity(line.id, Number(event.target.value))}
+                          className="w-20 rounded border border-gray-300 px-2 py-1 text-center text-sm" />
+                      </td>
+                      <td className="px-3 py-2 text-right">{formatCurrency(line.unit_price)}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-blue-700">{formatCurrency(line.line_total)}</td>
+                      <td className="px-3 py-2 text-right">
+                        <button onClick={() => setLines((current) => current.filter((item) => item.id !== line.id))}
+                          className="rounded p-1 text-red-500 hover:bg-red-50">
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Return Reason</label>
+            <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              placeholder="Reason for return..." />
+          </div>
+
+          <div className="rounded-md border border-gray-200 bg-gray-50 p-4 text-right">
+            <span className="text-sm text-gray-600">Refund request amount: </span>
+            <span className="text-lg font-bold text-blue-700">{formatCurrency(total)}</span>
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
+          <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">Cancel</button>
+          <button onClick={handleSave} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Create Return</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ========== MAIN SALES MODULE ==========
 const SalesModule: React.FC = () => {
   const showNotification = useUIStore(s => s.showNotification)
-  const [activeTab, setActiveTab] = useState<'orders' | 'quotations' | 'warranty'>('orders')
+  const [activeTab, setActiveTab] = useState<'orders' | 'quotations' | 'warranty' | 'returns'>('orders')
   const [orders, setOrders] = useState<any[]>([])
   const [quotations, setQuotations] = useState<any[]>([])
   const [warrantyOrders, setWarrantyOrders] = useState<any[]>([])
+  const [returns, setReturns] = useState<any[]>([])
   const [deliveries, setDeliveries] = useState<any[]>([])
   const [customers, setCustomers] = useState<any[]>([])
   const [leads, setLeads] = useState<any[]>([])
@@ -722,23 +909,25 @@ const SalesModule: React.FC = () => {
       erpApi.get<any[]>('/sales-orders?limit=100'),
       erpApi.get<any[]>('/sales-orders/quotations?limit=100'),
       erpApi.get<any[]>('/sales/warranty-orders?limit=100'),
+      erpApi.get<any[]>('/sales/returns?limit=100'),
       erpApi.get<any[]>('/inventory/delivery-orders?limit=500'),
       erpApi.get<any[]>('/customers?limit=1000'),
       erpApi.get<any[]>('/crm/leads?limit=100'),
       erpApi.get<any[]>('/products?limit=1000'),
     ])
-      .then(([orderData, quoteData, warrantyData, deliveryData, custData, leadData, prodData]) => {
+      .then(([orderData, quoteData, warrantyData, returnData, deliveryData, custData, leadData, prodData]) => {
         setLoadError(null)
         setOrders(orderData)
         setQuotations(quoteData)
         setWarrantyOrders(warrantyData)
+        setReturns(returnData)
         setDeliveries(deliveryData)
         setCustomers(custData)
         setLeads(leadData)
         setProducts(prodData)
       })
       .catch(e => {
-        setOrders([]); setQuotations([]); setWarrantyOrders([]); setDeliveries([]); setCustomers([]); setLeads([]); setProducts([])
+        setOrders([]); setQuotations([]); setWarrantyOrders([]); setReturns([]); setDeliveries([]); setCustomers([]); setLeads([]); setProducts([])
         setLoadError(e.message)
       })
   }
@@ -747,13 +936,13 @@ const SalesModule: React.FC = () => {
     loadAll()
   }, [])
 
-  const activeRecords = activeTab === 'orders' ? orders : activeTab === 'quotations' ? quotations : warrantyOrders
-  const setActiveRecords = activeTab === 'orders' ? setOrders : activeTab === 'quotations' ? setQuotations : setWarrantyOrders
+  const activeRecords = activeTab === 'orders' ? orders : activeTab === 'quotations' ? quotations : activeTab === 'warranty' ? warrantyOrders : returns
+  const setActiveRecords = activeTab === 'orders' ? setOrders : activeTab === 'quotations' ? setQuotations : activeTab === 'warranty' ? setWarrantyOrders : setReturns
   const deliveredOrders = useMemo(() => orders.filter((order) => order.status === 'delivered'), [orders])
 
   const filteredRecords = useMemo(() =>
     activeRecords.filter(r => {
-      const haystack = `${r.quotation_number || r.sales_order_number || r.warranty_order_number || ''} ${r.customer_name || r.customer?.name || ''} ${r.status}`.toLowerCase()
+      const haystack = `${r.quotation_number || r.sales_order_number || r.warranty_order_number || r.return_number || ''} ${r.customer_name || r.customer?.name || ''} ${r.status}`.toLowerCase()
       return haystack.includes(search.toLowerCase()) && (status === 'all' || r.status === status)
     }), [activeRecords, search, status])
 
@@ -768,6 +957,18 @@ const SalesModule: React.FC = () => {
       showNotification('success', 'Warranty sales order and invoice were created.')
     } catch (e: any) {
       showNotification('error', `Warranty order failed: ${e.message}`)
+    }
+  }
+
+  const handleReturnSave = async (payload: any) => {
+    try {
+      const created = await erpApi.post<any>('/sales/returns', payload)
+      setReturns((current) => [created, ...current])
+      await loadAll()
+      setModalOpen(false)
+      showNotification('success', 'Sales return, refund request, and return receipt were created.')
+    } catch (e: any) {
+      showNotification('error', `Sales return failed: ${e.message}`)
     }
   }
 
@@ -816,6 +1017,7 @@ const SalesModule: React.FC = () => {
   // IMPORTANT: Only send editable fields. Financial totals are GENERATED ALWAYS AS in DB.
   const handleSave = async (formData: FormRecord) => {
     const isOrder = activeTab === 'orders'
+    if (activeTab === 'returns') return
     const path = isOrder ? '/sales-orders' : '/sales-orders/quotations'
     // Send ONLY what the user can edit + the line data
     const payload: any = {
@@ -865,7 +1067,7 @@ const SalesModule: React.FC = () => {
   }
 
   const deleteRecord = async (record: any) => {
-    const path = activeTab === 'orders' ? '/sales-orders' : activeTab === 'quotations' ? '/sales-orders/quotations' : '/sales/warranty-orders'
+    const path = activeTab === 'orders' ? '/sales-orders' : activeTab === 'quotations' ? '/sales-orders/quotations' : activeTab === 'warranty' ? '/sales/warranty-orders' : '/sales/returns'
     if (!window.confirm(`Xóa ${record.quotation_number || record.sales_order_number || record.warranty_order_number}?`)) return
     try {
       await erpApi.delete(`${path}/${record.id}`)
@@ -898,7 +1100,7 @@ const SalesModule: React.FC = () => {
 
   const renderActions = (record: any) => (
     <div className="flex items-center gap-1">
-      {activeTab === 'orders' || activeTab === 'warranty' ? (
+      {activeTab === 'orders' || activeTab === 'warranty' || activeTab === 'returns' ? (
         <button onClick={() => deleteRecord(record)} className="rounded p-2 text-red-600 hover:bg-red-50" title="Delete">
           <Trash2 size={16} />
         </button>
@@ -930,7 +1132,7 @@ const SalesModule: React.FC = () => {
     </div>
   )
 
-  const title = activeTab === 'orders' ? 'Sales Order' : activeTab === 'quotations' ? 'Quotation' : 'Warranty Sales Order'
+  const title = activeTab === 'orders' ? 'Sales Order' : activeTab === 'quotations' ? 'Quotation' : activeTab === 'warranty' ? 'Warranty Sales Order' : 'Sales Return'
   const statuses = useMemo(() => Array.from(new Set(activeRecords.map(r => r.status).filter(Boolean))), [activeRecords])
 
   return (
@@ -950,11 +1152,12 @@ const SalesModule: React.FC = () => {
 
       <ModuleTabs
         activeTab={activeTab}
-        onChange={tab => { setActiveTab(tab as 'orders' | 'quotations' | 'warranty'); setSearch(''); setStatus('all') }}
+        onChange={tab => { setActiveTab(tab as 'orders' | 'quotations' | 'warranty' | 'returns'); setSearch(''); setStatus('all') }}
         tabs={[
           { id: 'orders', label: 'Sales Orders', count: orders.length },
           { id: 'quotations', label: 'Quotations', count: quotations.length },
           { id: 'warranty', label: 'Warranty Sales Orders', count: warrantyOrders.length },
+          { id: 'returns', label: 'Sales Returns', count: returns.length },
         ]}
       />
 
@@ -986,17 +1189,17 @@ const SalesModule: React.FC = () => {
               {filteredRecords.map(record => (
                 <tr key={record.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm font-semibold text-blue-700">
-                    {record.quotation_number || record.sales_order_number || record.warranty_order_number}
+                    {record.quotation_number || record.sales_order_number || record.warranty_order_number || record.return_number}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">
                     {record.customer_name || record.customer?.name}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">
-                    {record.issued_date || record.order_date || record.date}
+                    {record.issued_date || record.order_date || record.date || record.return_date}
                   </td>
                   <td className="px-4 py-3"><StatusBadge status={record.status} /></td>
                   <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">
-                    {formatCurrency(record.total_amount || record.subtotal || 0)}
+                    {formatCurrency(record.total_amount || record.subtotal || record.amount || 0)}
                   </td>
                   {activeTab === 'orders' && (
                     <td className={`px-4 py-3 text-right text-sm font-semibold ${
@@ -1024,12 +1227,12 @@ const SalesModule: React.FC = () => {
             <div key={record.id} className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-bold text-blue-700">{record.quotation_number || record.sales_order_number || record.warranty_order_number}</p>
+                  <p className="font-bold text-blue-700">{record.quotation_number || record.sales_order_number || record.warranty_order_number || record.return_number}</p>
                   <p className="text-sm text-gray-600">{record.customer_name || record.customer?.name}</p>
                 </div>
                 <StatusBadge status={record.status} />
               </div>
-              <p className="text-sm font-semibold text-gray-900">{formatCurrency(record.total_amount || record.subtotal || 0)}</p>
+              <p className="text-sm font-semibold text-gray-900">{formatCurrency(record.total_amount || record.subtotal || record.amount || 0)}</p>
               {activeTab === 'orders' && (
                 <p className={`text-sm font-semibold ${(record.estimated_profit || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   Lợi nhuận: {formatCurrency(record.estimated_profit || 0)}
@@ -1048,6 +1251,14 @@ const SalesModule: React.FC = () => {
           deliveries={deliveries}
           onClose={() => { setModalOpen(false); setModalRecord(null) }}
           onSave={handleWarrantySave}
+        />
+      ) : activeTab === 'returns' ? (
+        <SalesReturnModal
+          isOpen={modalOpen}
+          customers={customers}
+          deliveredOrders={deliveredOrders}
+          onClose={() => { setModalOpen(false); setModalRecord(null) }}
+          onSave={handleReturnSave}
         />
       ) : (
         <SalesModal
