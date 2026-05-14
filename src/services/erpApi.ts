@@ -1305,6 +1305,16 @@ const writeSalesReturn = async <T>(body: any, id?: string): Promise<T> => {
   if (order.customer_id !== customerId) throw new Error('Sales order does not belong to the selected customer.')
   if (order.status !== 'delivered') throw new Error('Returns can only be created for delivered sales orders.')
 
+  const { data: existingReturn, error: existingReturnError } = await supabase
+    .from('sales_returns')
+    .select('id, status')
+    .eq('sales_order_id', salesOrderId)
+    .neq('status', 'cancelled')
+    .limit(1)
+    .maybeSingle()
+  if (existingReturnError) throw existingReturnError
+  if (existingReturn?.id) throw new Error('This sales order already has a sales return.')
+
   const orderLines = (order.items || []).map(mapSalesOrderItem)
   const lines = (body.lines || []).map((line: any) => {
     const sourceLine = orderLines.find((item: any) => item.product_id === line.product_id)

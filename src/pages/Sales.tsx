@@ -712,14 +712,22 @@ const WarrantySalesModal: React.FC<{
 const SalesReturnModal: React.FC<{
   isOpen: boolean
   deliveredOrders: any[]
+  existingReturns: any[]
   onClose: () => void
   onSave: (data: any) => void
-}> = ({ isOpen, deliveredOrders, onClose, onSave }) => {
+}> = ({ isOpen, deliveredOrders, existingReturns, onClose, onSave }) => {
   const [salesOrderId, setSalesOrderId] = useState('')
   const [reason, setReason] = useState('')
   const [lines, setLines] = useState<ReturnLine[]>([])
 
-  const selectedOrder = deliveredOrders.find((order) => order.id === salesOrderId)
+  const returnedOrderIds = useMemo(() => new Set(
+    existingReturns
+      .filter((record) => String(record.status || '').toLowerCase() !== 'cancelled')
+      .map((record) => record.sales_order_id || record.salesOrderId || record.sales_order?.id)
+      .filter(Boolean)
+  ), [existingReturns])
+  const availableOrders = deliveredOrders.filter((order) => !returnedOrderIds.has(order.id))
+  const selectedOrder = availableOrders.find((order) => order.id === salesOrderId)
   const selectedCustomerId = selectedOrder?.customer_id || selectedOrder?.customer?.id || ''
   const orderLineOptions = (selectedOrder?.lines || []).filter((line: any) => !lines.some((item) => item.product_id === line.product_id))
 
@@ -783,7 +791,7 @@ const SalesReturnModal: React.FC<{
               <select value={salesOrderId} onChange={(event) => setSalesOrderId(event.target.value)}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
                 <option value="">Select sales order...</option>
-                {deliveredOrders.map((order) => (
+                {availableOrders.map((order) => (
                   <option key={order.id} value={order.id}>
                     {order.sales_order_number || order.order_number} - {order.customer_name || order.customer?.name || 'Customer'}
                   </option>
@@ -1281,6 +1289,7 @@ const SalesModule: React.FC = () => {
         <SalesReturnModal
           isOpen={modalOpen}
           deliveredOrders={deliveredOrders}
+          existingReturns={returns}
           onClose={() => { setModalOpen(false); setModalRecord(null) }}
           onSave={handleReturnSave}
         />
