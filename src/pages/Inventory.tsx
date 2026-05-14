@@ -361,8 +361,13 @@ const TransferModal: React.FC<{
   )
 }
 
-const flow: Record<string, string> = {
-  delivering: 'delivered',
+const flow: Record<string, Record<string, string>> = {
+  deliveries: {
+    delivering: 'delivered',
+  },
+  receipts: {
+    delivering: 'received',
+  },
 }
 
 const InventoryModule: React.FC = () => {
@@ -811,7 +816,7 @@ const InventoryModule: React.FC = () => {
   }
 
   const advanceRecord = async (record: any) => {
-    const nextStatus = flow[record.status]
+    const nextStatus = flow[activeTab]?.[record.status]
     if (!nextStatus) return
     const pathMap: Record<string, string> = {
       deliveries: '/inventory/delivery-orders',
@@ -855,8 +860,8 @@ const InventoryModule: React.FC = () => {
         setModalOpen(true)
       }}
       onDelete={() => deleteRecord(record)}
-      onAdvance={(activeTab === 'deliveries' && record.status === 'delivering') ? () => advanceRecord(record) : undefined}
-      advanceLabel="Delivered"
+      onAdvance={flow[activeTab]?.[record.status] ? () => advanceRecord(record) : undefined}
+      advanceLabel={activeTab === 'receipts' ? 'Receive' : 'Delivered'}
     />
   )
 

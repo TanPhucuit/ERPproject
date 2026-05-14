@@ -62,8 +62,12 @@ const billStatus = (value?: string | null) =>
 const receiptStatus = (value?: string | null) =>
   ['ready', 'delivering', 'received', 'completed', 'cancelled'].includes(value || '') ? value! : 'ready'
 
-const rfqStatus = (value?: string | null) =>
-  ['sent', 'closed', 'cancelled'].includes(value || '') ? value! : 'sent'
+const rfqStatus = (value?: string | null) => {
+  if (value === 'sent') return 'new'
+  if (value === 'closed') return 'accepted'
+  if (value === 'cancelled' || value === 'rejected') return 'denied'
+  return ['new', 'accepted', 'denied'].includes(value || '') ? value! : 'new'
+}
 
 const purchaseOrderStatus = (value?: string | null) =>
   ['sent', 'received', 'cancelled'].includes(value || '') ? value! : 'sent'
@@ -219,8 +223,10 @@ const mapRfqItem = (item: any) => ({
 const mapRfq = (rfq: any) => {
   const lines = (rfq?.items || rfq?.rfq_items || []).map(mapRfqItem)
   const supplierNames = Array.from(new Set(lines.map((line: any) => line.supplier_name).filter(Boolean)))
+  const displayStatus = rfq?.status === 'sent' ? 'new' : rfq?.status === 'closed' ? 'accepted' : rfq?.status === 'cancelled' ? 'denied' : rfq?.status
   return {
     ...rfq,
+    status: displayStatus,
     rfq_number: rfq?.rfq_number || rfq?.id?.slice(0, 8),
     issued_date: rfq?.issue_date,
     closing_date: rfq?.deadline,
@@ -1125,7 +1131,7 @@ const writeRfq = async <T>(body: any, id?: string): Promise<T> => {
   })).filter((line: any) => isUuid(line.supplier_products_id))
   if (lines.length === 0) throw new Error('RFQ must have at least one supplier product line.')
   await replaceChildren('rfq_items', 'rfq_id', data.id, lines)
-  if (payload.status === 'closed') {
+  if (payload.status === 'accepted') {
     await ensurePurchaseOrdersFromRfq(data.id)
   }
   return mapRfq(await getSingle('rfqs', data.id, selectRfq)) as T

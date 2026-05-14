@@ -360,10 +360,6 @@ const POLinesEditor: React.FC<{
   )
 }
 
-const flow: Record<string, string> = {
-  sent: 'received',
-}
-
 void POLinesEditor
 
 // ========== RFQ CUSTOM MODAL ==========
@@ -381,7 +377,7 @@ const RFQModal: React.FC<{
     issuedDate: new Date().toISOString().slice(0, 10),
     closingDate: '',
     totalEstimatedCost: 0,
-    status: 'sent',
+    status: 'new',
     notes: '',
     lines: [],
     quotations: {},
@@ -393,7 +389,7 @@ const RFQModal: React.FC<{
       issuedDate: new Date().toISOString().slice(0, 10),
       closingDate: '',
       totalEstimatedCost: 0,
-      status: 'sent',
+      status: 'new',
       notes: '',
       lines: [],
       quotations: {},
@@ -926,20 +922,15 @@ const PurchaseModule: React.FC = () => {
   }
 
   const advanceRecord = async (record: any) => {
-    // Different flow for PO and RFQ
-    const poFlow: Record<string, string> = {
-      sent: 'received',
-    }
+    if (activeTab !== 'rfqs') return
     const rfqFlow: Record<string, string> = {
-      sent: 'closed',
+      new: 'accepted',
     }
-    const currentFlow = activeTab === 'purchase-orders' ? poFlow : rfqFlow
-    const nextStatus = currentFlow[record.status]
+    const nextStatus = rfqFlow[record.status]
     if (!nextStatus) return
-    const path = activeTab === 'purchase-orders' ? '/purchase/purchase-orders' : '/purchase/rfqs'
     try {
-      await erpApi.put(`${path}/${record.id}`, { ...record, status: nextStatus })
-      if (activeTab === 'rfqs' && nextStatus === 'closed') {
+      await erpApi.put(`/purchase/rfqs/${record.id}`, { ...record, status: nextStatus })
+      if (nextStatus === 'accepted') {
         const records = await erpApi.get<any[]>('/purchase/purchase-orders?limit=100')
         setPurchaseOrders(records.map((po) => ({
           ...po,
@@ -982,8 +973,8 @@ const PurchaseModule: React.FC = () => {
         setModalOpen(true)
       }}
       onDelete={() => deleteRecord(record)}
-      onAdvance={activeTab === 'purchase-orders' && record.status !== 'received' && flow[record.status] ? () => advanceRecord(record) : activeTab === 'rfqs' && flow[record.status] ? () => advanceRecord(record) : undefined}
-      advanceLabel={activeTab === 'purchase-orders' ? 'Receive' : 'Award'}
+      onAdvance={activeTab === 'rfqs' && record.status === 'new' ? () => advanceRecord(record) : undefined}
+      advanceLabel="Accept"
     />
   )
 

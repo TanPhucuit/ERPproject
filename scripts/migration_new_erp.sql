@@ -424,7 +424,7 @@ CREATE TABLE rfqs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   issue_date DATE NOT NULL DEFAULT CURRENT_DATE,
   deadline DATE,
-  status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent','closed','cancelled')),
+  status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','accepted','denied')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -812,6 +812,26 @@ CREATE TRIGGER update_delivery_orders_updated_at BEFORE UPDATE ON delivery_order
 CREATE TRIGGER update_invoices_updated_at BEFORE UPDATE ON invoices FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_rfqs_updated_at BEFORE UPDATE ON rfqs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_receipts_updated_at BEFORE UPDATE ON receipts FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE OR REPLACE FUNCTION normalize_rfq_status()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.status = CASE NEW.status
+    WHEN 'sent' THEN 'new'
+    WHEN 'closed' THEN 'accepted'
+    WHEN 'cancelled' THEN 'denied'
+    WHEN 'rejected' THEN 'denied'
+    WHEN NULL THEN 'new'
+    ELSE NEW.status
+  END;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER normalize_rfq_status_before_insert_update
+BEFORE INSERT OR UPDATE OF status ON rfqs
+FOR EACH ROW
+EXECUTE FUNCTION normalize_rfq_status();
 
 CREATE TRIGGER set_quotation_number BEFORE INSERT ON quotations FOR EACH ROW EXECUTE FUNCTION set_quotation_number();
 CREATE TRIGGER set_sales_order_number BEFORE INSERT ON sales_orders FOR EACH ROW EXECUTE FUNCTION set_sales_order_number();
