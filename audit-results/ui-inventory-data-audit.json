@@ -1,0 +1,70 @@
+{
+  "runAt": "2026-05-17T03:32:49.657Z",
+  "appUrl": "http://127.0.0.1:5173/app/inventory",
+  "scenario": {
+    "productId": "00000000-0000-0000-0000-000000000408",
+    "productName": "Smart Plug",
+    "sourceBinId": "00000000-0000-0000-0000-000000000523",
+    "sourceBinLabel": "N-03",
+    "targetBinId": "00000000-0000-0000-0000-000000000521",
+    "targetBinLabel": "N-01",
+    "warehouseId": "00000000-0000-0000-0000-000000000502",
+    "warehouseLabel": "North Warehouse",
+    "quantity": 1
+  },
+  "before": {
+    "sourceBin": {
+      "quantity": 120,
+      "available": 120
+    },
+    "targetBin": {
+      "quantity": 0,
+      "available": 0
+    },
+    "stockLevel": {
+      "total_quantity": 120,
+      "available": 120,
+      "new_quantity": 0,
+      "quantity_on_hand": 0
+    },
+    "transferCount": 3
+  },
+  "after": {
+    "sourceBin": {
+      "quantity": 119,
+      "available": 119
+    },
+    "targetBin": {
+      "quantity": 1,
+      "available": 1
+    },
+    "stockLevel": {
+      "total_quantity": 120,
+      "available": 120,
+      "new_quantity": 0,
+      "quantity_on_hand": 0
+    },
+    "transferCount": 4
+  },
+  "restored": {
+    "sourceBin": {
+      "quantity": 120,
+      "available": 120
+    },
+    "targetBin": {
+      "quantity": 0,
+      "available": 0
+    },
+    "stockLevel": {
+      "total_quantity": 120,
+      "available": 120,
+      "new_quantity": 0,
+      "quantity_on_hand": 0
+    },
+    "transferCount": 5
+  },
+  "modalText": "Create Stock Transfer\nx\nTransfer Type\nTransfer between bins\nShip to customer\nNotes\nSource Warehouse\nSelect source warehouse...\nMain Warehouse\nNorth Warehouse\nSource Bin\nSelect source bin...\nProduct\nSelect product...\nQuantity\nDestination Warehouse\nSelect destination warehouse...\nMain Warehouse\nNorth Warehouse\nDestination Bin\nSelect destination bin...\nCancel\nSave Transfer",
+  "findings": [],
+  "pageErrors": [],
+  "consoleErrors": []
+}

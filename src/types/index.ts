@@ -44,7 +44,7 @@ export interface Lead {
   phone?: string
   company?: string
   source: 'referral' | 'auto_request' | 'website' | 'phone' | 'email' | 'event' | 'other'
-  status: 'new' | 'quoted' | 'won' | 'lost'
+  status: 'new' | 'won' | 'lost'
   probability: number
   assigned_to_id?: string
   lead_number?: string
@@ -52,7 +52,7 @@ export interface Lead {
   contact_person_name?: string
   contact_person_email?: string
   probability_percent?: number
-  stage?: 'new' | 'quoted' | 'won' | 'lost'
+  stage?: 'new' | 'won' | 'lost'
 }
 
 export interface LegacyCustomer {

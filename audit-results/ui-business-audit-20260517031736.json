@@ -1,0 +1,83 @@
+{
+  "runAt": "2026-05-17T03:18:24.915Z",
+  "baseUrl": "https://er-pproject-three.vercel.app/app/",
+  "qaEmail": "qa.20260517031736@example.com",
+  "counts": {
+    "findings": 6,
+    "critical": 0,
+    "high": 3,
+    "medium": 3,
+    "low": 0,
+    "consoleMessages": 2,
+    "pageErrors": 0,
+    "networkErrors": 0
+  },
+  "findings": [
+    {
+      "severity": "Medium",
+      "area": "Sales",
+      "title": "Audit step failed before completion",
+      "evidence": "Error: Could not click any text: New Quotation, Tạo Quotation, Create Quotation\n    at clickAnyText (file:///D:/project/ERP/scripts/ui_business_audit.mjs:63:9)\n    at async auditSales (file:///D:/project/ERP/scripts/ui_business_audit.mjs:247:3)\n    at async main (file:///D:/project/ERP/scripts/ui_business_audit.mjs:366:9)",
+      "impact": "The UI may have inaccessible controls or labels that block normal tester workflows."
+    },
+    {
+      "severity": "Medium",
+      "area": "Purchase",
+      "title": "Audit step failed before completion",
+      "evidence": "Error: Could not click any text: New RFQ, Tạo RFQ, Create RFQ\n    at clickAnyText (file:///D:/project/ERP/scripts/ui_business_audit.mjs:63:9)\n    at async auditPurchase (file:///D:/project/ERP/scripts/ui_business_audit.mjs:267:3)\n    at async main (file:///D:/project/ERP/scripts/ui_business_audit.mjs:366:9)",
+      "impact": "The UI may have inaccessible controls or labels that block normal tester workflows."
+    },
+    {
+      "severity": "High",
+      "area": "Inventory Transfer",
+      "title": "Transfer form missing Source Warehouse",
+      "evidence": "Create Stock Transfer\nx\nTransfer Type\nTransfer between bins\nShip to customer\nNotes\nSource Bin\nNew stock\nN-03 - North Warehouse\nA-01 - Main Warehouse\nN-02 - North Warehouse\nA-02 - Main Warehouse\nB-01 - Main Warehouse\nN-01 - North Warehouse\nProduct\nSelect product...\nSmart Switch 2 Gang (SWITCH-02) - new 1 - Main Warehouse\nSmart Hub Pro (HUB-PRO-01) - new 2 - Main Warehouse\nOutdoor Camera (CAM-OUT-01) - new 2 - Main Warehouse\nQuantity\nDestination Bin\nSelect destination bin...\nA-01 - Main Warehouse\nA-02 - Main Warehouse\nB-01 - Main Warehouse\nN-01 - North Warehouse\nN-02 - North Warehouse\nN-03 - North Warehouse\nCancel\nSave Transfer",
+      "impact": "Transfer cannot update source/destination stock correctly."
+    },
+    {
+      "severity": "High",
+      "area": "Inventory Transfer",
+      "title": "Transfer form missing Destination Warehouse",
+      "evidence": "Create Stock Transfer\nx\nTransfer Type\nTransfer between bins\nShip to customer\nNotes\nSource Bin\nNew stock\nN-03 - North Warehouse\nA-01 - Main Warehouse\nN-02 - North Warehouse\nA-02 - Main Warehouse\nB-01 - Main Warehouse\nN-01 - North Warehouse\nProduct\nSelect product...\nSmart Switch 2 Gang (SWITCH-02) - new 1 - Main Warehouse\nSmart Hub Pro (HUB-PRO-01) - new 2 - Main Warehouse\nOutdoor Camera (CAM-OUT-01) - new 2 - Main Warehouse\nQuantity\nDestination Bin\nSelect destination bin...\nA-01 - Main Warehouse\nA-02 - Main Warehouse\nB-01 - Main Warehouse\nN-01 - North Warehouse\nN-02 - North Warehouse\nN-03 - North Warehouse\nCancel\nSave Transfer",
+      "impact": "Transfer cannot update source/destination stock correctly."
+    },
+    {
+      "severity": "High",
+      "area": "Inventory Transfer",
+      "title": "Transfer form missing Status",
+      "evidence": "Create Stock Transfer\nx\nTransfer Type\nTransfer between bins\nShip to customer\nNotes\nSource Bin\nNew stock\nN-03 - North Warehouse\nA-01 - Main Warehouse\nN-02 - North Warehouse\nA-02 - Main Warehouse\nB-01 - Main Warehouse\nN-01 - North Warehouse\nProduct\nSelect product...\nSmart Switch 2 Gang (SWITCH-02) - new 1 - Main Warehouse\nSmart Hub Pro (HUB-PRO-01) - new 2 - Main Warehouse\nOutdoor Camera (CAM-OUT-01) - new 2 - Main Warehouse\nQuantity\nDestination Bin\nSelect destination bin...\nA-01 - Main Warehouse\nA-02 - Main Warehouse\nB-01 - Main Warehouse\nN-01 - North Warehouse\nN-02 - North Warehouse\nN-03 - North Warehouse\nCancel\nSave Transfer",
+      "impact": "Transfer cannot update source/destination stock correctly."
+    },
+    {
+      "severity": "Medium",
+      "area": "Inventory Transfer",
+      "title": "Transfer status does not expose success state",
+      "evidence": "Create Stock Transfer\nx\nTransfer Type\nTransfer between bins\nShip to customer\nNotes\nSource Bin\nNew stock\nN-03 - North Warehouse\nA-01 - Main Warehouse\nN-02 - North Warehouse\nA-02 - Main Warehouse\nB-01 - Main Warehouse\nN-01 - North Warehouse\nProduct\nSelect product...\nSmart Switch 2 Gang (SWITCH-02) - new 1 - Main Warehouse\nSmart Hub Pro (HUB-PRO-01) - new 2 - Main Warehouse\nOutdoor Camera (CAM-OUT-01) - new 2 - Main Warehouse\nQuantity\nDestination Bin\nSelect destination bin...\nA-01 - Main Warehouse\nA-02 - Main Warehouse\nB-01 - Main Warehouse\nN-01 - North Warehouse\nN-02 - North Warehouse\nN-03 - North Warehouse\nCancel\nSave Transfer",
+      "impact": "Business rule expects draft -> success for completing transfer."
+    }
+  ],
+  "observations": [
+    {
+      "area": "Auth",
+      "title": "Logged in with seed account",
+      "evidence": "admin@erp.local"
+    },
+    {
+      "area": "CRM",
+      "title": "Visible buttons/tabs",
+      "evidence": "NTNovaTech ERP | AAlice Adminadmin | Dashboard | CRM | Sales | Purchase | Inventory | Accounting | Master Data | New Lead | Leads (1) | Activities (0)"
+    }
+  ],
+  "consoleMessages": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 406 ()"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 406 ()"
+    }
+  ],
+  "pageErrors": [],
+  "networkErrors": []
+}

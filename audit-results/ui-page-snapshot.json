@@ -1,0 +1,187 @@
+{
+  "/app/crm": {
+    "url": "https://er-pproject-three.vercel.app/app/crm",
+    "title": "NovaTech ERP",
+    "body": "NT\nNovaTech ERP\nA\n\nAlice Admin\n\nadmin\n\nDashboard\nCRM\nSales\nPurchase\nInventory\nAccounting\nMaster Data\nCRM\n\nManage leads from prospecting to survey, quotation, and closing.\n\nNew Lead\nLeads (1)\nActivities (0)\nAll Statuses\nnew\nquoted\nwon\nlost\nLead #\tCustomer\tContact\tProbability\tStatus\tActions\n\n\n4ddfb1fc\n\nSarah Sales\n\n\t\n\nphuc\n\n\t\n\nPhúc Huỳnh Tấn\n\n23521197@gm.uit.edu.vn\n\n\t100%\twon\t",
+    "buttons": [
+      "NTNovaTech ERP",
+      "AAlice Adminadmin",
+      "Dashboard",
+      "CRM",
+      "Sales",
+      "Purchase",
+      "Inventory",
+      "Accounting",
+      "Master Data",
+      "New Lead",
+      "Leads (1)",
+      "Activities (0)"
+    ],
+    "selects": [
+      {
+        "value": "all",
+        "options": [
+          "All Statuses",
+          "new",
+          "quoted",
+          "won",
+          "lost"
+        ]
+      }
+    ]
+  },
+  "/app/sales": {
+    "url": "https://er-pproject-three.vercel.app/app/sales",
+    "title": "NovaTech ERP",
+    "body": "NT\nNovaTech ERP\nA\n\nAlice Admin\n\nadmin\n\nDashboard\nCRM\nSales\nPurchase\nInventory\nAccounting\nMaster Data\nSales\n\nManage quotations and sales orders. Enter tax percent; the system calculates subtotal, tax amount, total, and estimated profit automatically.\n\nNew Sales Order\nSales Orders (2)\nQuotations (1)\nWarranty Sales Orders (0)\nSales Returns (2)\nAll Statuses\ndelivered\nReference\tCustomer\tDate\tStatus\tTotal\tProfit\tActions\nSO-457516\tPhúc Huỳnh Tấn\t2026-05-14\tdelivered\t₫5,900,000\t₫2,450,000\t\n\nSO-20260514-0001\tPhúc Huỳnh Tấn\t2026-05-14\tdelivered\t₫7,270,000\t₫3,140,000\t",
+    "buttons": [
+      "NTNovaTech ERP",
+      "AAlice Adminadmin",
+      "Dashboard",
+      "CRM",
+      "Sales",
+      "Purchase",
+      "Inventory",
+      "Accounting",
+      "Master Data",
+      "New Sales Order",
+      "Sales Orders (2)",
+      "Quotations (1)",
+      "Warranty Sales Orders (0)",
+      "Sales Returns (2)"
+    ],
+    "selects": [
+      {
+        "value": "all",
+        "options": [
+          "All Statuses",
+          "delivered"
+        ]
+      }
+    ]
+  },
+  "/app/purchase": {
+    "url": "https://er-pproject-three.vercel.app/app/purchase",
+    "title": "NovaTech ERP",
+    "body": "NT\nNovaTech ERP\nA\n\nAlice Admin\n\nadmin\n\nDashboard\nCRM\nSales\nPurchase\nInventory\nAccounting\nMaster Data\nPurchase\n\nManage RFQs and purchase orders for imported SmartHome and IoT devices.\n\nPO from accepted RFQ\nPurchase Orders (1)\nRFQs (1)\nAll Statuses\nsent\nReference\tRFQ\tProducts\tDate\tStatus\tTotal Estimated Cost\tActions\nPO-20260514-0001\t8c0fc556\t3 products\t2026-05-14\tsent\t₫3,545,000\t",
+    "buttons": [
+      "NTNovaTech ERP",
+      "AAlice Adminadmin",
+      "Dashboard",
+      "CRM",
+      "Sales",
+      "Purchase",
+      "Inventory",
+      "Accounting",
+      "Master Data",
+      "PO from accepted RFQ",
+      "Purchase Orders (1)",
+      "RFQs (1)"
+    ],
+    "selects": [
+      {
+        "value": "all",
+        "options": [
+          "All Statuses",
+          "sent"
+        ]
+      }
+    ]
+  },
+  "/app/inventory": {
+    "url": "https://er-pproject-three.vercel.app/app/inventory",
+    "title": "NovaTech ERP",
+    "body": "NT\nNovaTech ERP\nA\n\nAlice Admin\n\nadmin\n\nDashboard\nCRM\nSales\nPurchase\nInventory\nAccounting\nMaster Data\nInventory\n\nTrack reserved order stock in Stock Levels and physical availability in Stock in Bins.\n\nManaged Automatically\nStock Levels (9)\nStock in Bins (9)\nDelivery Orders (2)\nGoods Receipts (3)\nStock Transfers (1)\nAll Statuses\nProduct\tWarehouse\tOn Hand (Reserved Unpaid)\tTotal Qty\tAvailable\tReorder Status\nSmart Plug\tNorth Warehouse\t0\t120\t120\tnormal\nSmart Lock\tNorth Warehouse\t0\t20\t20\tnormal\nDoor Sensor\tMain Warehouse\t0\t100\t100\tnormal\nIndoor Camera\tMain Warehouse\t0\t40\t40\tnormal\nSmart Switch 2 Gang\tNorth Warehouse\t0\t89\t89\tnormal\nSmart Switch 2 Gang\tMain Warehouse\t0\t1\t0\tnormal\nSmart Hub Pro\tMain Warehouse\t0\t25\t23\tnormal\nOutdoor Camera\tMain Warehouse\t0\t35\t33\tnormal\nMotion Sensor\tMain Warehouse\t0\t80\t80\tnormal",
+    "buttons": [
+      "NTNovaTech ERP",
+      "AAlice Adminadmin",
+      "Dashboard",
+      "CRM",
+      "Sales",
+      "Purchase",
+      "Inventory",
+      "Accounting",
+      "Master Data",
+      "Managed Automatically",
+      "Stock Levels (9)",
+      "Stock in Bins (9)",
+      "Delivery Orders (2)",
+      "Goods Receipts (3)",
+      "Stock Transfers (1)"
+    ],
+    "selects": [
+      {
+        "value": "all",
+        "options": [
+          "All Statuses"
+        ]
+      }
+    ]
+  },
+  "/app/accounting": {
+    "url": "https://er-pproject-three.vercel.app/app/accounting",
+    "title": "NovaTech ERP",
+    "body": "NT\nNovaTech ERP\nA\n\nAlice Admin\n\nadmin\n\nDashboard\nCRM\nSales\nPurchase\nInventory\nAccounting\nMaster Data\nAccounting\n\nReview invoices, vendor bills, credit notes, debit notes, and payment state.\n\nNew Customer Invoice\n\nOutstanding Receivable\n\n₫0\n\nOutstanding Payable\n\n₫3,899,500\n\nCustomer Invoices (2)\nVendor Bills (1)\nCredit Notes (0)\nDebit Notes (0)\nRefund Requests (2)\nPayments (4)\nAccounts (20)\nAll Statuses\npaid\nReference\tPartner\tDate\tStatus\tAmount\tActions\nINV-20260514-0002\tPhúc Huỳnh Tấn\t2026-05-14\tpaid\t\n\n₫6,490,000\n\nPaid: ₫6,490,000\n\nDue: ₫0\n\n\t\n\nINV-20260514-0001\tPhúc Huỳnh Tấn\t2026-05-14\tpaid\t\n\n₫7,997,000\n\nPaid: ₫7,997,000\n\nDue: ₫0\n\n\t",
+    "buttons": [
+      "NTNovaTech ERP",
+      "AAlice Adminadmin",
+      "Dashboard",
+      "CRM",
+      "Sales",
+      "Purchase",
+      "Inventory",
+      "Accounting",
+      "Master Data",
+      "New Customer Invoice",
+      "Customer Invoices (2)",
+      "Vendor Bills (1)",
+      "Credit Notes (0)",
+      "Debit Notes (0)",
+      "Refund Requests (2)",
+      "Payments (4)",
+      "Accounts (20)"
+    ],
+    "selects": [
+      {
+        "value": "all",
+        "options": [
+          "All Statuses",
+          "paid"
+        ]
+      }
+    ]
+  },
+  "/app/master-data": {
+    "url": "https://er-pproject-three.vercel.app/app/master-data",
+    "title": "NovaTech ERP",
+    "body": "NT\nNovaTech ERP\nA\n\nAlice Admin\n\nadmin\n\nDashboard\nCRM\nSales\nPurchase\nInventory\nAccounting\nMaster Data\nMaster Data\n\nMaintain the core ERP records for categories, products, customers, suppliers, users, warehouses, and bin locations.\n\nNew Category\nCategories (8)\nProducts (8)\nSupplier Products (16)\nCustomers (5)\nSuppliers (3)\nUsers (5)\nWarehouses (2)\nBin Locations (6)\nAll Statuses\nCategory\tParent\tActions\nAccess Control\t-\t\n\nControl Hubs\t-\t\n\nEnvironmental Sensors\t-\t\n\nIndoor Cameras\t-\t\n\nOutdoor Cameras\t-\t\n\nPower & Energy\t-\t\n\nSafety & Monitoring\t-\t\n\nSwitches & Automation\t-\t",
+    "buttons": [
+      "NTNovaTech ERP",
+      "AAlice Adminadmin",
+      "Dashboard",
+      "CRM",
+      "Sales",
+      "Purchase",
+      "Inventory",
+      "Accounting",
+      "Master Data",
+      "New Category",
+      "Categories (8)",
+      "Products (8)",
+      "Supplier Products (16)",
+      "Customers (5)",
+      "Suppliers (3)",
+      "Users (5)",
+      "Warehouses (2)",
+      "Bin Locations (6)"
+    ],
+    "selects": [
+      {
+        "value": "all",
+        "options": [
+          "All Statuses"
+        ]
+      }
+    ]
+  }
+}

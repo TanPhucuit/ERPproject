@@ -1,0 +1,37 @@
+{
+  "runAt": "2026-05-17T03:35:47.274Z",
+  "url": "http://127.0.0.1:5173",
+  "counts": {
+    "findings": 1,
+    "high": 1,
+    "medium": 0,
+    "pageErrors": 0,
+    "consoleErrors": 0
+  },
+  "findings": [
+    {
+      "severity": "High",
+      "area": "RFQ Form",
+      "title": "RFQ form has no supplier selection/quotation section",
+      "proof": "Create new RFQ\nRFQ #\nIssued Date\nClosing Date\nPRODUCTS (0)\nNo products added. Use search above to add products to RFQ.\nTotal Estimated Cost:\n₫0\nNotes\nCancel\nCreate RFQ",
+      "impact": "Cannot compare supplier quotes or generate supplier quotations from RFQ."
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "evidence": {
+    "crm": "NT\nNovaTech ERP\nA\n\nAlice Admin\n\nadmin\n\nDashboard\nCRM\nSales\nPurchase\nInventory\nAccounting\nMaster Data\nCRM\n\nManage leads from prospecting to survey, quotation, and closing.\n\nNew Lead\nLeads (1)\nActivities (0)\nAll Statuses\nnew\nwon\nlost\nLead #\tCustomer\tContact\tProbability\tStatus\tActions\n\n\n4ddfb1fc\n\nSarah Sales\n\n\t\n\nphuc\n\n\t\n\nPhúc Huỳnh Tấn\n\n23521197@gm.uit.edu.vn\n\n\t100%\twon\t",
+    "crm.newLeadModal": "Create Lead\nLead #\nSource\nWebsite\nReferral\nPhone\nEmail\nEvent\nAuto Request\nOther\nLEAD INFORMATION\nCustomer / Company Name *\nContact Name\nEmail *\nPhone\nTax ID\nAddress\nProbability (%)\nSales Owner\n-- Select salesperson --\nAlice Admin (admin)\nSarah Sales (sales)\nPeter Purchase (purchasing)\nWendy Warehouse (warehouse)\nAdam Accounting (accountant)\nNotes\nCancel\nCreate Lead",
+    "salesQuotationTab": "NT\nNovaTech ERP\nA\n\nAlice Admin\n\nadmin\n\nDashboard\nCRM\nSales\nPurchase\nInventory\nAccounting\nMaster Data\nSales\n\nManage quotations and sales orders. Enter tax percent; the system calculates subtotal, tax amount, total, and estimated profit automatically.\n\nNew Quotation\nSales Orders (2)\nQuotations (1)\nWarranty Sales Orders (0)\nSales Returns (2)\nAll Statuses\naccepted\nReference\tCustomer\tDate\tStatus\tTotal\tActions\nQT-195048\tPhúc Huỳnh Tấn\t2026-05-14\taccepted\t₫7,997,000\t",
+    "sales.newQuotationModal": "Create new Quotation\nReference\nSource Lead\nSelect source lead...\nQuotation Date\nQuotation Deadline\nPRODUCTS (0)\nNo products yet. Use the search box above to add products.\nSUMMARY (AUTO CALCULATED)\nSubtotal = sum(qty * price * (1 - discount%)):\n₫0\nTax (%):\n%\nTax amount = Subtotal * tax%:\n₫0\nTotal = Subtotal + Tax:\n₫0\nNotes\nCancel\nCreate",
+    "sales.quotation.modalAfterSave": "Create new Quotation\nReference\nSource Lead\nSelect source lead...\n\nSource lead is required\n\nQuotation Date\nQuotation Deadline\nPRODUCTS (0)\n\nAt least one product is required\n\nNo products yet. Use the search box above to add products.\nSUMMARY (AUTO CALCULATED)\nSubtotal = sum(qty * price * (1 - discount%)):\n₫0\nTax (%):\n%\nTax amount = Subtotal * tax%:\n₫0\nTotal = Subtotal + Tax:\n₫0\nNotes\nCancel\nCreate",
+    "sales.quotation.afterEmptySave": "Create new Quotation\nReference\nSource Lead\nSelect source lead...\n\nSource lead is required\n\nQuotation Date\nQuotation Deadline\nPRODUCTS (0)\n\nAt least one product is required\n\nNo products yet. Use the search box above to add products.\nSUMMARY (AUTO CALCULATED)\nSubtotal = sum(qty * price * (1 - discount%)):\n₫0\nTax (%):\n%\nTax amount = Subtotal * tax%:\n₫0\nTotal = Subtotal + Tax:\n₫0\nNotes\nCancel\nCreate",
+    "rfqTab": "NT\nNovaTech ERP\nA\n\nAlice Admin\n\nadmin\n\nDashboard\nCRM\nSales\nPurchase\nInventory\nAccounting\nMaster Data\nPurchase\n\nManage RFQs and purchase orders for imported SmartHome and IoT devices.\n\nNew RFQ\nPurchase Orders (1)\nRFQs (1)\nAll Statuses\naccepted\nReference\tSupplier\tRequirement\tDate\tStatus\tTotal Estimated Cost\tActions\n8c0fc556\tApex Smart Devices, SecureVision Factory, HomeLink Components\tDevice replenishment\t2026-05-14\taccepted\t₫3,545,000\t",
+    "purchase.newRfqModal": "Create new RFQ\nRFQ #\nIssued Date\nClosing Date\nPRODUCTS (0)\nNo products added. Use search above to add products to RFQ.\nTotal Estimated Cost:\n₫0\nNotes\nCancel\nCreate RFQ",
+    "purchase.rfq.modalAfterSave": "Create new RFQ\nRFQ must have at least one product line.\nRFQ #\nIssued Date\nClosing Date\nPRODUCTS (0)\nNo products added. Use search above to add products to RFQ.\nTotal Estimated Cost:\n₫0\nNotes\nCancel\nCreate RFQ",
+    "purchase.rfq.afterEmptySave": "Create new RFQ\nRFQ must have at least one product line.\nRFQ #\nIssued Date\nClosing Date\nPRODUCTS (0)\nNo products added. Use search above to add products to RFQ.\nTotal Estimated Cost:\n₫0\nNotes\nCancel\nCreate RFQ",
+    "transferTab": "NT\nNovaTech ERP\nA\n\nAlice Admin\n\nadmin\n\nDashboard\nCRM\nSales\nPurchase\nInventory\nAccounting\nMaster Data\nInventory\n\nTrack reserved order stock in Stock Levels and physical availability in Stock in Bins.\n\nNew Stock Transfer\nStock Levels (9)\nStock in Bins (10)\nDelivery Orders (2)\nGoods Receipts (3)\nStock Transfers (5)\nReference\tProduct\tSource Bin\tDestination Bin\tQuantity\tDate\tActions\n8fffa433\tSmart Plug\tN-01\tN-03\t1\t2026-05-17\t\ncf59bd82\tSmart Plug\tN-03\tN-01\t1\t2026-05-17\t\ndb8419f0\tSmart Plug\tN-01\tN-03\t1\t2026-05-17\t\n04369570\tSmart Plug\tN-03\tN-01\t1\t2026-05-17\t\n0df923b9\tMotion Sensor\tNew stock\tA-01\t1\t2026-05-14\t",
+    "inventory.transferModal": "Create Stock Transfer\nx\nTransfer Type\nTransfer between bins\nShip to customer\nNotes\nSource Warehouse\nSelect source warehouse...\nMain Warehouse\nNorth Warehouse\nSource Bin\nSelect source bin...\nProduct\nSelect product...\nQuantity\nDestination Warehouse\nSelect destination warehouse...\nMain Warehouse\nNorth Warehouse\nDestination Bin\nSelect destination bin...\nCancel\nSave Transfer",
+    "paymentsTab": "NT\nNovaTech ERP\nA\n\nAlice Admin\n\nadmin\n\nDashboard\nCRM\nSales\nPurchase\nInventory\nAccounting\nMaster Data\nAccounting\n\nReview invoices, vendor bills, credit notes, debit notes, and payment state.\n\nNew Payment\n\nOutstanding Receivable\n\n₫0\n\nOutstanding Payable\n\n₫3,899,500\n\nCustomer Invoices (2)\nVendor Bills (1)\nCredit Notes (0)\nDebit Notes (0)\nRefund Requests (2)\nPayments (4)\nAccounts (20)\nAll Statuses\nposted\nReference\tPartner\tDate\tStatus\tAmount\tActions\n4517e1cd\tINV-20260514-0001\t2026-05-14\tposted\t₫7,997,000\t\n\n4369aec9\tRR-20260514-0001\t2026-05-14\tposted\t₫7,270,000\t\n\n4bc2a102\tINV-20260514-0002\t2026-05-14\tposted\t₫6,490,000\t\n\n2a80dd0e\tRR-20260514-0002\t2026-05-14\tposted\t₫5,900,000\t"
+  }
+}

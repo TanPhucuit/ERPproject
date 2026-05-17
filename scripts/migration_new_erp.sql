@@ -122,7 +122,7 @@ CREATE TABLE leads (
   phone TEXT,
   company TEXT,
   source TEXT NOT NULL DEFAULT 'referral' CHECK (source IN ('referral','auto_request','website','phone','email','event','other')),
-  status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','quoted','won','lost')),
+  status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','won','lost')),
   probability NUMERIC(5,2) NOT NULL DEFAULT 10 CHECK (probability >= 0 AND probability <= 100),
   assigned_to_id UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -628,7 +628,7 @@ BEGIN
       VALUES (qid, product_row.id, 1, product_row.unit_price, 0, ROUND(product_row.unit_price * 0.1, 2));
     END LOOP;
 
-    UPDATE leads SET status = 'quoted', updated_at = NOW() WHERE id = NEW.id;
+    UPDATE leads SET status = 'new', updated_at = NOW() WHERE id = NEW.id;
   END IF;
   RETURN NEW;
 END;

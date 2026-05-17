@@ -609,7 +609,6 @@ const getResource = async <T>(path: string): Promise<T> => {
   if (pathname === '/lead-stages') {
     return [
       { id: 'new', name: 'new', display_name: 'New', probability_percent: 10 },
-      { id: 'quoted', name: 'quoted', display_name: 'Quoted', probability_percent: 60 },
       { id: 'won', name: 'won', display_name: 'Won', probability_percent: 100 },
       { id: 'lost', name: 'lost', display_name: 'Lost', probability_percent: 0 },
     ] as T
@@ -908,7 +907,7 @@ const normalizeLeadPayload = (body: any) => {
     assigned_to_id: body.assigned_to_id || body.owner_id || null,
   }
   if (body.account_id || body.accountId) payload.account_id = body.account_id || body.accountId
-  if (['new','quoted','won','lost'].includes(status)) payload.status = status
+  if (['new','won','lost'].includes(status)) payload.status = status
   return payload
 }
 

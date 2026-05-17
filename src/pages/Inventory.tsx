@@ -70,7 +70,9 @@ const TransferModal: React.FC<{
     setForm({
       transferType: record?.transferType || 'internal',
       deliveryOrderId: record?.deliveryOrderId || '',
-      sourceBinLocationId: record?.sourceBinLocationId || 'new',
+      sourceWarehouseId: record?.sourceWarehouseId || '',
+      destWarehouseId: record?.destWarehouseId || '',
+      sourceBinLocationId: record?.sourceBinLocationId || '',
       destBinLocationId: record?.destBinLocationId || '',
       productId: record?.productId || '',
       quantity: record?.quantity || 1,
@@ -136,7 +138,7 @@ const TransferModal: React.FC<{
 
   const internalProduct = products.find((product) => product.id === form.productId)
   const newStockProductOptions = stockLevels
-    .filter((row) => Number(row.newQuantity ?? row.new_quantity ?? 0) > 0)
+    .filter((row) => Number(row.newQuantity ?? row.new_quantity ?? 0) > 0 && row.warehouse_id === form.sourceWarehouseId)
     .map((row) => ({
       product: products.find((product) => product.id === row.product_id) || row.product,
       warehouse_id: row.warehouse_id,
@@ -147,11 +149,12 @@ const TransferModal: React.FC<{
   const isNewStockTransfer = form.sourceBinLocationId === 'new'
   const selectedNewStock = newStockProductOptions.find((row) => row.product.id === form.productId)
   const sourceBinOptions = [
-    { id: 'new', label: 'New stock' },
+    { id: '', label: 'Select source bin...' },
+    ...(newStockProductOptions.length > 0 ? [{ id: 'new', label: 'Unbinned received stock' }] : []),
     ...Array.from(
       new Map(
         binStock
-          .filter((row) => Number(row.available ?? 0) > 0)
+          .filter((row) => Number(row.available ?? 0) > 0 && row.bin_location?.warehouse_id === form.sourceWarehouseId)
           .map((row) => [
             row.bin_location_id,
             {
@@ -172,9 +175,7 @@ const TransferModal: React.FC<{
       }))
       .filter((row) => row.product?.id)
   const selectedBinStock = binStock.find((row) => row.bin_location_id === form.sourceBinLocationId && row.product_id === form.productId)
-  const destinationBins = isNewStockTransfer && selectedNewStock?.warehouse_id
-    ? binLocations.filter((bin) => bin.warehouse_id === selectedNewStock.warehouse_id)
-    : binLocations
+  const destinationBins = binLocations.filter((bin) => bin.warehouse_id === form.destWarehouseId && bin.id !== form.sourceBinLocationId)
 
   const handleSave = () => {
     if (form.transferType === 'customer_delivery') {
@@ -198,6 +199,19 @@ const TransferModal: React.FC<{
           quantity: line.quantity,
         })),
       })
+      return
+    }
+
+    if (!form.sourceWarehouseId || !form.sourceBinLocationId || !form.destWarehouseId || !form.destBinLocationId || !form.productId) {
+      setFormError('Please select source warehouse, source bin, destination warehouse, destination bin, and product.')
+      return
+    }
+    if (form.sourceBinLocationId !== 'new' && form.sourceBinLocationId === form.destBinLocationId) {
+      setFormError('Source bin and destination bin must be different.')
+      return
+    }
+    if (Number(form.quantity || 0) <= 0) {
+      setFormError('Quantity must be greater than 0.')
       return
     }
 
@@ -292,6 +306,16 @@ const TransferModal: React.FC<{
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Source Warehouse</label>
+                <select value={form.sourceWarehouseId || ''} onChange={(event) => setForm({ ...form, sourceWarehouseId: event.target.value, sourceBinLocationId: '', productId: '', quantity: 1 })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                  <option value="">Select source warehouse...</option>
+                  {warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>{warehouse.name || warehouse.warehouse_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="mb-1 block text-sm font-semibold text-gray-700">Source Bin</label>
                 <select value={form.sourceBinLocationId || ''} onChange={(event) => setForm({ ...form, sourceBinLocationId: event.target.value, productId: '', quantity: 1 })}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
@@ -324,6 +348,16 @@ const TransferModal: React.FC<{
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
                 {isNewStockTransfer && selectedNewStock && <p className="mt-1 text-xs text-gray-500">New quantity available: {selectedNewStock.new_quantity}</p>}
                 {!isNewStockTransfer && selectedBinStock && <p className="mt-1 text-xs text-gray-500">Available in source bin: {selectedBinStock.available}</p>}
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Destination Warehouse</label>
+                <select value={form.destWarehouseId || ''} onChange={(event) => setForm({ ...form, destWarehouseId: event.target.value, destBinLocationId: '' })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                  <option value="">Select destination warehouse...</option>
+                  {warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>{warehouse.name || warehouse.warehouse_name}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-semibold text-gray-700">Destination Bin</label>
@@ -687,8 +721,8 @@ const InventoryModule: React.FC = () => {
     setTransfers(transferRecords.map((item) => ({
       ...item,
       reference: item.transfer_number || item.reference || item.id?.slice(0, 8),
-      sourceWarehouseId: item.source_warehouse_id,
-      destWarehouseId: item.dest_warehouse_id,
+      sourceWarehouseId: item.sourceWarehouseId || item.source_warehouse_id || '',
+      destWarehouseId: item.destWarehouseId || item.dest_warehouse_id || '',
       sourceWarehouseName: item.sourceWarehouseName || item.source_warehouse?.name || item.source_warehouse_id,
       destWarehouseName: item.destWarehouseName || item.dest_warehouse?.name || item.dest_warehouse_id,
       transferDate: item.transfer_date || item.transferDate || item.created_at?.slice(0, 10),
@@ -743,7 +777,7 @@ const InventoryModule: React.FC = () => {
       transferDate: new Date().toISOString().slice(0, 10),
       sourceWarehouseId: '',
       destWarehouseId: '',
-      sourceBinLocationId: activeTab === 'transfers' ? 'new' : '',
+      sourceBinLocationId: '',
       destBinLocationId: '',
       productId: '',
       quantity: 1,
@@ -791,7 +825,7 @@ const InventoryModule: React.FC = () => {
         }
       }
       if (activeTab === 'transfers' && record.sourceBinLocationId === 'new') {
-        const selectedStock = stock.find((row) => row.product_id === record.productId && Number(row.newQuantity ?? row.new_quantity ?? 0) > 0)
+        const selectedStock = stock.find((row) => row.product_id === record.productId && row.warehouse_id === record.sourceWarehouseId && Number(row.newQuantity ?? row.new_quantity ?? 0) > 0)
         if (!selectedStock || Number(selectedStock.newQuantity ?? selectedStock.new_quantity ?? 0) < Number(record.quantity || 0)) {
           showNotification('error', 'Selected product does not have enough new supplier stock to transfer.')
           return

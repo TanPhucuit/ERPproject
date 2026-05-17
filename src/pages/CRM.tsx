@@ -25,7 +25,6 @@ import { useUIStore } from '../stores/uiStore'
 // ========== CONSTANTS ==========
 const leadStages = [
   { value: 'new', label: 'New', color: 'yellow' },
-  { value: 'quoted', label: 'Quoted', color: 'purple' },
   { value: 'won', label: 'Won', color: 'green' },
   { value: 'lost', label: 'Lost', color: 'red' },
 ]
@@ -930,6 +929,5 @@ const CRMModule: React.FC = () => {
 }
 
 export default CRMModule
-
 
 
