@@ -34,7 +34,7 @@ DECLARE new_account_id uuid;
 BEGIN
   IF NEW.account_id IS NULL THEN
     INSERT INTO public.accounts (account_number, bank, name, balance, account_type)
-    VALUES ('USR-' || public.slug_account_text(NEW.username), 'Employee Bank', NEW.full_name || ' Bank Account', 0, 'user')
+    VALUES ('USR-' || public.slug_account_text(NEW.username), 'Employee Bank', NEW.full_name || ' Bank Account', 100000000, 'user')
     ON CONFLICT (account_number) DO UPDATE SET name = EXCLUDED.name
     RETURNING id INTO new_account_id;
     NEW.account_id := new_account_id;
@@ -54,7 +54,7 @@ DECLARE new_account_id uuid;
 BEGIN
   IF NEW.account_id IS NULL THEN
     INSERT INTO public.accounts (account_number, bank, name, balance, account_type)
-    VALUES ('SUP-' || public.slug_account_text(NEW.supplier_name), NEW.supplier_name || ' Bank', NEW.supplier_name || ' Bank Account', 0, 'supplier')
+    VALUES ('SUP-' || public.slug_account_text(NEW.supplier_name), NEW.supplier_name || ' Bank', NEW.supplier_name || ' Bank Account', 100000000, 'supplier')
     ON CONFLICT (account_number) DO UPDATE SET name = EXCLUDED.name
     RETURNING id INTO new_account_id;
     NEW.account_id := new_account_id;

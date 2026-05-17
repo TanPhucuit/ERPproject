@@ -436,8 +436,7 @@ const SalesModal: React.FC<{
             <h3 className="mb-3 text-sm font-bold text-gray-800 uppercase tracking-wide">Summary (auto calculated)</h3>
             <div className="space-y-2 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-gray-600">
-                  Subtotal = sum(qty * price * (1 - discount%)):</span>
+                <span className="text-gray-600">Subtotal</span>
                 <span className="font-semibold text-gray-900">{formatCurrency(form.subtotal)}</span>
               </div>
               <div className="flex items-center justify-between">
@@ -458,11 +457,11 @@ const SalesModal: React.FC<{
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-gray-600">Tax amount = Subtotal * tax%:</span>
+                <span className="text-gray-600">Tax Amount</span>
                 <span className="font-semibold text-gray-900">{formatCurrency(form.tax_amount)}</span>
               </div>
               <div className="flex items-center justify-between border-t border-gray-300 pt-2">
-                <span className="font-bold text-gray-900 text-base">Total = Subtotal + Tax:</span>
+                <span className="font-bold text-gray-900 text-base">Total</span>
                 <span className="font-bold text-blue-700 text-lg">{formatCurrency(form.total_amount)}</span>
               </div>
 
@@ -478,7 +477,7 @@ const SalesModal: React.FC<{
                         ? <TrendingUp size={13} className="text-green-500" />
                         : <TrendingDown size={13} className="text-red-500" />
                       }
-                      Estimated Profit = Total - Cost:
+                      Estimated Profit
                     </span>
                     <span className={`font-bold ${form.estimated_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {formatCurrency(form.estimated_profit)}
@@ -1215,7 +1214,9 @@ const SalesModule: React.FC = () => {
               {filteredRecords.map(record => (
                 <tr key={record.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm font-semibold text-blue-700">
-                    {record.quotation_number || record.sales_order_number || record.warranty_order_number || record.return_number}
+                    {activeTab === 'returns'
+                      ? (record.return_number || record.returnNumber || (record.id ? `SR-${record.id.slice(0, 8).toUpperCase()}` : ''))
+                      : record.quotation_number || record.sales_order_number || record.warranty_order_number}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">
                     {record.customer_name || record.customer?.name}
@@ -1253,7 +1254,11 @@ const SalesModule: React.FC = () => {
             <div key={record.id} className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-bold text-blue-700">{record.quotation_number || record.sales_order_number || record.warranty_order_number || record.return_number}</p>
+                  <p className="font-bold text-blue-700">
+                    {activeTab === 'returns'
+                      ? (record.return_number || record.returnNumber || (record.id ? `SR-${record.id.slice(0, 8).toUpperCase()}` : ''))
+                      : record.quotation_number || record.sales_order_number || record.warranty_order_number}
+                  </p>
                   <p className="text-sm text-gray-600">{record.customer_name || record.customer?.name}</p>
                 </div>
                 <StatusBadge status={record.status} />
@@ -1330,5 +1335,3 @@ const SalesModule: React.FC = () => {
 }
 
 export default SalesModule
-
-

@@ -232,10 +232,11 @@ const mapRfq = (rfq: any) => {
   const lines = (rfq?.items || rfq?.rfq_items || []).map(mapRfqItem)
   const supplierNames = Array.from(new Set(lines.map((line: any) => line.supplier_name).filter(Boolean)))
   const displayStatus = rfq?.status === 'sent' ? 'new' : rfq?.status === 'closed' ? 'accepted' : rfq?.status === 'cancelled' ? 'denied' : rfq?.status
+  const rfqNumber = rfq?.rfq_number || (rfq?.id ? `RFQ-${rfq.id.slice(0, 8).toUpperCase()}` : '')
   return {
     ...rfq,
     status: displayStatus,
-    rfq_number: rfq?.rfq_number || rfq?.id?.slice(0, 8),
+    rfq_number: rfqNumber,
     issued_date: rfq?.issue_date,
     closing_date: rfq?.deadline,
     supplier_name: supplierNames.join(', '),
@@ -258,13 +259,14 @@ const mapPurchaseOrderItem = (item: any) => ({
 const mapPurchaseOrder = (po: any) => {
   const lines = (po?.items || po?.purchase_order_items || []).map(mapPurchaseOrderItem)
   const supplierNames = Array.from(new Set(lines.map((line: any) => line.supplier_name).filter(Boolean)))
+  const rfqNumber = po?.rfq?.rfq_number || (po?.rfq_id ? `RFQ-${po.rfq_id.slice(0, 8).toUpperCase()}` : '')
   return {
     ...po,
     purchase_order_number: po?.order_number,
     supplier_id: po?.vendor_id,
     supplier: po?.supplier ? mapSupplier(po.supplier) : undefined,
     supplier_name: supplierNames.length > 1 ? supplierNames.join(', ') : po?.supplier?.supplier_name || supplierNames[0] || '',
-    rfq_number: po?.rfq?.rfq_number || po?.rfq_id?.slice(0, 8),
+    rfq_number: rfqNumber,
     product_count: lines.length,
     required_delivery_date: po?.expected_arrival_date,
     total_amount: lines.reduce((sum: number, line: any) => sum + toNumber(line.line_total), 0),

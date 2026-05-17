@@ -23,7 +23,6 @@ import {
   AlertCircle,
   Users,
   Warehouse,
-  Loader,
 } from 'lucide-react'
 import { erpApi } from '../services/erpApi'
 
@@ -273,14 +272,6 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Loading State */}
-      {loading && (
-        <div className="flex items-center justify-center p-12 bg-blue-50 border border-blue-200 rounded-lg">
-          <Loader className="animate-spin text-blue-600 mr-2" size={20} />
-          <p className="text-blue-700 font-medium">Loading dashboard data...</p>
-        </div>
-      )}
-
       {/* Error State */}
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex gap-3">
@@ -298,9 +289,10 @@ const Dashboard: React.FC = () => {
         </div>
         <button
           onClick={() => window.location.reload()}
+          disabled={loading}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
         >
-          Refresh Data
+          {loading ? 'Loading...' : 'Refresh Data'}
         </button>
       </div>
 

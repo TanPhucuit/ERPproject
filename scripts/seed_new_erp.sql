@@ -25,10 +25,10 @@ ON CONFLICT (id) DO UPDATE SET
 -- Bank/cash accounts
 INSERT INTO accounts (id, account_number, bank, name, balance) VALUES
   ('00000000-0000-0000-0000-000000000201','CASH-001',NULL,'Cash Drawer',50000000),
-  ('00000000-0000-0000-0000-000000000202','VCB-102938','Vietcombank','Main Operating Bank',250000000),
-  ('00000000-0000-0000-0000-000000000203','ACB-556677','ACB','Secondary Bank',120000000),
-  ('00000000-0000-0000-0000-000000000204','SUP-APEX','Apex Bank','Apex Supplier Account',0),
-  ('00000000-0000-0000-0000-000000000205','SUP-SVF','SecureVision Bank','SecureVision Supplier Account',0)
+  ('00000000-0000-0000-0000-000000000202','VCB-102938','Vietcombank','Main Operating Bank',100000000),
+  ('00000000-0000-0000-0000-000000000203','ACB-556677','ACB','Secondary Bank',100000000),
+  ('00000000-0000-0000-0000-000000000204','SUP-APEX','Apex Bank','Apex Supplier Account',100000000),
+  ('00000000-0000-0000-0000-000000000205','SUP-SVF','SecureVision Bank','SecureVision Supplier Account',100000000)
 ON CONFLICT (id) DO UPDATE SET
   account_number = EXCLUDED.account_number,
   bank = EXCLUDED.bank,

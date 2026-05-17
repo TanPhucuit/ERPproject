@@ -741,8 +741,9 @@ const CRMModule: React.FC = () => {
       </button>
       {stageName(lead) !== 'won' && stageName(lead) !== 'lost' && (
         <button onClick={() => openQuotationModal(lead)}
-          className="rounded p-1.5 text-purple-600 hover:bg-purple-50" title="Create Quotation">
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-50" title="Tạo báo giá">
           <FileText size={14} />
+          <span>Tạo báo giá</span>
         </button>
       )}
       <RecordActions
@@ -929,5 +930,3 @@ const CRMModule: React.FC = () => {
 }
 
 export default CRMModule
-
-

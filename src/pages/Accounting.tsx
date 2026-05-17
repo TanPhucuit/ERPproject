@@ -586,7 +586,7 @@ const AccountingModule: React.FC = () => {
       accountNumber: '',
       bank: '',
       name: '',
-      balance: 0,
+      balance: 100000000,
       reason: '',
       notes: '',
     })
