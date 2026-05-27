@@ -901,7 +901,13 @@ const getResource = async <T>(path: string): Promise<T> => {
   }
 
   if (pathname === '/accounting/accounts') {
-    const { data, error } = await supabase.from('accounts').select('*').order('account_number')
+    const { data, error } = await supabase
+      .from('accounts')
+      .select('*')
+      .order('is_novatech_default', { ascending: false })
+      .order('account_type', { ascending: true })
+      .order('account_number', { ascending: true })
+      .limit(5000)
     if (error) throw error
     return data as T
   }

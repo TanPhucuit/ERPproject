@@ -495,7 +495,12 @@ const AccountingModule: React.FC = () => {
   const invoiceOptions = useMemo(() => invoices.map((invoice) => ({ value: invoice.id, label: `${invoice.invoiceNumber} - ${invoice.customerName || 'Customer'}` })), [invoices])
   const billOptions = useMemo(() => vendorBills.map((bill) => ({ value: bill.id, label: `${bill.billNumber} - ${bill.purchaseOrderNumber || 'Purchase Order'}` })), [vendorBills])
   const refundOptions = useMemo(() => refundRequests.map((refund) => ({ value: refund.id, label: `${refund.refundNumber} - ${refund.customerName || 'Customer'}` })), [refundRequests])
-  const companyAccount = useMemo(() => accounts.find((account) => account.is_novatech_default), [accounts])
+  const companyAccount = useMemo(
+    () => accounts.find((account) => account.is_novatech_default)
+      || accounts.find((account) => account.account_type === 'company' || account.accountType === 'company')
+      || accounts.find((account) => String(account.accountNumber || account.account_number || '').startsWith('NT-BANK')),
+    [accounts]
+  )
   const paymentDocument = useMemo(() => {
     if (!modalRecord?.documentId) return null
     return invoices.find((invoice) => invoice.id === modalRecord.documentId)
