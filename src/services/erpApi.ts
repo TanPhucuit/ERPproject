@@ -101,6 +101,49 @@ const mapCustomer = (customer: any) => ({
   billing_address: customer?.address,
 })
 
+const customerAccountNumber = (customerId: string) => `CUS-${customerId.slice(0, 8).toUpperCase()}`
+
+const ensureCustomerBankAccount = async (customerId: string) => {
+  if (!isUuid(customerId)) return null
+
+  const customer: any = await getSingle('customers', customerId, 'id, full_name, company_name, account_id, account:accounts(*)')
+  if (customer?.account?.id && customer.account.account_type === 'customer') return customer.account.id
+
+  const accountNumber = customerAccountNumber(customer.id)
+  const accountName = `${customer.full_name || customer.company_name || 'Customer'} Bank Account`
+  const { data: existingAccount, error: existingError } = await supabase
+    .from('accounts')
+    .select('id')
+    .eq('account_number', accountNumber)
+    .maybeSingle()
+  if (existingError) throw existingError
+
+  let accountId = existingAccount?.id
+  if (!accountId) {
+    const { data: account, error: accountError } = await supabase
+      .from('accounts')
+      .insert({
+        account_number: accountNumber,
+        bank: 'Customer Bank',
+        name: accountName,
+        balance: 100000000,
+        account_type: 'customer',
+      })
+      .select('id')
+      .single()
+    if (accountError) throw accountError
+    accountId = account.id
+  }
+
+  const { error: updateError } = await supabase
+    .from('customers')
+    .update({ account_id: accountId })
+    .eq('id', customer.id)
+  if (updateError) throw updateError
+
+  return accountId
+}
+
 const mapSupplier = (supplier: any) => ({
   ...supplier,
   name: supplier?.supplier_name,
@@ -992,19 +1035,13 @@ const applyAcceptedQuotationWorkflow = async (quotationId: string) => {
           phone: lead.phone,
           company_name: lead.company,
           customer_type: lead.company ? 'company' : 'individual',
-          account_id: lead.account_id || null,
         })
         .select('id')
         .single()
       if (customerCreateError) throw customerCreateError
       customerId = customer.id
-    } else if (existingCustomer && !existingCustomer.account_id && lead.account_id) {
-      const { error: customerAccountUpdateError } = await supabase
-        .from('customers')
-        .update({ account_id: lead.account_id })
-        .eq('id', existingCustomer.id)
-      if (customerAccountUpdateError) throw customerAccountUpdateError
     }
+    if (customerId) await ensureCustomerBankAccount(customerId)
 
     const { error: quotationUpdateError } = await supabase
       .from('quotations')
@@ -1162,6 +1199,7 @@ const writeSalesOrder = async <T>(body: any, id?: string): Promise<T> => {
   if (!id) {
     customerId = customerId || await findDefaultCustomer()
     if (!customerId) throw new Error('Customer is required.')
+    await ensureCustomerBankAccount(customerId)
   }
 
   const payload: any = id
@@ -1775,12 +1813,14 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor' | 'refund'
   if (invoiceId) {
     const { data: invoice, error: invoiceError } = await supabase
       .from('invoices')
-      .select('sales_order:sales_orders(customer:customers(account_id))')
+      .select('sales_order:sales_orders(customer:customers(id, account_id, account:accounts(*)))')
       .eq('id', invoiceId)
       .single()
     if (invoiceError) throw invoiceError
-    customerAccountId = (invoice as any)?.sales_order?.customer?.account_id
-    if (paymentMethod !== 'cash' && !customerAccountId) throw new Error('Customer bank account is required before receiving this invoice payment.')
+    const invoiceCustomer = (invoice as any)?.sales_order?.customer
+    customerAccountId = invoiceCustomer?.account?.account_type === 'customer'
+      ? invoiceCustomer.account_id
+      : await ensureCustomerBankAccount(invoiceCustomer?.id)
   }
   if (vendorBillId) {
     const { data: bill, error: billError } = await supabase
@@ -1789,18 +1829,20 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor' | 'refund'
       .eq('id', vendorBillId)
       .single()
     if (billError) throw billError
-    supplierAccountId = (bill as any)?.purchase_order?.vendor?.account_id
-    if (!supplierAccountId) throw new Error('Supplier bank account is required before paying this vendor bill.')
+    supplierAccountId = (bill as any)?.purchase_order?.vendor?.account_id || null
+    // Supplier bank account is informational — payment can proceed without it
   }
   if (refundRequestId) {
     const { data: refund, error: refundError } = await supabase
       .from('refund_requests')
-      .select('customer:customers(account_id)')
+      .select('customer:customers(id, account_id, account:accounts(*))')
       .eq('id', refundRequestId)
       .single()
     if (refundError) throw refundError
-    refundCustomerAccountId = (refund as any)?.customer?.account_id
-    if (!refundCustomerAccountId) throw new Error('Customer bank account is required before paying this refund request.')
+    const refundCustomer = (refund as any)?.customer
+    refundCustomerAccountId = refundCustomer?.account?.account_type === 'customer'
+      ? refundCustomer.account_id
+      : await ensureCustomerBankAccount(refundCustomer?.id)
     if (paymentMethod === 'cash') throw new Error('Refund requests can only be paid by bank transfer.')
   }
 
@@ -1811,12 +1853,12 @@ const writePayment = async <T>(body: any, type: 'customer' | 'vendor' | 'refund'
     payment_date: body.payment_date || today(),
     payment_method: paymentMethod,
     amount: toNumber(body.amount),
-    payment_account: paymentMethod === 'cash'
+    payment_account: (paymentMethod === 'cash' || paymentMethod === 'card')
       ? null
       : invoiceId
         ? (sourceAccountInput || customerAccountId)
         : companyAccount.id,
-    target_account: paymentMethod === 'cash'
+    target_account: (paymentMethod === 'cash')
       ? null
       : invoiceId
         ? (targetAccountInput || companyAccount.id)
@@ -1947,7 +1989,11 @@ const writeResource = async <T>(path: string, body: any, method: 'POST' | 'PUT')
   if (pathname === '/product-categories' || pathname.startsWith('/product-categories/')) {
     return writeSimple<T>('product_categories', body, id, (value) => ({ category_name: value.category_name || value.name, parent_id: value.parent_id || null }))
   }
-  if (pathname === '/customers' || pathname.startsWith('/customers/')) return writeSimple<T>('customers', body, id, normalizeCustomerPayload)
+  if (pathname === '/customers' || pathname.startsWith('/customers/')) {
+    const customer = await writeSimple<any>('customers', body, id, normalizeCustomerPayload)
+    await ensureCustomerBankAccount(customer.id)
+    return mapCustomer(await getSingle('customers', customer.id, '*, account:accounts(*)')) as T
+  }
   if (pathname === '/suppliers' || pathname.startsWith('/suppliers/')) return writeSimple<T>('suppliers', body, id, normalizeSupplierPayload)
   if (pathname === '/supplier-products' || pathname.startsWith('/supplier-products/')) {
     return writeSimple<T>('supplier_products', body, id, (value) => ({

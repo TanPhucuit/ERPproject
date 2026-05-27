@@ -261,13 +261,17 @@ const PaymentModal: React.FC<{
       : refundRequests
   const selectedDocument = documents.find((item) => item.id === form.documentId)
   const isCash = form.paymentMethod === 'cash'
+  const isCard = form.paymentMethod === 'card'
   const isRefund = documentType === 'refund_request'
-  const sourceAccount = isCash
+  // For card payments, no bank account is needed — the terminal handles it.
+  // We treat card like cash for UI validation but still pass the company account as target.
+  const skipAccountValidation = isCash || isCard
+  const sourceAccount = skipAccountValidation
     ? null
     : documentType === 'invoice'
       ? selectedDocument?.customerAccount
       : companyAccount
-  const targetAccount = isCash
+  const targetAccount = skipAccountValidation
     ? null
     : documentType === 'invoice'
       ? companyAccount
@@ -303,16 +307,17 @@ const PaymentModal: React.FC<{
     setForm((current: any) => ({
       ...current,
       paymentMethod,
-      sourceAccountId: paymentMethod === 'cash' ? '' : current.sourceAccountId,
-      targetAccountId: paymentMethod === 'cash' ? '' : current.targetAccountId,
+      sourceAccountId: ['cash', 'card'].includes(paymentMethod) ? '' : current.sourceAccountId,
+      targetAccountId: ['cash', 'card'].includes(paymentMethod) ? '' : current.targetAccountId,
     }))
   }
 
   const handleSave = () => {
     onSave({
       ...form,
-      sourceAccountId: isCash ? null : sourceAccount?.id,
-      targetAccountId: isCash ? null : targetAccount?.id,
+      // For card payments: no source account, target is the company account
+      sourceAccountId: skipAccountValidation ? null : sourceAccount?.id,
+      targetAccountId: isCard ? companyAccount?.id || null : isCash ? null : targetAccount?.id,
     })
   }
 
@@ -370,12 +375,20 @@ const PaymentModal: React.FC<{
             </div>
             <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">Source Account</label>
-              <input readOnly value={isCash ? 'Cash payment - bank account not used' : accountLabel(sourceAccount) || 'Missing required source account'}
+              <input readOnly value={
+                skipAccountValidation
+                  ? (isCard ? 'Card terminal (no bank account needed)' : 'Cash payment - bank account not used')
+                  : accountLabel(sourceAccount) || (documentType === 'invoice' ? 'Customer bank not linked (optional)' : 'Missing required source account')
+              }
                 className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600" />
             </div>
             <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">Target Account</label>
-              <input readOnly value={isCash ? 'Cash payment - bank account not used' : accountLabel(targetAccount) || 'Missing required target account'}
+              <input readOnly value={
+                skipAccountValidation
+                  ? (isCard ? accountLabel(companyAccount) || 'Company account (card receipts)' : 'Cash payment - bank account not used')
+                  : accountLabel(targetAccount) || (documentType === 'vendor_bill' || documentType === 'refund_request' ? 'Supplier/customer bank not linked (optional)' : 'Missing required target account')
+              }
                 className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600" />
             </div>
             <div className="md:col-span-2">
@@ -387,7 +400,14 @@ const PaymentModal: React.FC<{
         </div>
         <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
           <button onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white">Cancel</button>
-          <button onClick={handleSave} disabled={!form.documentId || !Number(form.amount) || (!isCash && (!sourceAccount?.id || !targetAccount?.id))}
+          <button onClick={handleSave} disabled={
+            !form.documentId ||
+            !Number(form.amount) ||
+            // For bank transfer on invoices: source account is optional, only block if target is missing
+            // For bank transfer on bills/refunds: target account (supplier/customer) is required
+            (!skipAccountValidation && documentType === 'invoice' && !targetAccount?.id) ||
+            (!skipAccountValidation && documentType !== 'invoice' && (!sourceAccount?.id || !targetAccount?.id))
+          }
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300">
             Post Payment
           </button>

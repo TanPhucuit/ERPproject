@@ -1,37 +1,22 @@
 # Quy Trình Nghiệp Vụ Chuẩn - NovaTech ERP
 
-Tài liệu này tổng hợp lại quy trình nghiệp vụ đúng theo yêu cầu hiện tại của đồ án, không dùng lại các trạng thái cũ trong những file hướng dẫn trước đây nếu chúng đã bị thay đổi.
-
 ## 1. Nguyên Tắc Chung
-
-Hệ thống ERP không phải là nơi nhập tay mọi số liệu. Người dùng chỉ nhập dữ liệu tại điểm nghiệp vụ phát sinh, còn các số liệu tổng hợp phải do hệ thống tự tính.
-
-Các trường không nhập tay:
-
-- `quantity_available`
-- `quantity_reserved`
-- `quantity_in_transit`
-- `quantity_on_hand` khi phát sinh từ nhập, xuất, chuyển kho
-- `stock_level` khi đã có `stock_in_bin`
-- `credit_used`
-- `subtotal`, `tax_amount`, `total_amount`
-- các chỉ số occupancy của warehouse/bin
 
 Các chứng từ phải đi theo dòng dữ liệu:
 
-```text
+
 Lead -> Quotation -> Customer -> Sales Order -> Invoice -> Delivery -> Stock
 
 RFQ -> Purchase Order -> Goods Receipt -> Stock In Bin -> Stock Level
 
 Stock Transfer -> Stock In Bin -> Stock Level
-```
+
 
 ## 2. CRM Lead
 
 Lead chỉ có 3 stage:
 
-```text
+
 new -> won
 new -> lost
 ```
@@ -51,7 +36,7 @@ Quy tắc:
 - Khi lead đã `won`, hệ thống phải tạo hoặc link customer tương ứng.
 - Lead đã `won` không được tạo quotation mới nữa, vì lúc này đối tượng đã là customer.
 
-## 3. Quotation
+3. Quotation
 
 Quotation là báo giá dành cho lead còn ở stage `new`.
 
@@ -65,7 +50,7 @@ Quotation là báo giá dành cho lead còn ở stage `new`.
 
 Luồng xử lý:
 
-```text
+
 Create Quotation
   -> Customer accepts
      -> Quotation accepted
@@ -79,20 +64,12 @@ Create Quotation
      -> Lead becomes lost
 ```
 
-Quy tắc quan trọng:
-
-- Không dùng workflow quotation cũ kiểu `draft -> sent -> accepted`.
-- Trạng thái quyết định nghiệp vụ của quotation là accept hoặc reject.
-- Accept quotation đầu tiên là điểm chuyển lead thành customer.
-- Reject quotation đầu tiên là điểm đóng lead ở trạng thái lost.
-- Không cho accept quotation nếu quotation không có sản phẩm.
 
 ## 4. Customer
 
-Customer có thể được tạo thủ công hoặc tự sinh từ lead khi quotation được accept.
+ tự sinh từ lead khi quotation được accept.
 
 Khi tạo customer từ lead, hệ thống lấy:
-
 - company name
 - contact person
 - phone
@@ -103,11 +80,10 @@ Khi tạo customer từ lead, hệ thống lấy:
 
 Quy tắc:
 
-- Không tạo customer trùng nếu lead đã có customer.
 - Khi lead đã thành customer, giao dịch tiếp theo đi theo customer/sales order, không quay lại tạo quotation cho lead.
-- `credit_used` phải tính từ invoice/payment, không nhập tay.
 
-## 5. Sales Order
+
+5. Sales Order
 
 Sales Order là chứng từ xác nhận bán hàng sau khi quotation được accept hoặc tạo trực tiếp cho customer trong trường hợp ngoại lệ.
 
@@ -116,7 +92,6 @@ Sales Order là chứng từ xác nhận bán hàng sau khi quotation được a
 - Phải có customer.
 - Phải có sản phẩm.
 - Phải kiểm tra tồn kho khả dụng.
-- Với customer B2B, phải kiểm tra hạn mức công nợ.
 
 Khi Sales Order được xác nhận:
 
@@ -126,12 +101,11 @@ Khi Sales Order được xác nhận:
 
 Công thức:
 
-```text
 quantity_reserved = tổng số lượng sản phẩm trong sales order chưa giao xong
 quantity_available = quantity_on_hand - quantity_reserved
-```
 
-## 6. Invoice Và Công Nợ
+
+ 6. Invoice 
 
 Invoice được tạo từ Sales Order hoặc nhập thủ công trong trường hợp ngoại lệ.
 
@@ -140,14 +114,13 @@ Quy tắc:
 - Invoice lấy customer, amount, tax, payment terms từ Sales Order.
 - Payment phải cập nhật `paid_amount`.
 - Công nợ customer tính từ invoice chưa thanh toán.
-- Không nhập tay `credit_used`.
 
 Với payment terms:
 
 - Trả trước/COD: cần thanh toán trước khi giao hàng.
 - Công nợ B2B: cho phép giao theo hạn mức, nhưng phải kiểm tra `credit_limit`.
 
-## 7. Delivery Và Xuất Kho
+ 7. Delivery Và Xuất Kho
 
 Delivery dùng để giao hàng cho customer.
 
@@ -158,14 +131,10 @@ Khi giao hàng thành công:
 - Cập nhật lại `stock_level`.
 - Cập nhật lại occupancy của bin và warehouse.
 
-Quy tắc:
 
-- Không chỉnh tay tồn kho để thay thế delivery.
-- Tồn kho chỉ thay đổi qua goods receipt, delivery, transfer hoặc adjustment.
+ 8. Purchase RFQ
 
-## 8. Purchase RFQ
-
-RFQ dùng để hỏi giá nhà cung cấp khi cần mua hàng.
+RFQ dùng để tạo báo giá từ nhà cung cấp khi cần mua hàng.
 
 Điều kiện tạo RFQ:
 
@@ -173,7 +142,7 @@ RFQ dùng để hỏi giá nhà cung cấp khi cần mua hàng.
 - Mỗi dòng có product, quantity required, required delivery date nếu có.
 - Có danh sách supplier nhận yêu cầu báo giá.
 
-RFQ không chỉ là header. RFQ đúng phải gồm:
+ RFQ gồm:
 
 - thông tin RFQ
 - danh sách sản phẩm cần mua
@@ -183,9 +152,9 @@ RFQ không chỉ là header. RFQ đúng phải gồm:
 
 Sau khi chọn supplier phù hợp, hệ thống tạo Purchase Order.
 
-## 9. Purchase Order
+ 9. Purchase Order
 
-Purchase Order là đơn mua gửi cho supplier.
+Purchase Order là đơn mua gửi cho supplier. Tự động sinh khi doanh nghiệp accept báo giá RFQ 
 
 Điều kiện:
 
@@ -194,11 +163,10 @@ Purchase Order là đơn mua gửi cho supplier.
 - Có số lượng và giá mua.
 - Có ngày đặt hàng và ngày cần nhận nếu có.
 
-Khi hàng về, Purchase Order là nguồn để tạo Goods Receipt.
 
 ## 10. Goods Receipt Và Nhập Kho
 
-Goods Receipt ghi nhận hàng nhập từ supplier vào kho.
+Goods Receipt ghi nhận hàng nhập từ supplier vào kho. Tự sinh khi có purchase order tự chuyển trạng thái thành delivering khi thanh toán vendor bill
 
 Khi nhập kho, bắt buộc xác định:
 
@@ -215,10 +183,7 @@ Khi Goods Receipt hoàn tất:
 - Cập nhật `quantity_on_hand`.
 - Cập nhật occupancy của bin và warehouse.
 
-Quy tắc:
 
-- Không nhập hàng chỉ bằng cách sửa `stock_level`.
-- `stock_in_bin` là dữ liệu gốc để biết sản phẩm đang nằm ở bin nào.
 
 ## 11. Stock In Bin
 
@@ -235,7 +200,7 @@ Khi một `stock_in_bin` được sinh ra, hệ thống phải tự sinh hoặc 
 
 Công thức:
 
-```text
+
 stock_level.quantity_on_hand =
   SUM(stock_in_bin.quantity theo product + warehouse + bin)
 
@@ -247,9 +212,8 @@ stock_level.quantity_in_transit =
 
 stock_level.quantity_available =
   quantity_on_hand - quantity_reserved
-```
 
-## 12. Stock Transfer
+ 12. Stock Transfer
 
 Stock Transfer dùng để chuyển hàng giữa warehouse/bin.
 
@@ -277,7 +241,7 @@ Quy tắc:
 - Không tính transfer nội bộ vào `quantity_in_transit`, vì không còn trạng thái đang vận chuyển.
 - `quantity_in_transit` chỉ dùng cho hàng thật sự đang vận chuyển theo chứng từ giao/nhận chưa hoàn tất, không dùng cho stock transfer nội bộ đã post ngay.
 
-## 13. Inventory Adjustment
+13. Inventory Adjustment
 
 Inventory Adjustment dùng khi kiểm kê phát hiện chênh lệch.
 
@@ -299,14 +263,19 @@ Quy tắc:
 
 - Adjustment chỉ dùng cho chênh lệch thực tế, không dùng thay cho nhập/xuất/chuyển kho.
 
-## 14. IoT Và Bảo Hành
+14. Bảo Hành
 
 Với sản phẩm SmartHome/IoT cần quản lý serial hoặc MAC:
 
 - Khi nhập kho, quét serial/MAC.
 - Khi bán/giao hàng, serial/MAC được gắn với customer.
 - Bảo hành bắt đầu từ ngày bán hoặc ngày giao tùy quy định.
-- Hệ thống theo dõi ngày hết hạn bảo hành để chăm sóc khách hàng.
+- mỗi sản phẩm có thời hạn bảo hành và phí bảo hành riêng
+Tạo đơn bảo hành  : 
+			nếu còn trong hạn bảo hành -> không tính phí cho sản phẩm đó
+			nếu hết hạn bảo hành -> tính phí bảo hành cho sản phẩm đó
+đơn bảo hành : gồm đơn hàng, chọn các sản phẩm cần bảo hành trong đơn đó với số lượng
+-> tự sinh ra delivery order, invoice như quy trình nghiệp vụ sale_order
 
 ## 15. Vai Trò Phòng Ban
 
@@ -361,7 +330,7 @@ Admin/Master Data:
 
 Luồng bán hàng:
 
-```text
+
 Create Lead (new)
 -> Create Quotation with products
 -> Accept Quotation
@@ -371,43 +340,35 @@ Create Lead (new)
 -> Invoice
 -> Delivery
 -> Stock is deducted
-```
 
-Luồng từ chối:
 
-```text
-Create Lead (new)
--> Create Quotation with products
--> Reject Quotation
--> Lead becomes lost
-```
 
 Luồng mua hàng:
 
-```text
+
 RFQ with product lines and suppliers
 -> Select supplier
 -> Purchase Order
 -> Goods Receipt
 -> Stock In Bin
 -> Stock Level auto-updated
-```
+
 
 Luồng chuyển kho:
 
-```text
+
 Create Stock Transfer
 -> source bin decreases immediately
 -> destination bin increases immediately
 -> stock levels are updated immediately
-```
+
 
 Luồng kiểm kê:
 
-```text
+
 Count actual stock
 -> Create Inventory Adjustment
 -> Post adjustment
 -> Stock In Bin updated
 -> Stock Level updated
-```
+
