@@ -23,7 +23,7 @@ const normalizeUser = (user: any): User => ({
   email: user.email,
   full_name: user.full_name,
   avatar_url: user.avatar_url || undefined,
-  role: (user.role || 'Sales_Manager') as User['role'],
+  role: (user.role || 'sales') as User['role'],
   status: (user.status || 'active') as User['status'],
 })
 

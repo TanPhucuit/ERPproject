@@ -4,7 +4,7 @@ export interface User {
   email: string
   full_name: string
   avatar_url?: string
-  role: 'CEO' | 'Sales_Manager' | 'Purchasing_Manager' | 'Warehouse_Manager' | 'Accountant'
+  role: 'admin' | 'sales' | 'purchasing' | 'warehouse' | 'accountant' | 'manager'
   status: 'active' | 'inactive' | 'suspended'
 }
 

@@ -11,11 +11,12 @@ interface AuthPageProps {
 }
 
 const roleOptions = [
-  { value: 'CEO', label: 'CEO / System Admin' },
-  { value: 'Sales_Manager', label: 'Sales Manager' },
-  { value: 'Purchasing_Manager', label: 'Purchasing Manager' },
-  { value: 'Warehouse_Manager', label: 'Warehouse Manager' },
-  { value: 'Accountant', label: 'Chief Accountant' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'sales', label: 'Sales' },
+  { value: 'purchasing', label: 'Purchasing' },
+  { value: 'warehouse', label: 'Warehouse' },
+  { value: 'accountant', label: 'Accountant' },
+  { value: 'manager', label: 'Manager' },
 ]
 
 const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
@@ -31,7 +32,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'Sales_Manager',
+    role: 'sales',
   })
 
   const title = useMemo(
