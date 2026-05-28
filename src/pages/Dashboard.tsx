@@ -19,7 +19,6 @@ import {
   ShoppingCart,
   Package,
   TrendingUp,
-  Clock,
   AlertCircle,
   Users,
   Warehouse,
@@ -69,6 +68,9 @@ const formatCurrency = (value: number) =>
 const formatCompact = (value: number) =>
   value.toLocaleString('vi-VN', { maximumFractionDigits: 0 })
 
+const formatPercent = (value: number) =>
+  `${value.toLocaleString('vi-VN', { maximumFractionDigits: 1 })}%`
+
 const emptyMetrics = {
   totalRevenue: 0,
   activeOrders: 0,
@@ -80,6 +82,12 @@ const emptyMetrics = {
   revenueByMonth: [],
   quarterlyPerformance: [],
   topProducts: [],
+  topCustomers: [],
+  topBins: [],
+  topSales: [],
+  quotationStatusData: [],
+  acceptedQuotationTrend: [],
+  returnRateTrend: [],
   alerts: {
     overdueInvoices: 0,
     lowStockItems: 0,
@@ -107,6 +115,11 @@ const Dashboard: React.FC = () => {
           purchaseOrders,
           accounts,
           creditNotes,
+          quotations,
+          leads,
+          users,
+          deliveryOrders,
+          salesReturns,
         ] = await Promise.all([
           erpApi.get<any[]>('/accounting/invoices?limit=1000'),
           erpApi.get<any[]>('/sales-orders?limit=1000'),
@@ -117,13 +130,35 @@ const Dashboard: React.FC = () => {
           erpApi.get<any[]>('/purchase/purchase-orders?limit=500'),
           erpApi.get<any[]>('/accounting/accounts'),
           erpApi.get<any[]>('/accounting/credit-notes?limit=1000'),
+          erpApi.get<any[]>('/sales-orders/quotations?limit=1000'),
+          erpApi.get<any[]>('/crm/leads?limit=1000'),
+          erpApi.get<any[]>('/users?limit=1000'),
+          erpApi.get<any[]>('/inventory/delivery-orders?limit=1000'),
+          erpApi.get<any[]>('/sales/returns?limit=1000'),
         ])
 
         const todayText = new Date().toISOString().slice(0, 10)
-        const monthlyRevenue = new Map(lastMonthKeys(6).map((month) => [month, 0]))
+        const months = lastMonthKeys(6)
+        const monthlyRevenue = new Map(months.map((month) => [month, 0]))
+        const acceptedQuotationTrend = new Map(months.map((month) => [month, 0]))
+        const returnRateBuckets = new Map(months.map((month) => [month, { month, salesOrders: 0, returns: 0, returnRate: 0 }]))
         const quarterlyBuckets = new Map<string, { metric: string; sales: number; orders: number; customers: number }>()
         const invoiceStatus = { paid: 0, pending: 0, overdue: 0 }
         const creditMap = buildCreditMap(creditNotes)
+        const customerSales = new Map<string, {
+          name: string
+          revenue: number
+          products: Map<string, { name: string; quantity: number; revenue: number }>
+        }>()
+        const leadsById = new Map(leads.map((lead) => [lead.id, lead]))
+        const usersById = new Map(users.map((user) => [user.id, user]))
+        const quotationStatusCounts = { accepted: 0, sent: 0, rejected: 0 }
+        const salesAcceptance = new Map<string, {
+          name: string
+          acceptedLeadIds: Set<string>
+          quotationCount: number
+          revenue: number
+        }>()
         let totalRevenue = 0
 
         invoices.forEach((invoice) => {
@@ -138,6 +173,27 @@ const Dashboard: React.FC = () => {
           if (isPaid(invoice.status)) invoiceStatus.paid += 1
           else if (isOverdueInvoice(invoice, todayText)) invoiceStatus.overdue += 1
           else invoiceStatus.pending += 1
+
+          const customerKey = invoice.customer_id || invoice.customer?.id || invoice.sales_order?.customer_id || invoice.customer_name || invoice.id
+          const customerName = invoice.customer_name || invoice.customer?.name || invoice.customer?.full_name || invoice.customer?.company_name || 'Unknown Customer'
+          const customerBucket = customerSales.get(customerKey) || { name: customerName, revenue: 0, products: new Map() }
+          customerBucket.revenue += amount
+
+          ;(invoice.lines || invoice.items || invoice.sales_order?.lines || invoice.sales_order?.items || invoice.sales_order?.sales_order_items || []).forEach((line: any) => {
+            const productKey = line.product_id || line.product?.id || line.product_sku || line.product_name
+            if (!productKey) return
+            const productBucket = customerBucket.products.get(productKey) || {
+              name: line.product_name || line.product?.product_name || line.product?.name || line.product_sku || 'Product',
+              quantity: 0,
+              revenue: 0,
+            }
+            const quantity = toNumber(line.quantity ?? line.quantity_ordered)
+            productBucket.quantity += quantity
+            productBucket.revenue += toNumber(line.line_total) || quantity * toNumber(line.unit_price)
+            customerBucket.products.set(productKey, productBucket)
+          })
+
+          customerSales.set(customerKey, customerBucket)
 
           const date = invoice.issue_date ? new Date(invoice.issue_date) : invoice.created_at ? new Date(invoice.created_at) : null
           if (date && !Number.isNaN(date.getTime())) {
@@ -155,6 +211,10 @@ const Dashboard: React.FC = () => {
             const bucket = quarterlyBuckets.get(quarter) || { metric: quarter, sales: 0, orders: 0, customers: 0 }
             bucket.orders += 1
             quarterlyBuckets.set(quarter, bucket)
+
+            const month = date.toISOString().slice(0, 7)
+            const returnBucket = returnRateBuckets.get(month)
+            if (returnBucket && !isCancelled(order.status)) returnBucket.salesOrders += 1
           }
         })
 
@@ -185,6 +245,72 @@ const Dashboard: React.FC = () => {
           })
         })
 
+        const binUsage = new Map<string, {
+          code: string
+          name: string
+          warehouse: string
+          quantity: number
+          orderIds: Set<string>
+        }>()
+        deliveryOrders.filter((order) => !isCancelled(order.status)).forEach((order) => {
+          ;(order.items || order.delivery_order_items || []).forEach((line: any) => {
+            const bin = line.bin_location
+            const key = line.bin_location_id || bin?.id || bin?.location_code
+            if (!key) return
+            const bucket = binUsage.get(key) || {
+              code: bin?.location_code || bin?.bin_code || 'Unknown Bin',
+              name: bin?.location_name || bin?.name || bin?.location_code || 'Unknown Bin',
+              warehouse: bin?.warehouse?.warehouse_name || bin?.warehouseName || 'Warehouse',
+              quantity: 0,
+              orderIds: new Set<string>(),
+            }
+            bucket.quantity += toNumber(line.quantity_requested ?? line.quantity ?? line.quantity_delivered)
+            if (order.id) bucket.orderIds.add(order.id)
+            binUsage.set(key, bucket)
+          })
+        })
+
+        quotations.forEach((quotation) => {
+          const status = String(quotation.status || '').toLowerCase()
+          if (status === 'accepted') quotationStatusCounts.accepted += 1
+          else if (status === 'rejected') quotationStatusCounts.rejected += 1
+          else quotationStatusCounts.sent += 1
+
+          if (status !== 'accepted') return
+          const acceptedDate = quotation.approved_at || quotation.issued_date || quotation.issue_date || quotation.created_at
+          const month = monthKey(acceptedDate)
+          if (month && acceptedQuotationTrend.has(month)) {
+            acceptedQuotationTrend.set(month, (acceptedQuotationTrend.get(month) || 0) + 1)
+          }
+
+          const lead = quotation.lead || leadsById.get(quotation.lead_id)
+          const salesId = lead?.assigned_to_id || lead?.owner_id || quotation.approved_by_id || quotation.created_by_id
+          if (!salesId) return
+          const user = usersById.get(salesId)
+          const bucket = salesAcceptance.get(salesId) || {
+            name: user?.full_name || user?.fullName || user?.username || user?.email || 'Unassigned Sales',
+            acceptedLeadIds: new Set<string>(),
+            quotationCount: 0,
+            revenue: 0,
+          }
+          if (quotation.lead_id || lead?.id) bucket.acceptedLeadIds.add(quotation.lead_id || lead.id)
+          bucket.quotationCount += 1
+          bucket.revenue += toNumber(quotation.total_amount || quotation.totalAmount)
+          salesAcceptance.set(salesId, bucket)
+        })
+
+        salesReturns.filter((item) => !isCancelled(item.status)).forEach((item) => {
+          const date = item.return_date ? new Date(item.return_date) : item.returnDate ? new Date(item.returnDate) : item.created_at ? new Date(item.created_at) : null
+          if (!date || Number.isNaN(date.getTime())) return
+          const month = date.toISOString().slice(0, 7)
+          const bucket = returnRateBuckets.get(month)
+          if (bucket) bucket.returns += 1
+        })
+
+        returnRateBuckets.forEach((bucket) => {
+          bucket.returnRate = bucket.salesOrders > 0 ? (bucket.returns / bucket.salesOrders) * 100 : 0
+        })
+
         const lowStockItems = stockLevels.filter((item) =>
           ['understocked', 'critical', 'low'].includes(String(item.reorder_status || item.reorderStatus || '').toLowerCase())
           || toNumber(item.available ?? item.quantityAvailable) <= 0
@@ -207,6 +333,33 @@ const Dashboard: React.FC = () => {
           topProducts: Array.from(productSales.values())
             .sort((a, b) => b.revenue - a.revenue)
             .slice(0, 5),
+          topCustomers: Array.from(customerSales.values())
+            .map((customer) => {
+              const topProduct = Array.from(customer.products.values()).sort((a, b) => b.revenue - a.revenue)[0]
+              return { name: customer.name, revenue: customer.revenue, topProduct }
+            })
+            .sort((a, b) => b.revenue - a.revenue)
+            .slice(0, 5),
+          topBins: Array.from(binUsage.values())
+            .map((bin) => ({ code: bin.code, name: bin.name, warehouse: bin.warehouse, quantity: bin.quantity, orderCount: bin.orderIds.size }))
+            .sort((a, b) => b.quantity - a.quantity)
+            .slice(0, 5),
+          topSales: Array.from(salesAcceptance.values())
+            .map((sale) => ({
+              name: sale.name,
+              leadCount: sale.acceptedLeadIds.size || sale.quotationCount,
+              quotationCount: sale.quotationCount,
+              revenue: sale.revenue,
+            }))
+            .sort((a, b) => b.leadCount - a.leadCount || b.revenue - a.revenue)
+            .slice(0, 5),
+          quotationStatusData: [
+            { name: 'Accepted', value: quotationStatusCounts.accepted, color: '#10b981' },
+            { name: 'Sent', value: quotationStatusCounts.sent, color: '#3b82f6' },
+            { name: 'Rejected', value: quotationStatusCounts.rejected, color: '#ef4444' },
+          ],
+          acceptedQuotationTrend: Array.from(acceptedQuotationTrend.entries()).map(([month, accepted]) => ({ month, accepted })),
+          returnRateTrend: Array.from(returnRateBuckets.values()),
           alerts: {
             overdueInvoices: invoiceStatus.overdue,
             lowStockItems,
@@ -435,36 +588,40 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Alerts & Recent Activity */}
+      {/* Customer & Product Rankings */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Alerts */}
+        {/* Top Customers */}
         <div className="bg-white rounded-lg shadow p-6 border border-gray-100">
           <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <AlertCircle size={20} className="text-orange-600" />
-            Important Alerts
+            <Users size={20} className="text-blue-600" />
+            Top Customers
           </h2>
-          <div className="space-y-3">
-            <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex gap-3">
-              <AlertCircle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold text-gray-900">{metrics.alerts.overdueInvoices} Overdue Invoices</p>
-                <p className="text-sm text-gray-600">Live count from accounting data</p>
+          <div className="space-y-4">
+            {metrics.topCustomers?.length > 0 ? metrics.topCustomers.map((customer: any, idx: number) => (
+              <div key={`${customer.name}-${idx}`} className="flex items-start justify-between gap-4 pb-3 border-b last:border-b-0">
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-900 truncate">{customer.name}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Top product</span>
+                    <span className="max-w-full truncate text-xs text-gray-600">
+                      {customer.topProduct?.name || 'No product data'}
+                    </span>
+                  </div>
+                  {customer.topProduct?.revenue > 0 && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Product revenue {formatCurrency(customer.topProduct.revenue)}
+                    </p>
+                  )}
+                </div>
+                <p className="shrink-0 text-lg font-bold text-blue-600">
+                  {formatCurrency(customer.revenue)}
+                </p>
               </div>
-            </div>
-            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex gap-3">
-              <AlertCircle size={18} className="text-yellow-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold text-gray-900">{metrics.alerts.lowStockItems} Low Stock Items</p>
-                <p className="text-sm text-gray-600">Based on current reorder status</p>
+            )) : (
+              <div className="rounded-lg border border-dashed border-gray-200 p-6 text-sm text-gray-500">
+                No customer revenue data available yet.
               </div>
-            </div>
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg flex gap-3">
-              <Clock size={18} className="text-blue-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold text-gray-900">Pending Approvals</p>
-                <p className="text-sm text-gray-600">{metrics.alerts.pendingApprovals} purchase orders waiting</p>
-              </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -494,6 +651,136 @@ const Dashboard: React.FC = () => {
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Operations Rankings */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Top Bins */}
+        <div className="bg-white rounded-lg shadow p-6 border border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <Warehouse size={20} className="text-orange-600" />
+            Top Bins by Order Quantity
+          </h2>
+          <div className="space-y-4">
+            {metrics.topBins?.length > 0 ? metrics.topBins.map((bin: any, idx: number) => (
+              <div key={`${bin.code}-${idx}`} className="flex items-start justify-between gap-4 pb-3 border-b last:border-b-0">
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-900 truncate">{bin.code} - {bin.name}</p>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">{bin.warehouse}</span>
+                    <span className="text-xs text-gray-600">{formatCompact(bin.orderCount)} delivery orders</span>
+                  </div>
+                </div>
+                <p className="shrink-0 text-lg font-bold text-blue-600">
+                  {formatCompact(bin.quantity)}
+                </p>
+              </div>
+            )) : (
+              <div className="rounded-lg border border-dashed border-gray-200 p-6 text-sm text-gray-500">
+                No delivery bin data available yet.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Top Sales */}
+        <div className="bg-white rounded-lg shadow p-6 border border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <Users size={20} className="text-purple-600" />
+            Top Sales by Accepted Leads
+          </h2>
+          <div className="space-y-4">
+            {metrics.topSales?.length > 0 ? metrics.topSales.map((sale: any, idx: number) => (
+              <div key={`${sale.name}-${idx}`} className="flex items-start justify-between gap-4 pb-3 border-b last:border-b-0">
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-900 truncate">{sale.name}</p>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">Accepted leads</span>
+                    <span className="text-xs text-gray-600">{formatCompact(sale.quotationCount)} accepted quotations</span>
+                  </div>
+                  {sale.revenue > 0 && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Accepted quotation value {formatCurrency(sale.revenue)}
+                    </p>
+                  )}
+                </div>
+                <p className="shrink-0 text-lg font-bold text-blue-600">
+                  {formatCompact(sale.leadCount)}
+                </p>
+              </div>
+            )) : (
+              <div className="rounded-lg border border-dashed border-gray-200 p-6 text-sm text-gray-500">
+                No accepted quotation owner data available yet.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Quotation and Return Analytics */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="bg-white rounded-lg shadow p-6 border border-gray-100">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Quotation Status</h2>
+            <p className="text-sm text-gray-600 mb-6">Accepted, sent, and rejected quotations</p>
+          </div>
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              <Pie
+                data={metrics.quotationStatusData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, value }) => `${name}: ${value}`}
+                outerRadius={76}
+                fill="#0f3a7d"
+                dataKey="value"
+              >
+                {metrics.quotationStatusData?.map((entry: any, index: number) => (
+                  <Cell key={`quotation-status-${index}`} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6 border border-gray-100">
+          <div className="mb-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-1">Accepted Quotations</h2>
+            <p className="text-sm text-gray-600">Accepted quotation count over the last 6 months</p>
+          </div>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={metrics.acceptedQuotationTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="month" stroke="#9ca3af" />
+              <YAxis allowDecimals={false} stroke="#9ca3af" />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+              />
+              <Bar dataKey="accepted" fill="#10b981" name="Accepted quotations" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6 border border-gray-100">
+          <div className="mb-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-1">Return Rate</h2>
+            <p className="text-sm text-gray-600">Sales returns divided by sales orders</p>
+          </div>
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={metrics.returnRateTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="month" stroke="#9ca3af" />
+              <YAxis stroke="#9ca3af" tickFormatter={(value) => formatPercent(toNumber(value))} />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                formatter={(value) => formatPercent(toNumber(value))}
+              />
+              <Line type="monotone" dataKey="returnRate" stroke="#ef4444" strokeWidth={2} dot name="Return rate" />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
